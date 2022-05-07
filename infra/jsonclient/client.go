@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -289,7 +288,8 @@ func (c *Client) makeRequest(ctx context.Context, method, path string, bs []byte
 		} else {
 			bs = string(b)
 		}
-		log.Printf("http %s request to URL '%s' returned error response (code %d): %s", method, reqURL, res.StatusCode, bs) // ucwrapper-safe - avoid uclog dependency since this is used by SDK
+		// Use a package-internal method to log so we can diverge behavior between private vs public repos easily
+		logError(ctx, method, reqURL, bs, res.StatusCode)
 
 		if options.parseOAuthError {
 			var oauthe ucerr.OAuthError
