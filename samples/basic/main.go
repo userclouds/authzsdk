@@ -2,10 +2,7 @@ package main
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"log"
-	"net/http"
 	"os"
 
 	"github.com/gofrs/uuid"
@@ -17,20 +14,6 @@ import (
 	"userclouds.com/infra/ucerr"
 )
 
-func isBenign(err error) bool {
-	if err == nil {
-		return true
-	}
-	var clientErr jsonclient.Error
-	if errors.As(err, &clientErr) {
-		// Resource already exists
-		if clientErr.StatusCode == http.StatusConflict {
-			return true
-		}
-	}
-	return false
-}
-
 // Object type IDs
 var FileTypeID, TeamTypeID uuid.UUID
 
@@ -41,108 +24,41 @@ var FileTeamEditorTypeID, FileTeamViewerTypeID uuid.UUID
 
 var AliceUserID, BobUserID uuid.UUID
 
-func provisionObjectType(ctx context.Context, authZClient *authz.Client, typeName string) (uuid.UUID, error) {
-	if _, err := authZClient.CreateObjectType(ctx, uuid.Must(uuid.NewV4()), typeName); !isBenign(err) {
-		return uuid.Nil, ucerr.Wrap(err)
-	}
-	id, err := authZClient.FindObjectTypeID(ctx, typeName)
-	if err != nil {
-		return uuid.Nil, ucerr.Wrap(err)
-	}
-	return id, err
-}
-
-func provisionEdgeType(ctx context.Context, authZClient *authz.Client, sourceObjectID, targetObjectID uuid.UUID, typeName string) (uuid.UUID, error) {
-	if _, err := authZClient.CreateEdgeType(ctx, uuid.Must(uuid.NewV4()), sourceObjectID, targetObjectID, typeName); !isBenign(err) {
-		return uuid.Nil, ucerr.Wrap(err)
-	}
-	id, err := authZClient.FindEdgeTypeID(ctx, typeName)
-	if err != nil {
-		return uuid.Nil, ucerr.Wrap(err)
-	}
-	return id, err
-}
-
-func provisionObject(ctx context.Context, authZClient *authz.Client, typeID uuid.UUID, alias string) (uuid.UUID, error) {
-	obj, err := authZClient.CreateObject(ctx, uuid.Must(uuid.NewV4()), typeID, alias)
-	if !isBenign(err) {
-		return uuid.Nil, ucerr.Wrap(err)
-	}
-	return obj.ID, nil
-}
-
-func provisionUser(ctx context.Context, idpClient *idp.Client, username, password string, profile idp.UserProfile) (uuid.UUID, error) {
-	var err error
-	if _, err = idpClient.CreateUserWithPassword(ctx, username, password, profile); !isBenign(err) {
-		return uuid.Nil, ucerr.Wrap(err)
-	}
-	users, err := idpClient.ListUsersForEmail(ctx, profile.Email, idp.AuthnTypePassword)
-	if err != nil {
-		return uuid.Nil, ucerr.Wrap(err)
-	}
-	if len(users) != 1 {
-		return uuid.Nil, ucerr.Errorf("expected 1 user with email '%s', got %d", profile.Email, len(users))
-	}
-	return users[0].ID, nil
-}
-
-func enumerateTeams(ctx context.Context, authZClient *authz.Client, userID uuid.UUID) ([]uuid.UUID, error) {
-	edges, err := authZClient.ListEdges(ctx, userID)
-	if err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
-	teams := []uuid.UUID{}
-	for _, v := range edges {
-		if v.EdgeTypeID == TeamMemberID {
-			teams = append(teams, v.SourceObjectID)
-		}
-	}
-	return teams, nil
-}
-
-func ensureID(id uuid.UUID, err error) uuid.UUID {
-	if err != nil {
-		log.Fatalf("ensureID error: %v", err)
-	}
-	if id == uuid.Nil {
-		log.Fatal("ensureID error: unexpected nil uuid")
-	}
-	return id
-}
-
 func oneTimeProvision(ctx context.Context, idpClient *idp.Client, authZClient *authz.Client) error {
 	// NB: these Create commands are only here because this is a self-contained sample app; normally
-	// you would do one-time provisioning via the Console or via API ahead of time, not in every single app instance!
+	// you would do one-time provisioning via the Console or via the AuthZ API ahead of time, not in every single app.
 	//
-	// You can either generate some UUIDs ahead of time and compile them in as constants for each tenant, or query them at runtime.
-	FileTypeID = ensureID(provisionObjectType(ctx, authZClient, "file"))
-	TeamTypeID = ensureID(provisionObjectType(ctx, authZClient, "team"))
+	// You can either generate some UUIDs ahead of time and compile them in to your app as constants for each tenant,
+	// or query them at runtime by name,
+	FileTypeID = mustID(provisionObjectType(ctx, authZClient, "file"))
+	TeamTypeID = mustID(provisionObjectType(ctx, authZClient, "team"))
 
-	TeamMemberID = ensureID(provisionEdgeType(ctx, authZClient, TeamTypeID, authz.UserObjectTypeID, "team_member"))
-	FileEditorTypeID = ensureID(provisionEdgeType(ctx, authZClient, FileTypeID, authz.UserObjectTypeID, "file_editor"))
-	FileViewerTypeID = ensureID(provisionEdgeType(ctx, authZClient, FileTypeID, authz.UserObjectTypeID, "file_viewer"))
-	FileTeamEditorTypeID = ensureID(provisionEdgeType(ctx, authZClient, FileTypeID, TeamTypeID, "file_team_editor"))
-	FileTeamViewerTypeID = ensureID(provisionEdgeType(ctx, authZClient, FileTypeID, TeamTypeID, "file_team_viewer"))
+	TeamMemberID = mustID(provisionEdgeType(ctx, authZClient, TeamTypeID, authz.UserObjectTypeID, "team_member"))
+	FileEditorTypeID = mustID(provisionEdgeType(ctx, authZClient, FileTypeID, authz.UserObjectTypeID, "file_editor"))
+	FileViewerTypeID = mustID(provisionEdgeType(ctx, authZClient, FileTypeID, authz.UserObjectTypeID, "file_viewer"))
+	FileTeamEditorTypeID = mustID(provisionEdgeType(ctx, authZClient, FileTypeID, TeamTypeID, "file_team_editor"))
+	FileTeamViewerTypeID = mustID(provisionEdgeType(ctx, authZClient, FileTypeID, TeamTypeID, "file_team_viewer"))
 
-	// Create a few test users (normally users would sign up via the UI, so this is contrived too)
-	AliceUserID = ensureID(provisionUser(ctx, idpClient, "alice", "password_alice_123!", idp.UserProfile{
+	// Create a few test users (normally users would sign up via the UI, so this is slightly contrived)
+	AliceUserID = mustID(provisionUser(ctx, idpClient, "alice", "password_alice_123!", idp.UserProfile{
 		Email:    "alice@example.com",
 		Name:     "Alice Aardvark",
 		Nickname: "Allie",
 	}))
 
-	BobUserID = ensureID(provisionUser(ctx, idpClient, "bob", "password_bob_123!", idp.UserProfile{
+	BobUserID = mustID(provisionUser(ctx, idpClient, "bob", "password_bob_123!", idp.UserProfile{
 		Email:    "bob@example.com",
 		Name:     "Bob Birdie",
 		Nickname: "Bobby",
 	}))
 
-	// Clean up all files, folders, etc
 	return nil
 }
 
-func tryCleanPreviousRuns(ctx context.Context, authZClient *authz.Client) error {
+// cleanPreviousRunData is a convenience method to clean up 'file' and 'team' objects from previous runs
+// so that it's easier to inspect the sample's output in the UserClouds Console.
+// NB: deleting objects will also delete all edges to/from those objects.
+func cleanPreviousRunData(ctx context.Context, authZClient *authz.Client) error {
 	objs, err := authZClient.ListObjects(ctx)
 	if err != nil {
 		return ucerr.Wrap(err)
@@ -157,256 +73,7 @@ func tryCleanPreviousRuns(ctx context.Context, authZClient *authz.Client) error 
 	return nil
 }
 
-type FileManager struct {
-	authZClient *authz.Client
-}
-
-func NewFileManager(authZClient *authz.Client) *FileManager {
-	return &FileManager{
-		authZClient: authZClient,
-	}
-}
-
-type File struct {
-	id   uuid.UUID
-	name string
-
-	isDir bool
-
-	parent   *File
-	children []*File
-}
-
-func (f File) FullPath() string {
-	if f.parent == nil {
-		return fmt.Sprintf("%s://", f.id.String())
-	} else {
-		return fmt.Sprintf("%s/%s", f.parent.FullPath(), f.name)
-	}
-}
-
-func (f File) FindFile(name string) *File {
-	if !f.isDir {
-		return nil
-	}
-
-	for _, v := range f.children {
-		if v.name == name {
-			return v
-		}
-	}
-	return nil
-}
-
-func (fm *FileManager) HasWriteAccess(ctx context.Context, f *File, userID uuid.UUID) error {
-	cur := f
-	// NB: with inheritance support, the team enumeration would be implicitly handled by the propagation rules
-	teams, err := enumerateTeams(ctx, fm.authZClient, userID)
-	if err != nil {
-		return ucerr.Wrap(err)
-	}
-
-	for cur != nil {
-		// NB: currently we only support RBAC without Attributes; instead of `FindEdge`, we should use `CheckAttribute` which enumerates all edges
-		// between two objects to see if any edge has the desired attribute. This allows for multiple roles to have overlapping attributes, and for
-		// the creation of new roles with new combinations of attributes without touching all permission checking vode.
-		// NB: with permission inheritance, there would be additional edges between parent<>children files, and the AuthZ API will run the graph
-		// BFS on the backend and propagate permissions/attributes based on the edge definitions. Furthermore, team membership would also inherit permissions.
-		// For now, the inheritance is handled client-side.
-		if _, err := fm.authZClient.FindEdge(ctx, cur.id, userID, FileEditorTypeID); err == nil {
-			return nil
-		}
-		// NB: with inheritance support, these extra calls won't be needed
-		for _, teamID := range teams {
-			if _, err := fm.authZClient.FindEdge(ctx, cur.id, teamID, FileTeamEditorTypeID); err == nil {
-				return nil
-			}
-		}
-		cur = cur.parent
-	}
-	return ucerr.Errorf("user %v does not have write permissions on file %+v", userID, f)
-}
-
-func (fm *FileManager) HasReadAccess(ctx context.Context, f *File, userID uuid.UUID) error {
-	cur := f
-	// NB: with inheritance support, the team enumeration would be implicitly handled by the propagation rules
-	teams, err := enumerateTeams(ctx, fm.authZClient, userID)
-	if err != nil {
-		return ucerr.Wrap(err)
-	}
-	for cur != nil {
-		// NB: with Attribute support this will be simpler; we can just call CheckAttribute instead of testing multiple edge types
-		if _, err := fm.authZClient.FindEdge(ctx, cur.id, userID, FileEditorTypeID); err == nil {
-			return nil
-		}
-		if _, err := fm.authZClient.FindEdge(ctx, cur.id, userID, FileViewerTypeID); err == nil {
-			return nil
-		}
-
-		// NB: with inheritance support, these extra calls won't be needed
-		for _, teamID := range teams {
-			if _, err := fm.authZClient.FindEdge(ctx, cur.id, teamID, FileTeamEditorTypeID); err == nil {
-				return nil
-			}
-			if _, err := fm.authZClient.FindEdge(ctx, cur.id, teamID, FileTeamViewerTypeID); err == nil {
-				return nil
-			}
-		}
-
-		cur = cur.parent
-	}
-	return ucerr.Errorf("user %v does not have read permissions on file %+v", userID, f)
-}
-
-func (fm *FileManager) NewRoot(ctx context.Context, creatorUserID uuid.UUID) (*File, error) {
-	f := &File{
-		id:       uuid.Must(uuid.NewV4()),
-		name:     "",
-		isDir:    true,
-		parent:   nil,
-		children: []*File{},
-	}
-
-	// If the first operation fails, nothing is created and the operation fails.
-	// If the first succeeds but the second fails, we'll have an orphan authz object to clean-up that is harmless and could be reaped later.
-	// NB: We will eventually support Transactions for this, which avoids orphans.
-	if _, err := fm.authZClient.CreateObject(ctx, f.id, FileTypeID, f.FullPath()); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
-	// Give the creator of the file Editor permission by default (you could get fancy and have "owner"/"creator"/"admin" access on top too)
-	if _, err := fm.authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), f.id, creatorUserID, FileEditorTypeID); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
-	return f, nil
-}
-
-func (fm *FileManager) newFileHelper(ctx context.Context, name string, isDir bool, parent *File, creatorUserID uuid.UUID) (*File, error) {
-	if !parent.isDir {
-		return nil, ucerr.Errorf("cannot create files or directories under a file: %+v", parent)
-	}
-
-	if parent.FindFile(name) != nil {
-		return nil, ucerr.Errorf("file with name '%s' already exists in %+v", name, parent)
-	}
-
-	if err := fm.HasWriteAccess(ctx, parent, creatorUserID); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
-	f := &File{
-		id:       uuid.Must(uuid.NewV4()),
-		name:     name,
-		isDir:    isDir,
-		parent:   parent,
-		children: []*File{},
-	}
-
-	if _, err := fm.authZClient.CreateObject(ctx, f.id, FileTypeID, f.FullPath()); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
-	parent.children = append(parent.children, f)
-
-	// NB: since the creator has write access to the parent, we don't need to explicitly grant it on the child
-
-	return f, nil
-}
-
-func (fm *FileManager) NewFile(ctx context.Context, name string, parent *File, creatorUserID uuid.UUID) (*File, error) {
-	f, err := fm.newFileHelper(ctx, name, false, parent, creatorUserID)
-	return f, ucerr.Wrap(err)
-}
-
-func (fm *FileManager) NewDir(ctx context.Context, name string, parent *File, creatorUserID uuid.UUID) (*File, error) {
-	f, err := fm.newFileHelper(ctx, name, true, parent, creatorUserID)
-	return f, ucerr.Wrap(err)
-}
-
-func (fm *FileManager) ReadFile(ctx context.Context, f *File, readerUserID uuid.UUID) (string, error) {
-	if err := fm.HasReadAccess(ctx, f, readerUserID); err != nil {
-		return "", ucerr.Wrap(err)
-	}
-
-	return fmt.Sprintf("contents of file %s", f.FullPath()), nil
-}
-
-func ensureFile(f *File, err error) *File {
-	if err != nil {
-		log.Fatalf("ensureFile error: %v", err)
-	}
-	if f == nil {
-		log.Fatal("ensureFile error: unexpected nil file")
-	}
-	return f
-}
-
-const leftColWidth = 50
-
-func summarizePermissions(ctx context.Context, idpClient *idp.Client, authZClient *authz.Client, f *File) string {
-	edges, err := authZClient.ListEdges(ctx, f.id)
-	if err != nil {
-		return "<error fetching edges>"
-	}
-	permsList := ""
-	for _, e := range edges {
-		et, err := authZClient.GetEdgeType(ctx, e.EdgeTypeID)
-		if err != nil {
-			return "<error fetching edge type>"
-		}
-		var otherID uuid.UUID
-		if e.SourceObjectID == f.id {
-			otherID = e.TargetObjectID
-		} else {
-			otherID = e.SourceObjectID
-		}
-		obj, err := authZClient.GetObject(ctx, otherID)
-		if err != nil {
-			return "<error fetching object>"
-		}
-		displayName := obj.Alias
-		if obj.TypeID == authz.UserObjectTypeID {
-			user, err := idpClient.GetUser(ctx, obj.ID)
-			if err != nil {
-				return "<error fetching user>"
-			}
-			displayName = user.Name
-		}
-		perm := fmt.Sprintf("%s (%s)", displayName, et.TypeName)
-		if len(permsList) == 0 {
-			permsList = perm
-		} else {
-			permsList = fmt.Sprintf("%s, %s", permsList, perm)
-		}
-	}
-	return permsList
-}
-
-func renderFileTree(ctx context.Context, idpClient *idp.Client, authZClient *authz.Client, f *File, indentLevel int) {
-	outStr := ""
-	if f.parent == nil {
-		outStr += "/"
-	} else {
-		for i := 0; i < indentLevel-1; i++ {
-			outStr += "      "
-		}
-		outStr += "^---> "
-		outStr += f.name
-	}
-
-	for i := len(outStr); i < leftColWidth; i++ {
-		outStr += " "
-	}
-	outStr += fmt.Sprintf("| %s", summarizePermissions(ctx, idpClient, authZClient, f))
-	fmt.Println(outStr)
-
-	for _, v := range f.children {
-		renderFileTree(ctx, idpClient, authZClient, v, indentLevel+1)
-	}
-}
-
-func main() {
+func initClients() (*idp.Client, *authz.Client) {
 	ctx := context.Background()
 
 	err := godotenv.Load()
@@ -434,26 +101,31 @@ func main() {
 		log.Fatalf("error provisioning basic authz types: %v", err)
 	}
 
-	if err := tryCleanPreviousRuns(ctx, authZClient); err != nil {
+	if err := cleanPreviousRunData(ctx, authZClient); err != nil {
 		log.Printf("failed to clean previous run data, ignoring and moving on")
 	}
+	return idpClient, authZClient
+}
 
+func main() {
+	ctx := context.Background()
+	idpClient, authZClient := initClients()
 	fm := NewFileManager(authZClient)
 
 	// Alice creates the root directory and has full permissions
-	rootDir := ensureFile(fm.NewRoot(ctx, AliceUserID))
+	rootDir := mustFile(fm.NewRoot(ctx, AliceUserID))
 	// Alice can create '/dir1' and '/dir2'
-	dir1 := ensureFile(fm.NewDir(ctx, "dir1", rootDir, AliceUserID))
-	dir2 := ensureFile(fm.NewDir(ctx, "dir2", rootDir, AliceUserID))
+	dir1 := mustFile(fm.NewDir(ctx, "dir1", rootDir, AliceUserID))
+	dir2 := mustFile(fm.NewDir(ctx, "dir2", rootDir, AliceUserID))
 
 	// Bob cannot create files in '/dir1'
-	_, err = fm.NewFile(ctx, "file1", dir1, BobUserID)
+	_, err := fm.NewFile(ctx, "file1", dir1, BobUserID)
 	if err == nil {
 		log.Fatalf("expected Bob to fail to create file under dir1")
 	}
 
 	// Alice can create files in '/dir1'
-	file1 := ensureFile(fm.NewFile(ctx, "file1", dir1, AliceUserID))
+	file1 := mustFile(fm.NewFile(ctx, "file1", dir1, AliceUserID))
 
 	// Bob cannot read '/dir1/file1'
 	if _, err = fm.ReadFile(ctx, file1, BobUserID); err == nil {
@@ -461,7 +133,7 @@ func main() {
 	}
 
 	// Grant Bob viewer permissions in 'dir1'
-	_ = ensureID(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), dir1.id, BobUserID, FileViewerTypeID))
+	_ = mustID(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), dir1.id, BobUserID, FileViewerTypeID))
 
 	// Now Bob can read '/dir1/file1'
 	if _, err := fm.ReadFile(ctx, file1, BobUserID); err != nil {
@@ -475,9 +147,9 @@ func main() {
 	}
 
 	// Create a team, add Bob to it, give that team write permissions to '/dir2'
-	aliceReportsTeamID := ensureID(provisionObject(ctx, authZClient, TeamTypeID, "Alice's Direct Reports"))
-	_ = ensureID(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), aliceReportsTeamID, BobUserID, TeamMemberID))
-	_ = ensureID(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), dir2.id, aliceReportsTeamID, FileTeamEditorTypeID))
+	aliceReportsTeamID := mustID(provisionObject(ctx, authZClient, TeamTypeID, "Alice's Direct Reports"))
+	_ = mustID(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), aliceReportsTeamID, BobUserID, TeamMemberID))
+	_ = mustID(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), dir2.id, aliceReportsTeamID, FileTeamEditorTypeID))
 
 	// Now Bob can create subdirectories under '/dir2'
 	if _, err := fm.NewDir(ctx, "dir3", dir2, BobUserID); err != nil {
