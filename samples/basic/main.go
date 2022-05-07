@@ -411,7 +411,7 @@ func main() {
 
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatalf("error loading .env file: %v", err)
+		log.Fatalf("error loading .env file: %v\n(did you forget to copy `.env.example` to `.env` and substitute values?)", err)
 	}
 
 	tenantURL := os.Getenv("TENANT_URL")
