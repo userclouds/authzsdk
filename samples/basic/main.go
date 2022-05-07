@@ -307,6 +307,8 @@ func (fm *FileManager) newFileHelper(ctx context.Context, name string, isDir boo
 		return nil, ucerr.Wrap(err)
 	}
 
+	parent.children = append(parent.children, f)
+
 	// NB: since the creator has write access to the parent, we don't need to explicitly grant it on the child
 
 	return f, nil
@@ -338,6 +340,70 @@ func ensureFile(f *File, err error) *File {
 		log.Fatal("ensureFile error: unexpected nil file")
 	}
 	return f
+}
+
+const leftColWidth = 50
+
+func summarizePermissions(ctx context.Context, idpClient *idp.Client, authZClient *authz.Client, f *File) string {
+	edges, err := authZClient.ListEdges(ctx, f.id)
+	if err != nil {
+		return "<error fetching edges>"
+	}
+	permsList := ""
+	for _, e := range edges {
+		et, err := authZClient.GetEdgeType(ctx, e.EdgeTypeID)
+		if err != nil {
+			return "<error fetching edge type>"
+		}
+		var otherID uuid.UUID
+		if e.SourceObjectID == f.id {
+			otherID = e.TargetObjectID
+		} else {
+			otherID = e.SourceObjectID
+		}
+		obj, err := authZClient.GetObject(ctx, otherID)
+		if err != nil {
+			return "<error fetching object>"
+		}
+		displayName := obj.Alias
+		if obj.TypeID == authz.UserObjectTypeID {
+			user, err := idpClient.GetUser(ctx, obj.ID)
+			if err != nil {
+				return "<error fetching user>"
+			}
+			displayName = user.Name
+		}
+		perm := fmt.Sprintf("%s (%s)", displayName, et.TypeName)
+		if len(permsList) == 0 {
+			permsList = perm
+		} else {
+			permsList = fmt.Sprintf("%s, %s", permsList, perm)
+		}
+	}
+	return permsList
+}
+
+func renderFileTree(ctx context.Context, idpClient *idp.Client, authZClient *authz.Client, f *File, indentLevel int) {
+	outStr := ""
+	if f.parent == nil {
+		outStr += "/"
+	} else {
+		for i := 0; i < indentLevel-1; i++ {
+			outStr += "      "
+		}
+		outStr += "^---> "
+		outStr += f.name
+	}
+
+	for i := len(outStr); i < leftColWidth; i++ {
+		outStr += " "
+	}
+	outStr += fmt.Sprintf("| %s", summarizePermissions(ctx, idpClient, authZClient, f))
+	fmt.Println(outStr)
+
+	for _, v := range f.children {
+		renderFileTree(ctx, idpClient, authZClient, v, indentLevel+1)
+	}
 }
 
 func main() {
@@ -423,6 +489,8 @@ func main() {
 	if err == nil {
 		log.Fatalf("expected Bob to fail to create dir3 under /dir1")
 	}
+
+	renderFileTree(ctx, idpClient, authZClient, rootDir, 0)
 
 	log.Printf("succssfully ran sample")
 }
