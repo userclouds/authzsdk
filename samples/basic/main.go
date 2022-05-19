@@ -19,6 +19,7 @@ var FileTypeID, TeamTypeID uuid.UUID
 
 // Edge type IDs (i.e. roles)
 var TeamMemberID uuid.UUID
+var FileContainerTypeID uuid.UUID
 var FileEditorTypeID, FileViewerTypeID uuid.UUID
 var FileTeamEditorTypeID, FileTeamViewerTypeID uuid.UUID
 
@@ -33,11 +34,33 @@ func oneTimeProvision(ctx context.Context, idpClient *idp.Client, authZClient *a
 	FileTypeID = mustID(provisionObjectType(ctx, authZClient, "file"))
 	TeamTypeID = mustID(provisionObjectType(ctx, authZClient, "team"))
 
-	TeamMemberID = mustID(provisionEdgeType(ctx, authZClient, TeamTypeID, authz.UserObjectTypeID, "team_member"))
-	FileEditorTypeID = mustID(provisionEdgeType(ctx, authZClient, FileTypeID, authz.UserObjectTypeID, "file_editor"))
-	FileViewerTypeID = mustID(provisionEdgeType(ctx, authZClient, FileTypeID, authz.UserObjectTypeID, "file_viewer"))
-	FileTeamEditorTypeID = mustID(provisionEdgeType(ctx, authZClient, FileTypeID, TeamTypeID, "file_team_editor"))
-	FileTeamViewerTypeID = mustID(provisionEdgeType(ctx, authZClient, FileTypeID, TeamTypeID, "file_team_viewer"))
+	// Team members inherit any direct permissions of their team.
+	// NB: you can recursively inherit through multiple edges, so you could nest teams within teams
+	TeamMemberID = mustID(provisionEdgeType(ctx, authZClient, authz.UserObjectTypeID, TeamTypeID, "team_member", authz.Attributes{
+		{Name: "read", Inherit: true},
+		{Name: "write", Inherit: true},
+	}))
+	// Users can be editors or viewers of a file with direct permissions.
+	FileEditorTypeID = mustID(provisionEdgeType(ctx, authZClient, authz.UserObjectTypeID, FileTypeID, "file_editor", authz.Attributes{
+		{Name: "read", Direct: true},
+		{Name: "write", Direct: true},
+	}))
+	FileViewerTypeID = mustID(provisionEdgeType(ctx, authZClient, authz.UserObjectTypeID, FileTypeID, "file_viewer", authz.Attributes{
+		{Name: "read", Direct: true},
+	}))
+	// Teams can be editors or viewers of a file with direct permissions.
+	FileTeamEditorTypeID = mustID(provisionEdgeType(ctx, authZClient, TeamTypeID, FileTypeID, "file_team_editor", authz.Attributes{
+		{Name: "read", Direct: true},
+		{Name: "write", Direct: true},
+	}))
+	FileTeamViewerTypeID = mustID(provisionEdgeType(ctx, authZClient, TeamTypeID, FileTypeID, "file_team_viewer", authz.Attributes{
+		{Name: "read", Direct: true},
+	}))
+	// Files can contain other files, and permissions on a container propagate to children.
+	FileContainerTypeID = mustID(provisionEdgeType(ctx, authZClient, FileTypeID, FileTypeID, "file_container", authz.Attributes{
+		{Name: "read", Propagate: true},
+		{Name: "write", Propagate: true},
+	}))
 
 	// Create a few test users (normally users would sign up via the UI, so this is slightly contrived)
 	AliceUserID = mustID(provisionUser(ctx, idpClient, "alice", "password_alice_123!", idp.UserProfile{
@@ -57,15 +80,15 @@ func oneTimeProvision(ctx context.Context, idpClient *idp.Client, authZClient *a
 
 // cleanPreviousRunData is a convenience method to clean up 'file' and 'team' objects from previous runs
 // so that it's easier to inspect the sample's output in the UserClouds Console.
-// NB: deleting objects will also delete all edges to/from those objects.
 func cleanPreviousRunData(ctx context.Context, authZClient *authz.Client) error {
-	objs, err := authZClient.ListObjects(ctx)
+	// Delete the File and Team object types which should nuke all related edge types, edges, and objects.
+	ots, err := authZClient.ListObjectTypes(ctx)
 	if err != nil {
 		return ucerr.Wrap(err)
 	}
-	for _, v := range objs {
-		if v.TypeID == FileTypeID || v.TypeID == TeamTypeID {
-			if err := authZClient.DeleteObject(ctx, v.ID); err != nil {
+	for _, v := range ots {
+		if v.TypeName == "file" || v.TypeName == "team" {
+			if err := authZClient.DeleteObjectType(ctx, v.ID); err != nil {
 				log.Printf("warning, failed to delete %+v", v)
 			}
 		}
@@ -97,13 +120,14 @@ func initClients() (*idp.Client, *authz.Client) {
 		log.Fatalf("error initializing authz client: %v", err)
 	}
 
+	if err := cleanPreviousRunData(ctx, authZClient); err != nil {
+		log.Printf("failed to clean previous run data, ignoring and moving on")
+	}
+
 	if err := oneTimeProvision(ctx, idpClient, authZClient); err != nil {
 		log.Fatalf("error provisioning basic authz types: %v", err)
 	}
 
-	if err := cleanPreviousRunData(ctx, authZClient); err != nil {
-		log.Printf("failed to clean previous run data, ignoring and moving on")
-	}
 	return idpClient, authZClient
 }
 
@@ -133,7 +157,7 @@ func main() {
 	}
 
 	// Grant Bob viewer permissions in 'dir1'
-	_ = mustID(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), dir1.id, BobUserID, FileViewerTypeID))
+	_ = mustID(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), BobUserID, dir1.id, FileViewerTypeID))
 
 	// Now Bob can read '/dir1/file1'
 	if _, err := fm.ReadFile(ctx, file1, BobUserID); err != nil {
@@ -148,8 +172,8 @@ func main() {
 
 	// Create a team, add Bob to it, give that team write permissions to '/dir2'
 	aliceReportsTeamID := mustID(provisionObject(ctx, authZClient, TeamTypeID, "Alice's Direct Reports"))
-	_ = mustID(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), aliceReportsTeamID, BobUserID, TeamMemberID))
-	_ = mustID(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), dir2.id, aliceReportsTeamID, FileTeamEditorTypeID))
+	_ = mustID(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), BobUserID, aliceReportsTeamID, TeamMemberID))
+	_ = mustID(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), aliceReportsTeamID, dir2.id, FileTeamEditorTypeID))
 
 	// Now Bob can create subdirectories under '/dir2'
 	if _, err := fm.NewDir(ctx, "dir3", dir2, BobUserID); err != nil {

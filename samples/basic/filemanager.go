@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/gofrs/uuid"
 	"userclouds.com/authz"
@@ -56,63 +57,25 @@ func (f File) FindFile(name string) *File {
 }
 
 func (fm *FileManager) HasWriteAccess(ctx context.Context, f *File, userID uuid.UUID) error {
-	cur := f
-	// NB: with inheritance support, the team enumeration would be implicitly handled by the propagation rules
-	teams, err := enumerateTeams(ctx, fm.authZClient, userID)
+	resp, err := fm.authZClient.CheckAttribute(ctx, userID, f.id, "write")
 	if err != nil {
 		return ucerr.Wrap(err)
 	}
-
-	for cur != nil {
-		// NB: currently we only support RBAC without Attributes; instead of `FindEdge`, we should use `CheckAttribute` which enumerates all edges
-		// between two objects to see if any edge has the desired attribute. This allows for multiple roles to have overlapping attributes, and for
-		// the creation of new roles with new combinations of attributes without touching all permission checking vode.
-		// NB: with permission inheritance, there would be additional edges between parent<>children files, and the AuthZ API will run the graph
-		// BFS on the backend and propagate permissions/attributes based on the edge definitions. Furthermore, team membership would also inherit permissions.
-		// For now, the inheritance is handled client-side.
-		if _, err := fm.authZClient.FindEdge(ctx, cur.id, userID, FileEditorTypeID); err == nil {
-			return nil
-		}
-		// NB: with inheritance support, these extra calls won't be needed
-		for _, teamID := range teams {
-			if _, err := fm.authZClient.FindEdge(ctx, cur.id, teamID, FileTeamEditorTypeID); err == nil {
-				return nil
-			}
-		}
-		cur = cur.parent
+	if resp.HasAttribute {
+		return nil
 	}
-	return ucerr.Errorf("user %v does not have write permissions on file %+v", userID, f)
+	return ucerr.Errorf("user %v does not have write permissions on file %s (id: %s)", userID, f.FullPath(), f.id)
 }
 
 func (fm *FileManager) HasReadAccess(ctx context.Context, f *File, userID uuid.UUID) error {
-	cur := f
-	// NB: with inheritance support, the team enumeration would be implicitly handled by the propagation rules
-	teams, err := enumerateTeams(ctx, fm.authZClient, userID)
+	resp, err := fm.authZClient.CheckAttribute(ctx, userID, f.id, "read")
 	if err != nil {
 		return ucerr.Wrap(err)
 	}
-	for cur != nil {
-		// NB: with Attribute support this will be simpler; we can just call CheckAttribute instead of testing multiple edge types
-		if _, err := fm.authZClient.FindEdge(ctx, cur.id, userID, FileEditorTypeID); err == nil {
-			return nil
-		}
-		if _, err := fm.authZClient.FindEdge(ctx, cur.id, userID, FileViewerTypeID); err == nil {
-			return nil
-		}
-
-		// NB: with inheritance support, these extra calls won't be needed
-		for _, teamID := range teams {
-			if _, err := fm.authZClient.FindEdge(ctx, cur.id, teamID, FileTeamEditorTypeID); err == nil {
-				return nil
-			}
-			if _, err := fm.authZClient.FindEdge(ctx, cur.id, teamID, FileTeamViewerTypeID); err == nil {
-				return nil
-			}
-		}
-
-		cur = cur.parent
+	if resp.HasAttribute {
+		return nil
 	}
-	return ucerr.Errorf("user %v does not have read permissions on file %+v", userID, f)
+	return ucerr.Errorf("user %v does not have read permissions on file %s (id: %s)", userID, f.FullPath(), f.id)
 }
 
 func (fm *FileManager) NewRoot(ctx context.Context, creatorUserID uuid.UUID) (*File, error) {
@@ -132,7 +95,7 @@ func (fm *FileManager) NewRoot(ctx context.Context, creatorUserID uuid.UUID) (*F
 	}
 
 	// Give the creator of the file Editor permission by default (you could get fancy and have "owner"/"creator"/"admin" access on top too)
-	if _, err := fm.authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), f.id, creatorUserID, FileEditorTypeID); err != nil {
+	if _, err := fm.authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), creatorUserID, f.id, FileEditorTypeID); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
@@ -161,6 +124,11 @@ func (fm *FileManager) newFileHelper(ctx context.Context, name string, isDir boo
 	}
 
 	if _, err := fm.authZClient.CreateObject(ctx, f.id, FileTypeID, f.FullPath()); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	// Make the parent file a 'container' of the new file
+	if _, err := fm.authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), parent.id, f.id, FileContainerTypeID); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
@@ -212,6 +180,10 @@ func summarizePermissions(ctx context.Context, idpClient *idp.Client, authZClien
 		et, err := authZClient.GetEdgeType(ctx, e.EdgeTypeID)
 		if err != nil {
 			return "<error fetching edge type>"
+		}
+		// Only look at editor/viewer relationships
+		if !strings.Contains(et.TypeName, "viewer") && !strings.Contains(et.TypeName, "editor") {
+			continue
 		}
 		var otherID uuid.UUID
 		if e.SourceObjectID == f.id {

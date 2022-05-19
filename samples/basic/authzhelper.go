@@ -33,25 +33,25 @@ func isBenign(err error) bool {
 }
 
 func provisionObjectType(ctx context.Context, authZClient *authz.Client, typeName string) (uuid.UUID, error) {
-	if _, err := authZClient.CreateObjectType(ctx, uuid.Must(uuid.NewV4()), typeName); !isBenign(err) {
-		return uuid.Nil, ucerr.Wrap(err)
-	}
 	id, err := authZClient.FindObjectTypeID(ctx, typeName)
 	if err != nil {
+		id = uuid.Must(uuid.NewV4())
+	}
+	if _, err := authZClient.CreateObjectType(ctx, id, typeName); !isBenign(err) {
 		return uuid.Nil, ucerr.Wrap(err)
 	}
-	return id, err
+	return id, nil
 }
 
-func provisionEdgeType(ctx context.Context, authZClient *authz.Client, sourceObjectID, targetObjectID uuid.UUID, typeName string) (uuid.UUID, error) {
-	if _, err := authZClient.CreateEdgeType(ctx, uuid.Must(uuid.NewV4()), sourceObjectID, targetObjectID, typeName); !isBenign(err) {
-		return uuid.Nil, ucerr.Wrap(err)
-	}
+func provisionEdgeType(ctx context.Context, authZClient *authz.Client, sourceObjectID, targetObjectID uuid.UUID, typeName string, attributes authz.Attributes) (uuid.UUID, error) {
 	id, err := authZClient.FindEdgeTypeID(ctx, typeName)
 	if err != nil {
+		id = uuid.Must(uuid.NewV4())
+	}
+	if _, err := authZClient.CreateEdgeType(ctx, id, sourceObjectID, targetObjectID, typeName, attributes); !isBenign(err) {
 		return uuid.Nil, ucerr.Wrap(err)
 	}
-	return id, err
+	return id, nil
 }
 
 func provisionObject(ctx context.Context, authZClient *authz.Client, typeID uuid.UUID, alias string) (uuid.UUID, error) {
