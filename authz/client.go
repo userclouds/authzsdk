@@ -96,12 +96,12 @@ func (c *Client) FindObjectTypeID(ctx context.Context, typeName string) (uuid.UU
 	}
 
 	// take advantage of the cache update in ListObjectTypes
-	id := c.objectTypes[typeName].ID
-	if id == uuid.Nil {
+	objType, ok := c.objectTypes[typeName]
+	if !ok {
 		return uuid.Nil, ucerr.Errorf("authz object type '%s' not found", typeName)
 	}
 
-	return id, nil
+	return objType.ID, nil
 }
 
 // ListObjectTypes lists all object types in the system
@@ -127,8 +127,26 @@ func (c *Client) ListObjectTypes(ctx context.Context) ([]ObjectType, error) {
 	return resp, nil
 }
 
+// DeleteObjectType deletes an object type by ID.
+func (c *Client) DeleteObjectType(ctx context.Context, objectTypeID uuid.UUID) error {
+	if err := c.client.RefreshBearerToken(); err != nil {
+		return ucerr.Wrap(err)
+	}
+
+	c.mObjectTypes.Lock()
+	for _, v := range c.objectTypes {
+		if v.ID == objectTypeID {
+			delete(c.objectTypes, v.TypeName)
+			break
+		}
+	}
+	c.mObjectTypes.Unlock()
+
+	return ucerr.Wrap(c.client.Delete(ctx, fmt.Sprintf("/authz/objecttypes/%s", objectTypeID)))
+}
+
 // CreateEdgeType creates a new type of edge for the authz system.
-func (c *Client) CreateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectTypeID, targetObjectTypeID uuid.UUID, typeName string) (*EdgeType, error) {
+func (c *Client) CreateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectTypeID, targetObjectTypeID uuid.UUID, typeName string, attributes Attributes) (*EdgeType, error) {
 	if err := c.client.RefreshBearerToken(); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
@@ -138,6 +156,7 @@ func (c *Client) CreateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectT
 		TypeName:           typeName,
 		SourceObjectTypeID: sourceObjectTypeID,
 		TargetObjectTypeID: targetObjectTypeID,
+		Attributes:         attributes,
 	}
 	var resp EdgeType
 	if err := c.client.Post(ctx, "/authz/edgetypes", req, &resp); err != nil {
@@ -149,6 +168,13 @@ func (c *Client) CreateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectT
 	c.edgeTypes[resp.TypeName] = resp
 
 	return &resp, nil
+}
+
+// UpdateEdgeType updates an existing edge type in the authz system.
+func (c *Client) UpdateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectTypeID, targetObjectTypeID uuid.UUID, typeName string, attributes Attributes) (*EdgeType, error) {
+	// TODO: use PUT/PATCH for the update operation instead
+	et, err := c.CreateEdgeType(ctx, id, sourceObjectTypeID, targetObjectTypeID, typeName, attributes)
+	return et, ucerr.Wrap(err)
 }
 
 // GetEdgeType gets an edge type (relationship) by its type ID.
@@ -199,12 +225,12 @@ func (c *Client) FindEdgeTypeID(ctx context.Context, typeName string) (uuid.UUID
 	// take advantage of the fact that ListEdgeTypes updated the cache
 	c.mEdgeTypes.RLock()
 	defer c.mEdgeTypes.RUnlock()
-	id := c.edgeTypes[typeName].ID
+	edgeType, ok := c.edgeTypes[typeName]
 
-	if id == uuid.Nil {
+	if !ok {
 		return uuid.Nil, ucerr.Errorf("authz edge type '%s' not found", typeName)
 	}
-	return id, nil
+	return edgeType.ID, nil
 }
 
 // ListEdgeTypes lists all available edge types
@@ -228,6 +254,24 @@ func (c *Client) ListEdgeTypes(ctx context.Context) ([]EdgeType, error) {
 	c.edgeTypes = newCache
 
 	return resp, nil
+}
+
+// DeleteEdgeType deletes an edge type by ID.
+func (c *Client) DeleteEdgeType(ctx context.Context, edgeTypeID uuid.UUID) error {
+	if err := c.client.RefreshBearerToken(); err != nil {
+		return ucerr.Wrap(err)
+	}
+
+	c.mEdgeTypes.Lock()
+	for _, v := range c.edgeTypes {
+		if v.ID == edgeTypeID {
+			delete(c.edgeTypes, v.TypeName)
+			break
+		}
+	}
+	c.mEdgeTypes.Unlock()
+
+	return ucerr.Wrap(c.client.Delete(ctx, fmt.Sprintf("/authz/edgetypes/%s", edgeTypeID)))
 }
 
 // CreateObject creates a new object with a given ID, name, and type.
@@ -479,4 +523,34 @@ func (c *Client) DeleteEdge(ctx context.Context, edgeID uuid.UUID) error {
 	c.mEdges.Unlock()
 
 	return ucerr.Wrap(c.client.Delete(ctx, fmt.Sprintf("/authz/edges/%s", edgeID)))
+}
+
+// AttributePathNode is a node in a path list from source to target, if CheckAttribute succeeds.
+type AttributePathNode struct {
+	ObjectID uuid.UUID `json:"object_id"`
+	EdgeID   uuid.UUID `json:"edge_id"`
+}
+
+// CheckAttributeResponse is returned by the check_attribute endpoint.
+type CheckAttributeResponse struct {
+	HasAttribute bool                `json:"has_attribute"`
+	Path         []AttributePathNode `json:"path"`
+}
+
+// CheckAttribute returns true if the source object has the given attribute on the target object.
+func (c *Client) CheckAttribute(ctx context.Context, sourceObjectID, targetObjectID uuid.UUID, attributeName string) (*CheckAttributeResponse, error) {
+	if err := c.client.RefreshBearerToken(); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	var resp CheckAttributeResponse
+	query := url.Values{}
+	query.Add("source_object_id", sourceObjectID.String())
+	query.Add("target_object_id", targetObjectID.String())
+	query.Add("attribute", attributeName)
+	if err := c.client.Get(ctx, fmt.Sprintf("/authz/check_attribute?%s", query.Encode()), &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
 }
