@@ -84,12 +84,13 @@ func cleanPreviousRunData(ctx context.Context, authZClient *authz.Client) error 
 	// Delete the File and Team object types which should nuke all related edge types, edges, and objects.
 	ots, err := authZClient.ListObjectTypes(ctx)
 	if err != nil {
+		log.Printf("warning, failed to list object types: %v", err)
 		return ucerr.Wrap(err)
 	}
 	for _, v := range ots {
 		if v.TypeName == "file" || v.TypeName == "team" {
 			if err := authZClient.DeleteObjectType(ctx, v.ID); err != nil {
-				log.Printf("warning, failed to delete %+v", v)
+				log.Printf("warning, failed to delete %+v: %v", v, err)
 			}
 		}
 	}
