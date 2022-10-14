@@ -11,6 +11,7 @@ import (
 	"userclouds.com/idp/userstore"
 	"userclouds.com/infra/emailutil"
 	"userclouds.com/infra/jsonclient"
+	"userclouds.com/infra/pagination"
 	"userclouds.com/infra/ucerr"
 )
 
@@ -221,7 +222,7 @@ func NewSocialAuthn(provider SocialProvider, oidcSubject string) UserAuthn {
 // Follow conventions of https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims for
 // all standard fields.
 type UserProfile struct {
-	Email         string `json:"email" validate:"notempty"`
+	Email         string `json:"email"`
 	EmailVerified bool   `json:"email_verified"`
 	Name          string `json:"name,omitempty"`     // Full name in displayable form (incl titles, suffixes, etc) localized to end-user.
 	Nickname      string `json:"nickname,omitempty"` // Casual name of the user, may or may not be same as Given Name.
@@ -237,8 +238,9 @@ type UserProfile struct {
 
 //go:generate genvalidate UserProfile
 
-func (u UserProfile) extraValidate() error {
-	if err := emailutil.Validate(u.Email); err != nil {
+func (up UserProfile) extraValidate() error {
+	a := emailutil.Address(up.Email)
+	if err := a.Validate(); err != nil {
 		return ucerr.Wrap(err)
 	}
 	return nil
@@ -315,22 +317,32 @@ func (c *Client) CreateUserWithSocial(ctx context.Context, provider SocialProvid
 	return res.ID, nil
 }
 
+// ListUsersResponse is the paginated response from listing users.
+type ListUsersResponse struct {
+	Data []UserResponse `json:"data"`
+	pagination.ResponseFields
+}
+
 // ListUsers lists all users
-// TODO: pagination desperately needed
-func (c *Client) ListUsers(ctx context.Context) ([]UserResponse, error) {
+func (c *Client) ListUsers(ctx context.Context, opts ...pagination.Option) (*ListUsersResponse, error) {
 	if err := c.client.RefreshBearerToken(); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	var res []UserResponse
+	options := pagination.ApplyOptions(opts)
 
-	requestURL := url.URL{Path: "/authn/users"}
+	var res ListUsersResponse
+	query := options.Query()
+	requestURL := url.URL{
+		Path:     "/authn/users",
+		RawQuery: query.Encode(),
+	}
 
 	if err := c.client.Get(ctx, requestURL.String(), &res); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	return res, nil
+	return &res, nil
 }
 
 // GetUser gets a user by ID
@@ -367,9 +379,8 @@ func (c *Client) GetUserForSocial(ctx context.Context, provider SocialProvider, 
 	reqURL := url.URL{
 		Path: "/authn/users",
 		RawQuery: url.Values{
-			"authn_type": []string{string(AuthnTypeSocial)},
-			"provider":   []string{string(prov)},
-			"subject":    []string{oidcSubject},
+			"provider": []string{string(prov)},
+			"subject":  []string{oidcSubject},
 		}.Encode(),
 	}
 	if err := c.client.Get(ctx, reqURL.String(), &res); err != nil {
@@ -406,15 +417,21 @@ func (c *Client) ListUsersForEmail(ctx context.Context, email string, authnType 
 	return res, nil
 }
 
+// MutableUserProfile is used by UpdateUserRequest to update parts of the core user profile.
+// Only non-nil fields in the underlying struct will be updated.
+type MutableUserProfile struct {
+	EmailVerified *bool   `json:"email_verified,omitempty"`
+	Name          *string `json:"name,omitempty"`
+	Nickname      *string `json:"nickname,omitempty"`
+	Picture       *string `json:"picture,omitempty"`
+}
+
 // UpdateUserRequest optionally updates some or all mutable fields of a user struct.
 // Pointers are used to distinguish between unset vs. set to default value (false, "", etc).
 // TODO: should we allow changing Email? That's a more complex one as there are more implications to
 // changing email that may affect AuthNs and security (e.g. account hijacking, unverified emails, etc).
 type UpdateUserRequest struct {
-	EmailVerified *bool   `json:"email_verified,omitempty"`
-	Name          *string `json:"name,omitempty"`
-	Nickname      *string `json:"nickname,omitempty"`
-	Picture       *string `json:"picture,omitempty"`
+	UserProfile MutableUserProfile `json:"profile"`
 
 	// TODO: add MFA factors
 	RequireMFA *bool `json:"require_mfa,omitempty"`

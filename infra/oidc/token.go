@@ -29,6 +29,7 @@ func (c StandardClaims) Valid() error {
 	jwtClaims := jwt.StandardClaims{
 		ExpiresAt: c.ExpiresAt,
 		IssuedAt:  c.IssuedAt,
+		Issuer:    c.Issuer,
 		NotBefore: c.NotBefore,
 	}
 	return ucerr.Wrap(jwtClaims.Valid())

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 
-	"userclouds.com/infra/oidc"
 	"userclouds.com/infra/ucerr"
 	"userclouds.com/infra/ucjwt"
 )
@@ -25,76 +24,6 @@ type Error struct {
 // Error implements Error
 func (e Error) Error() string {
 	return fmt.Sprintf("HTTP error %d", e.StatusCode)
-}
-
-type options struct {
-	headers          http.Header
-	cookies          []http.Cookie
-	unmarshalOnError bool
-	parseOAuthError  bool
-
-	// Required for automatic token refresh
-	tokenSource oidc.ClientCredentialsTokenSource
-}
-
-func (o *options) clone() *options {
-	cloned := *o
-	cloned.headers = o.headers.Clone()
-	copy(cloned.cookies, o.cookies)
-	return &cloned
-}
-
-// Option makes jsonclient extensible
-type Option interface {
-	apply(*options)
-}
-
-type optFunc func(*options)
-
-func (o optFunc) apply(opts *options) {
-	o(opts)
-}
-
-// Header allows you to add arbitrary headers to jsonclient requests
-func Header(k, v string) Option {
-	return optFunc(func(opts *options) {
-		opts.headers.Set(k, v)
-	})
-}
-
-// Cookie allows you to add cookies to jsonclient requests
-func Cookie(cookie http.Cookie) Option {
-	return optFunc(func(opts *options) {
-		opts.cookies = append(opts.cookies, cookie)
-	})
-}
-
-// UnmarshalOnError causes the response struct to be deserialized if a HTTP 400+ code is returned.
-// The default behavior is to not deserialize and to return an error.
-func UnmarshalOnError() Option {
-	return optFunc(func(opts *options) {
-		opts.unmarshalOnError = true
-	})
-}
-
-// ParseOAuthError allows deserializing & capturing the last call's error
-// into an OAuthError object for deeper inspection. This is richer than a jsonclient.Error
-// but only makes sense on a call that is expected to be OAuth/OIDC compliant.
-func ParseOAuthError() Option {
-	return optFunc(func(opts *options) {
-		opts.parseOAuthError = true
-	})
-}
-
-// ClientCredentialsTokenSource can be specified to enable support for RefreshBearerToken automatically
-// refreshing the token if expired.
-func ClientCredentialsTokenSource(tokenURL, clientID, clientSecret string, customAudiences []string) Option {
-	return optFunc(func(opts *options) {
-		opts.tokenSource.TokenURL = tokenURL
-		opts.tokenSource.ClientID = clientID
-		opts.tokenSource.ClientSecret = clientSecret
-		opts.tokenSource.CustomAudiences = customAudiences
-	})
 }
 
 // Client defines a JSON-focused HTTP client
@@ -156,7 +85,7 @@ func (c *Client) tokenNeedsRefresh() bool {
 func (c *Client) hasTokenSource() bool {
 	c.optionsMutex.RLock()
 	defer c.optionsMutex.RUnlock()
-	return c.options.tokenSource.TokenURL != ""
+	return c.options.tokenSource != nil
 }
 
 // ValidateBearerTokenHeader ensures that there is a non-expired bearer token specified directly OR
@@ -242,6 +171,11 @@ func (c *Client) makeRequest(ctx context.Context, method, path string, bs []byte
 	for _, opt := range opts {
 		opt.apply(options)
 	}
+
+	if options.decodeFunc != nil && response != nil {
+		return ucerr.New("`CustomDecoder` option should only be specified with a nil `response`")
+	}
+
 	client := http.DefaultClient
 
 	reqURL := c.buildURL(path)
@@ -252,6 +186,14 @@ func (c *Client) makeRequest(ctx context.Context, method, path string, bs []byte
 
 	req.Header = options.headers.Clone()
 	req.Header.Add("content-type", "application/json")
+
+	// add our per-request context headers
+	for _, fn := range options.perRequestHeaders {
+		k, v := fn(ctx)
+		if k != "" {
+			req.Header.Add(k, v)
+		}
+	}
 
 	for _, cookie := range options.cookies {
 		req.AddCookie(&cookie)
@@ -273,7 +215,11 @@ func (c *Client) makeRequest(ctx context.Context, method, path string, bs []byte
 	// If the response was not an error OR if the caller specified UnmarshalOnError, try to deserialize
 	// the response into the provided struct.
 	if res.StatusCode < http.StatusBadRequest || options.unmarshalOnError {
-		if response != nil {
+		if options.decodeFunc != nil {
+			if err := options.decodeFunc(ctx, res.Body); err != nil {
+				return ucerr.Wrap(err)
+			}
+		} else if response != nil {
 			if err := json.NewDecoder(res.Body).Decode(response); err != nil {
 				return ucerr.Wrap(err)
 			}
@@ -289,10 +235,10 @@ func (c *Client) makeRequest(ctx context.Context, method, path string, bs []byte
 			bs = string(b)
 		}
 		// Use a package-internal method to log so we can diverge behavior between private vs public repos easily
-		logError(ctx, method, reqURL, bs, res.StatusCode)
+		logError(ctx, options.stopLogging, method, reqURL, bs, res.StatusCode)
 
 		if options.parseOAuthError {
-			var oauthe ucerr.OAuthError
+			var oauthe oAuthError
 			// OAuth standard requires us to return a body with error descriptions
 			// in many cases, so try to decode response but ignore the error if it fails.
 			err = json.NewDecoder(bytes.NewReader(b)).Decode(&oauthe)
@@ -324,7 +270,7 @@ func (c *Client) buildURL(path string) string {
 // GetHTTPStatusCode returns the underlying HTTP status code or -1 if no code could be extracted.
 func GetHTTPStatusCode(err error) int {
 	var jce Error
-	var oauthe ucerr.OAuthError
+	var oauthe oAuthError
 	if errors.As(err, &jce) {
 		return jce.StatusCode
 	} else if errors.As(err, &oauthe) {

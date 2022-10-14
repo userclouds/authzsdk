@@ -5,6 +5,13 @@ import (
 	"net/http"
 )
 
+// Note to future self: we duplicate a small part of this code in jsonclient
+// to avoid a case where if a handler calls another service via `jsonclient` and gets an
+// OAuth-style error with a code (say, 404), and then calls MarshalError with the error it received,
+// it would propagate the status code from the nested service call back out. Usually if a service
+// gets a 404 while processing something complex, it may want to return a 400 or 500 or something else.
+// We may want a `MarshalOAuthError` method instead of using this logic everywhere.
+
 // OAuthError implements error but can be marshalled to JSON
 // to make an OAuth/OIDC-compliant error.
 // TODO: Should this be a private type like `ucError`?
@@ -27,7 +34,7 @@ func (o OAuthError) Unwrap() error {
 
 // newWrappedOAuthError returns a new OAuthError wrapping a given error.
 func newWrappedOAuthError(err error, errorType string, code int) error {
-	return new(wrappedText, OAuthError{
+	return new(wrappedText, "", OAuthError{
 		ErrorType:  errorType,
 		ErrorDesc:  err.Error(),
 		Code:       code,
@@ -90,7 +97,7 @@ func NewRequestError(err error) error {
 
 // NewUnsupportedGrantError returns a new error signifying an unsupported OAuth `grant_type`.
 func NewUnsupportedGrantError(grant string) error {
-	return new(wrappedText, OAuthError{
+	return new(wrappedText, "", OAuthError{
 		ErrorType: "unsupported_grant_type",
 		ErrorDesc: fmt.Sprintf("unsupported `grant_type` specified: %s", grant),
 		Code:      http.StatusBadRequest,
@@ -99,7 +106,7 @@ func NewUnsupportedGrantError(grant string) error {
 
 // NewUnsupportedResponseError returns a new error signifying an unsupported OAuth `response_type`.
 func NewUnsupportedResponseError(responseType string) error {
-	return new(wrappedText, OAuthError{
+	return new(wrappedText, "", OAuthError{
 		ErrorType: "unsupported_response_type",
 		ErrorDesc: fmt.Sprintf("unsupported `response_type` specified: %s", responseType),
 		Code:      http.StatusBadRequest,
