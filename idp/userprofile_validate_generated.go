@@ -12,8 +12,5 @@ func (o *UserProfile) Validate() error {
 	if err := o.extraValidate(); err != nil {
 		return ucerr.Wrap(err)
 	}
-	if o.Email == "" {
-		return ucerr.Errorf("UserProfile.Email can't be empty")
-	}
 	return nil
 }
