@@ -77,21 +77,6 @@ func provisionUser(ctx context.Context, idpClient *idp.Client, username, passwor
 	return users[0].ID, nil
 }
 
-func enumerateTeams(ctx context.Context, authZClient *authz.Client, userID uuid.UUID) ([]uuid.UUID, error) {
-	edges, err := authZClient.ListEdges(ctx, userID)
-	if err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
-	teams := []uuid.UUID{}
-	for _, v := range edges {
-		if v.EdgeTypeID == TeamMemberID {
-			teams = append(teams, v.SourceObjectID)
-		}
-	}
-	return teams, nil
-}
-
 // mustID panics if a UUID-producing operation returns an error, otherwise it returns the UUID
 func mustID(id uuid.UUID, err error) uuid.UUID {
 	if err != nil {

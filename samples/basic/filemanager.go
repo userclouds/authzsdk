@@ -9,6 +9,7 @@ import (
 	"github.com/gofrs/uuid"
 	"userclouds.com/authz"
 	"userclouds.com/idp"
+	"userclouds.com/infra/pagination"
 	"userclouds.com/infra/ucerr"
 )
 
@@ -171,44 +172,52 @@ func mustFile(f *File, err error) *File {
 const leftColWidth = 50
 
 func summarizePermissions(ctx context.Context, idpClient *idp.Client, authZClient *authz.Client, f *File) string {
-	edges, err := authZClient.ListEdges(ctx, f.id)
-	if err != nil {
-		return "<error fetching edges>"
-	}
 	permsList := ""
-	for _, e := range edges {
-		et, err := authZClient.GetEdgeType(ctx, e.EdgeTypeID)
+
+	cursor := pagination.CursorBegin
+	for {
+		resp, err := authZClient.ListEdgesOnObject(ctx, f.id, pagination.StartingAfter(cursor))
 		if err != nil {
-			return "<error fetching edge type>"
+			return "<error fetching edges>"
 		}
-		// Only look at editor/viewer relationships
-		if !strings.Contains(et.TypeName, "viewer") && !strings.Contains(et.TypeName, "editor") {
-			continue
-		}
-		var otherID uuid.UUID
-		if e.SourceObjectID == f.id {
-			otherID = e.TargetObjectID
-		} else {
-			otherID = e.SourceObjectID
-		}
-		obj, err := authZClient.GetObject(ctx, otherID)
-		if err != nil {
-			return "<error fetching object>"
-		}
-		displayName := obj.Alias
-		if obj.TypeID == authz.UserObjectTypeID {
-			user, err := idpClient.GetUser(ctx, obj.ID)
+		for _, e := range resp.Data {
+			et, err := authZClient.GetEdgeType(ctx, e.EdgeTypeID)
 			if err != nil {
-				return "<error fetching user>"
+				return "<error fetching edge type>"
 			}
-			displayName = user.Name
+			// Only look at editor/viewer relationships
+			if !strings.Contains(et.TypeName, "viewer") && !strings.Contains(et.TypeName, "editor") {
+				continue
+			}
+			var otherID uuid.UUID
+			if e.SourceObjectID == f.id {
+				otherID = e.TargetObjectID
+			} else {
+				otherID = e.SourceObjectID
+			}
+			obj, err := authZClient.GetObject(ctx, otherID)
+			if err != nil {
+				return "<error fetching object>"
+			}
+			displayName := obj.Alias
+			if obj.TypeID == authz.UserObjectTypeID {
+				user, err := idpClient.GetUser(ctx, obj.ID)
+				if err != nil {
+					return "<error fetching user>"
+				}
+				displayName = user.Name
+			}
+			perm := fmt.Sprintf("%s (%s)", displayName, et.TypeName)
+			if len(permsList) == 0 {
+				permsList = perm
+			} else {
+				permsList = fmt.Sprintf("%s, %s", permsList, perm)
+			}
 		}
-		perm := fmt.Sprintf("%s (%s)", displayName, et.TypeName)
-		if len(permsList) == 0 {
-			permsList = perm
-		} else {
-			permsList = fmt.Sprintf("%s, %s", permsList, perm)
+		if !resp.HasNext {
+			break
 		}
+		cursor = resp.Next
 	}
 	return permsList
 }
