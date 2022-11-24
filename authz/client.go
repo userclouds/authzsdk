@@ -499,6 +499,7 @@ type ListObjectsResponse struct {
 	pagination.ResponseFields
 }
 
+// TODO: get rid of sort.Interface code when the legacy path in ListObjects goes away
 // Len implements sort.Interface
 func (r ListObjectsResponse) Len() int {
 	return len(r.Data)
@@ -513,7 +514,6 @@ func (r ListObjectsResponse) Swap(left, right int) {
 
 // Less implements sort.Interface
 func (r ListObjectsResponse) Less(left, right int) bool {
-	// TODO: this comparison is awful but temporary
 	return r.Data[left].ID.String() < r.Data[right].ID.String()
 }
 
@@ -567,29 +567,78 @@ func (c *Client) ListObjects(ctx context.Context, opts ...pagination.Option) (*L
 	return &resp, nil
 }
 
-// ListEdges lists all edges (relationships) where the given object
-// is a source or target.
-func (c *Client) ListEdges(ctx context.Context, objectID uuid.UUID) ([]Edge, error) {
+// ListEdgesResponse is the paginated response from listing edges.
+type ListEdgesResponse struct {
+	Data []Edge `json:"data"`
+	pagination.ResponseFields
+}
+
+// TODO: get rid of sort.Interface code when the legacy path in ListObjects goes away
+// Len implements sort.Interface
+func (r ListEdgesResponse) Len() int {
+	return len(r.Data)
+}
+
+// Swap implements sort.Interface
+func (r ListEdgesResponse) Swap(left, right int) {
+	tmp := r.Data[left]
+	r.Data[left] = r.Data[right]
+	r.Data[right] = tmp
+}
+
+// Less implements sort.Interface
+func (r ListEdgesResponse) Less(left, right int) bool {
+	return r.Data[left].ID.String() < r.Data[right].ID.String()
+}
+
+// ListEdgesOnObject lists `limit` edges (relationships) where the given object is a source or target.
+func (c *Client) ListEdgesOnObject(ctx context.Context, objectID uuid.UUID, opts ...pagination.Option) (*ListEdgesResponse, error) {
 	if err := c.client.RefreshBearerToken(); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	// NB: we don't currently offer any cached reads here because it's hard to know when a "list" is current?
-	// TODO: Not currently paginated, and for API consistency we probably should.
-	// But - this is an object-centric list method, so unless an object is connected to many other objects, pagination here
-	// seems overkill.
-	var resp []Edge
-	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects/%s/edges", objectID), &resp); err != nil {
+	options := pagination.ApplyOptions(opts)
+
+	var resp ListEdgesResponse
+	legacyResult := []Edge{}
+	decodeFunc := newPaginatedDecodeFunc(&resp, &legacyResult)
+	query := options.Query()
+	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects/%s/edges?%s", objectID, query.Encode()), nil, jsonclient.CustomDecoder(decodeFunc)); err != nil {
 		return nil, ucerr.Wrap(err)
+	}
+
+	if numEdges := len(legacyResult); numEdges > 0 {
+		// We got a legacy response that's not paginated, so fix it on the client.
+		// NOTE: it's obviously not efficient to "re-paginate" it but this makes it easier
+		// to test the client behavior before/after the server change.
+		// TODO: this code is not going to perform well longer term, but it's very temporary.
+		// TODO: remove this code (and "COMPAT" methods) once we support more advanced filtering/sorting/traversal since it's not worth keeping.
+		resp.Data = legacyResult
+		sort.Sort(resp)
+		firstElem := numEdges
+		for i := range resp.Data {
+			if resp.Data[i].ID.String() > options.StartingAfterCOMPAT() {
+				firstElem = i
+				break
+			}
+		}
+		lastElem := firstElem + options.LimitCOMPAT()
+		if lastElem < numEdges {
+			resp.HasNext = true
+			resp.Next = pagination.Cursor(resp.Data[lastElem-1].ID.String())
+		} else if lastElem > numEdges {
+			lastElem = numEdges
+		}
+		resp.Data = resp.Data[firstElem:lastElem]
 	}
 
 	c.mEdges.Lock()
 	defer c.mEdges.Unlock()
-	for _, e := range resp {
+	for _, e := range resp.Data {
 		c.edges[e.ID] = e
 	}
 
-	return resp, nil
+	return &resp, nil
 }
 
 // ListEdgesBetweenObjects lists all edges (relationships) with a given source & target objct.
