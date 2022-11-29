@@ -158,7 +158,7 @@ func main() {
 	}
 
 	// Grant Bob viewer permissions in 'dir1'
-	_ = mustID(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), BobUserID, dir1.id, FileViewerTypeID))
+	_ = mustEdge(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), BobUserID, dir1.id, FileViewerTypeID))
 
 	// Now Bob can read '/dir1/file1'
 	if _, err := fm.ReadFile(ctx, file1, BobUserID); err != nil {
@@ -173,8 +173,8 @@ func main() {
 
 	// Create a team, add Bob to it, give that team write permissions to '/dir2'
 	aliceReportsTeamID := mustID(provisionObject(ctx, authZClient, TeamTypeID, "Alice's Direct Reports"))
-	_ = mustID(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), BobUserID, aliceReportsTeamID, TeamMemberID))
-	_ = mustID(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), aliceReportsTeamID, dir2.id, FileTeamEditorTypeID))
+	_ = mustEdge(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), BobUserID, aliceReportsTeamID, TeamMemberID))
+	_ = mustEdge(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), aliceReportsTeamID, dir2.id, FileTeamEditorTypeID))
 
 	// Now Bob can create subdirectories under '/dir2'
 	if _, err := fm.NewDir(ctx, "dir3", dir2, BobUserID); err != nil {
