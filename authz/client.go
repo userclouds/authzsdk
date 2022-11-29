@@ -703,9 +703,9 @@ func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, e
 }
 
 // CreateEdge creates an edge (relationship) between two objects.
-func (c *Client) CreateEdge(ctx context.Context, id, sourceObjectID, targetObjectID, edgeTypeID uuid.UUID) (uuid.UUID, error) {
+func (c *Client) CreateEdge(ctx context.Context, id, sourceObjectID, targetObjectID, edgeTypeID uuid.UUID) (*Edge, error) {
 	if err := c.client.RefreshBearerToken(); err != nil {
-		return uuid.Nil, ucerr.Wrap(err)
+		return nil, ucerr.Wrap(err)
 	}
 
 	req := Edge{
@@ -716,14 +716,14 @@ func (c *Client) CreateEdge(ctx context.Context, id, sourceObjectID, targetObjec
 	}
 
 	if err := c.client.Post(ctx, "/authz/edges", req, &req); err != nil {
-		return uuid.Nil, ucerr.Wrap(err)
+		return nil, ucerr.Wrap(err)
 	}
 
 	c.mEdges.Lock()
 	defer c.mEdges.Unlock()
 	c.edges[req.ID] = req
 
-	return req.ID, nil
+	return &req, nil
 }
 
 // DeleteEdge deletes an edge by ID.

@@ -87,3 +87,14 @@ func mustID(id uuid.UUID, err error) uuid.UUID {
 	}
 	return id
 }
+
+// mustEdge panics if an edge-producing operation returns an error, otherwise it returns the Edge
+func mustEdge(edge *authz.Edge, err error) *authz.Edge {
+	if err != nil {
+		log.Fatalf("mustEdge error: %v", err)
+	}
+	if edge.ID == uuid.Nil {
+		log.Fatal("mustEdge error: unexpected nil uuid")
+	}
+	return edge
+}
