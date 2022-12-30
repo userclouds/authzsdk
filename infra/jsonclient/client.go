@@ -18,12 +18,47 @@ import (
 // Error defines a jsonclient error for non-2XX/3XX status codes
 // TODO: decide how to handle 3XX results
 type Error struct {
-	StatusCode int
+	StatusCode int    `json:"http_status_code"`
+	Body       string `json:"response_body"`
 }
 
-// Error implements Error
+type structuredError struct {
+	StatusCode int         `json:"http_status_code"`
+	Body       interface{} `json:"response_body"`
+}
+
+// Error implements UCError
 func (e Error) Error() string {
-	return fmt.Sprintf("HTTP error %d", e.StatusCode)
+	if e.Body != "" {
+		return e.Body
+	}
+	return fmt.Sprintf("HTTP Status %d", e.StatusCode)
+}
+
+// BaseError implements UCError
+func (e Error) BaseError() string {
+	return e.Error()
+}
+
+// Friendly implements UCError
+func (e Error) Friendly() string {
+	return e.Error()
+}
+
+// FriendlyStructure implements UCError
+// If the body is JSON, we'll convert it to map[string]interface{} so it gets
+// preserved as something easily unmarshaled in the returned error.
+func (e Error) FriendlyStructure() interface{} {
+	var objmap map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(e.Body), &objmap); err == nil {
+		return (structuredError{e.StatusCode, objmap})
+	}
+	return nil
+}
+
+// Code return the HTTP status code and implements private interface jsonapi.errorWithCode
+func (e Error) Code() int {
+	return e.StatusCode
 }
 
 // Client defines a JSON-focused HTTP client
@@ -97,9 +132,9 @@ func (c *Client) ValidateBearerTokenHeader() error {
 	return nil
 }
 
-// RefreshBearerToken checks if the current token is invalid or expired, and refreshes it via
+// refreshBearerToken checks if the current token is invalid or expired, and refreshes it via
 // the Client Credentials Flow if needed.
-func (c *Client) RefreshBearerToken() error {
+func (c *Client) refreshBearerToken() error {
 	if c.tokenNeedsRefresh() {
 		if !c.hasTokenSource() {
 			return ucerr.New("cannot refresh bearer token without specifying valid ClientCredentialsTokenSource option for jsonclient")
@@ -157,11 +192,24 @@ func (c *Client) Patch(ctx context.Context, path string, body, response interfac
 }
 
 // Delete makes an HTTP delete using this client
-func (c *Client) Delete(ctx context.Context, path string, opts ...Option) error {
-	return ucerr.Wrap(c.makeRequest(ctx, http.MethodDelete, path, nil, nil, opts))
+func (c *Client) Delete(ctx context.Context, path string, body interface{}, opts ...Option) error {
+	bs, err := json.Marshal(body)
+	if err != nil {
+		return ucerr.Wrap(err)
+	}
+
+	return ucerr.Wrap(c.makeRequest(ctx, http.MethodDelete, path, bs, nil, opts))
 }
 
 func (c *Client) makeRequest(ctx context.Context, method, path string, bs []byte, response interface{}, opts []Option) error {
+	// auto-refresh bearer token if needed
+	// do this before cloning (it's threadsafe) so we don't "lose" the refresh
+	if c.hasTokenSource() {
+		if err := c.refreshBearerToken(); err != nil {
+			return ucerr.Wrap(err)
+		}
+	}
+
 	// Always clone to minimize contention
 	c.optionsMutex.RLock()
 	options := c.options.clone()
@@ -169,6 +217,9 @@ func (c *Client) makeRequest(ctx context.Context, method, path string, bs []byte
 
 	// Concat per-request options
 	for _, opt := range opts {
+		if opt == nil {
+			return ucerr.New("nil option provided to jsonclient request")
+		}
 		opt.apply(options)
 	}
 
@@ -212,6 +263,7 @@ func (c *Client) makeRequest(ctx context.Context, method, path string, bs []byte
 	}
 	defer res.Body.Close()
 
+	body := ""
 	// If the response was not an error OR if the caller specified UnmarshalOnError, try to deserialize
 	// the response into the provided struct.
 	if res.StatusCode < http.StatusBadRequest || options.unmarshalOnError {
@@ -228,14 +280,13 @@ func (c *Client) makeRequest(ctx context.Context, method, path string, bs []byte
 		// An error was returned and the caller is not intentionally capturing the body; log full error response for debugging purposes.
 		// TODO: hide behind a flag for perf / PII / etc reasons?
 		b, err := io.ReadAll(res.Body)
-		var bs string
 		if err != nil {
-			bs = "<unable to decode response>"
+			body = "<unable to decode response>"
 		} else {
-			bs = string(b)
+			body = string(b)
 		}
 		// Use a package-internal method to log so we can diverge behavior between private vs public repos easily
-		logError(ctx, options.stopLogging, method, reqURL, bs, res.StatusCode)
+		logError(ctx, options.stopLogging, method, reqURL, body, res.StatusCode)
 
 		if options.parseOAuthError {
 			var oauthe oAuthError
@@ -253,7 +304,7 @@ func (c *Client) makeRequest(ctx context.Context, method, path string, bs []byte
 	// TODO: validate that 2xx is received, not 3xx or something else?
 
 	if res.StatusCode >= http.StatusBadRequest {
-		return ucerr.Wrap(Error{res.StatusCode})
+		return ucerr.Wrap(Error{res.StatusCode, body})
 	}
 
 	return nil

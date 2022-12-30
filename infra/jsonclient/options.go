@@ -61,6 +61,14 @@ func Header(k, v string) Option {
 	})
 }
 
+// PassthroughAuthorization allows you to pass the Authorization header through from
+// an incoming request to an outgoing request. Note this will only work as an option
+// in a request context (not a long-lived client)
+// TODO: should we have a way to differentiate short- and long-lived options?
+func PassthroughAuthorization(r *http.Request) Option {
+	return Header("Authorization", r.Header.Get("Authorization"))
+}
+
 // Cookie allows you to add cookies to jsonclient requests
 func Cookie(cookie http.Cookie) Option {
 	return optFunc(func(opts *options) {

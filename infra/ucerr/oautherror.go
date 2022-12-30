@@ -39,7 +39,7 @@ func newWrappedOAuthError(err error, errorType string, code int) error {
 		ErrorDesc:  err.Error(),
 		Code:       code,
 		underlying: err,
-	}, 2)
+	}, 2, nil)
 }
 
 // For future reference, here's the mapping of other OAuth errors to HTTP codes
@@ -101,7 +101,7 @@ func NewUnsupportedGrantError(grant string) error {
 		ErrorType: "unsupported_grant_type",
 		ErrorDesc: fmt.Sprintf("unsupported `grant_type` specified: %s", grant),
 		Code:      http.StatusBadRequest,
-	}, 1)
+	}, 1, nil)
 }
 
 // NewUnsupportedResponseError returns a new error signifying an unsupported OAuth `response_type`.
@@ -110,7 +110,7 @@ func NewUnsupportedResponseError(responseType string) error {
 		ErrorType: "unsupported_response_type",
 		ErrorDesc: fmt.Sprintf("unsupported `response_type` specified: %s", responseType),
 		Code:      http.StatusBadRequest,
-	}, 1)
+	}, 1, nil)
 }
 
 // NewInvalidTokenError returns an error signifying a bad token of some kind.

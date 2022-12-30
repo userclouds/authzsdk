@@ -63,10 +63,6 @@ var ErrRelationshipTypeNotFound = ucerr.New("relationship type not found")
 
 // CreateObjectType creates a new type of object for the authz system.
 func (c *Client) CreateObjectType(ctx context.Context, id uuid.UUID, typeName string) (*ObjectType, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
 	req := ObjectType{
 		BaseModel: ucdb.NewBaseWithID(id),
 		TypeName:  typeName,
@@ -85,10 +81,6 @@ func (c *Client) CreateObjectType(ctx context.Context, id uuid.UUID, typeName st
 
 // FindObjectTypeID resolves an object type name to an ID.
 func (c *Client) FindObjectTypeID(ctx context.Context, typeName string) (uuid.UUID, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return uuid.Nil, ucerr.Wrap(err)
-	}
-
 	c.mObjectTypes.RLock()
 	if ot, ok := c.objectTypes[typeName]; ok {
 		c.mObjectTypes.RUnlock()
@@ -111,10 +103,6 @@ func (c *Client) FindObjectTypeID(ctx context.Context, typeName string) (uuid.UU
 
 // GetObjectType returns an object type by ID.
 func (c *Client) GetObjectType(ctx context.Context, id uuid.UUID) (*ObjectType, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
 	c.mObjectTypes.RLock()
 	for _, ot := range c.objectTypes {
 		if ot.ID == id {
@@ -167,10 +155,6 @@ type ListObjectTypesResponse struct {
 
 // ListObjectTypes lists all object types in the system
 func (c *Client) ListObjectTypes(ctx context.Context) ([]ObjectType, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
 	// Rebuild the cache while we build up the response
 	newCache := make(map[string]ObjectType)
 	ots := make([]ObjectType, 0)
@@ -212,10 +196,6 @@ func (c *Client) ListObjectTypes(ctx context.Context) ([]ObjectType, error) {
 
 // DeleteObjectType deletes an object type by ID.
 func (c *Client) DeleteObjectType(ctx context.Context, objectTypeID uuid.UUID) error {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return ucerr.Wrap(err)
-	}
-
 	c.mObjectTypes.Lock()
 	for _, v := range c.objectTypes {
 		if v.ID == objectTypeID {
@@ -225,15 +205,11 @@ func (c *Client) DeleteObjectType(ctx context.Context, objectTypeID uuid.UUID) e
 	}
 	c.mObjectTypes.Unlock()
 
-	return ucerr.Wrap(c.client.Delete(ctx, fmt.Sprintf("/authz/objecttypes/%s", objectTypeID)))
+	return ucerr.Wrap(c.client.Delete(ctx, fmt.Sprintf("/authz/objecttypes/%s", objectTypeID), nil))
 }
 
 // CreateEdgeType creates a new type of edge for the authz system.
 func (c *Client) CreateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectTypeID, targetObjectTypeID uuid.UUID, typeName string, attributes Attributes) (*EdgeType, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
 	req := EdgeType{
 		BaseModel:          ucdb.NewBaseWithID(id),
 		TypeName:           typeName,
@@ -262,10 +238,6 @@ func (c *Client) UpdateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectT
 
 // GetEdgeType gets an edge type (relationship) by its type ID.
 func (c *Client) GetEdgeType(ctx context.Context, edgeTypeID uuid.UUID) (*EdgeType, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
 	c.mEdgeTypes.RLock()
 	for _, v := range c.edgeTypes {
 		if v.ID == edgeTypeID {
@@ -290,10 +262,6 @@ func (c *Client) GetEdgeType(ctx context.Context, edgeTypeID uuid.UUID) (*EdgeTy
 
 // FindEdgeTypeID resolves an edge type name to an ID.
 func (c *Client) FindEdgeTypeID(ctx context.Context, typeName string) (uuid.UUID, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return uuid.Nil, ucerr.Wrap(err)
-	}
-
 	c.mEdgeTypes.RLock()
 	if et, ok := c.edgeTypes[typeName]; ok {
 		c.mEdgeTypes.RUnlock()
@@ -324,10 +292,6 @@ type ListEdgeTypesResponse struct {
 
 // ListEdgeTypes lists all available edge types
 func (c *Client) ListEdgeTypes(ctx context.Context) ([]EdgeType, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
 	// Rebuild the cache while we build up the response
 	newCache := make(map[string]EdgeType)
 	ets := make([]EdgeType, 0)
@@ -369,10 +333,6 @@ func (c *Client) ListEdgeTypes(ctx context.Context) ([]EdgeType, error) {
 
 // DeleteEdgeType deletes an edge type by ID.
 func (c *Client) DeleteEdgeType(ctx context.Context, edgeTypeID uuid.UUID) error {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return ucerr.Wrap(err)
-	}
-
 	c.mEdgeTypes.Lock()
 	for _, v := range c.edgeTypes {
 		if v.ID == edgeTypeID {
@@ -382,15 +342,11 @@ func (c *Client) DeleteEdgeType(ctx context.Context, edgeTypeID uuid.UUID) error
 	}
 	c.mEdgeTypes.Unlock()
 
-	return ucerr.Wrap(c.client.Delete(ctx, fmt.Sprintf("/authz/edgetypes/%s", edgeTypeID)))
+	return ucerr.Wrap(c.client.Delete(ctx, fmt.Sprintf("/authz/edgetypes/%s", edgeTypeID), nil))
 }
 
 // CreateObject creates a new object with a given ID, name, and type.
 func (c *Client) CreateObject(ctx context.Context, id, typeID uuid.UUID, alias string) (*Object, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
 	obj := Object{
 		BaseModel: ucdb.NewBaseWithID(id),
 		Alias:     alias,
@@ -410,10 +366,6 @@ func (c *Client) CreateObject(ctx context.Context, id, typeID uuid.UUID, alias s
 
 // GetObject returns an object by ID.
 func (c *Client) GetObject(ctx context.Context, id uuid.UUID) (*Object, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
 	c.mObjects.RLock()
 	if obj, ok := c.objects[id]; ok {
 		c.mObjects.RUnlock()
@@ -435,10 +387,6 @@ func (c *Client) GetObject(ctx context.Context, id uuid.UUID) (*Object, error) {
 
 // GetObjectForName returns an object with a given name.
 func (c *Client) GetObjectForName(ctx context.Context, typeID uuid.UUID, name string) (*Object, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
 	c.mObjects.RLock()
 	for _, obj := range c.objects {
 		if obj.TypeID == typeID && obj.Alias == name {
@@ -449,32 +397,29 @@ func (c *Client) GetObjectForName(ctx context.Context, typeID uuid.UUID, name st
 	c.mObjects.RUnlock()
 
 	// TODO: support a name-based path, e.g. `/authz/objects/<objectname>`
-	var resp []Object
+	var resp ListObjectsResponse
+	decodeFunc := newPaginatedDecodeFunc(&resp, &resp.Data)
 	query := url.Values{}
 	query.Add("type_id", typeID.String())
 	query.Add("name", name)
-	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects?%s", query.Encode()), &resp); err != nil {
+	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects?%s", query.Encode()), nil, jsonclient.CustomDecoder(decodeFunc)); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
 	c.mObjects.Lock()
 	defer c.mObjects.Unlock()
-	for _, obj := range resp {
+	for _, obj := range resp.Data {
 		c.objects[obj.ID] = obj
 	}
 
-	if len(resp) > 0 {
-		return &resp[0], nil
+	if len(resp.Data) > 0 {
+		return &resp.Data[0], nil
 	}
 	return nil, ErrObjectNotFound
 }
 
 // DeleteObject deletes an object by ID.
 func (c *Client) DeleteObject(ctx context.Context, id uuid.UUID) error {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return ucerr.Wrap(err)
-	}
-
 	// TODO: this might be a bit too "understanding" of the server behavior, is
 	// there a safer way to separate these responsibilities?
 	c.mEdges.Lock()
@@ -490,7 +435,7 @@ func (c *Client) DeleteObject(ctx context.Context, id uuid.UUID) error {
 	delete(c.objects, id)
 	c.mObjects.Unlock()
 
-	return ucerr.Wrap(c.client.Delete(ctx, fmt.Sprintf("/authz/objects/%s", id)))
+	return ucerr.Wrap(c.client.Delete(ctx, fmt.Sprintf("/authz/objects/%s", id), nil))
 }
 
 // ListObjectsResponse represents a paginated response from listing objects.
@@ -519,10 +464,6 @@ func (r ListObjectsResponse) Less(left, right int) bool {
 
 // ListObjects lists `limit` objects in sorted order with pagination, starting after a given ID (or uuid.Nil to start from the beginning).
 func (c *Client) ListObjects(ctx context.Context, opts ...pagination.Option) (*ListObjectsResponse, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
 	options := pagination.ApplyOptions(opts)
 
 	var resp ListObjectsResponse
@@ -593,10 +534,6 @@ func (r ListEdgesResponse) Less(left, right int) bool {
 
 // ListEdgesOnObject lists `limit` edges (relationships) where the given object is a source or target.
 func (c *Client) ListEdgesOnObject(ctx context.Context, objectID uuid.UUID, opts ...pagination.Option) (*ListEdgesResponse, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
 	options := pagination.ApplyOptions(opts)
 
 	var resp ListEdgesResponse
@@ -643,10 +580,6 @@ func (c *Client) ListEdgesOnObject(ctx context.Context, objectID uuid.UUID, opts
 
 // ListEdgesBetweenObjects lists all edges (relationships) with a given source & target objct.
 func (c *Client) ListEdgesBetweenObjects(ctx context.Context, sourceObjectID, targetObjectID uuid.UUID) ([]Edge, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
 	// NB: we don't currently offer any cached reads here because it's hard to know when a "list" is current?
 	var resp []Edge
 	query := url.Values{}
@@ -667,10 +600,6 @@ func (c *Client) ListEdgesBetweenObjects(ctx context.Context, sourceObjectID, ta
 
 // FindEdge finds an existing edge (relationship) between two objects.
 func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, edgeTypeID uuid.UUID) (*Edge, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
 	c.mEdges.RLock()
 	for _, edge := range c.edges {
 		if edge.SourceObjectID == sourceObjectID &&
@@ -704,10 +633,6 @@ func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, e
 
 // CreateEdge creates an edge (relationship) between two objects.
 func (c *Client) CreateEdge(ctx context.Context, id, sourceObjectID, targetObjectID, edgeTypeID uuid.UUID) (*Edge, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
 	req := Edge{
 		BaseModel:      ucdb.NewBaseWithID(id),
 		EdgeTypeID:     edgeTypeID,
@@ -728,15 +653,11 @@ func (c *Client) CreateEdge(ctx context.Context, id, sourceObjectID, targetObjec
 
 // DeleteEdge deletes an edge by ID.
 func (c *Client) DeleteEdge(ctx context.Context, edgeID uuid.UUID) error {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return ucerr.Wrap(err)
-	}
-
 	c.mEdges.Lock()
 	delete(c.edges, edgeID)
 	c.mEdges.Unlock()
 
-	return ucerr.Wrap(c.client.Delete(ctx, fmt.Sprintf("/authz/edges/%s", edgeID)))
+	return ucerr.Wrap(c.client.Delete(ctx, fmt.Sprintf("/authz/edges/%s", edgeID), nil))
 }
 
 // AttributePathNode is a node in a path list from source to target, if CheckAttribute succeeds.
@@ -753,10 +674,6 @@ type CheckAttributeResponse struct {
 
 // CheckAttribute returns true if the source object has the given attribute on the target object.
 func (c *Client) CheckAttribute(ctx context.Context, sourceObjectID, targetObjectID uuid.UUID, attributeName string) (*CheckAttributeResponse, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
 	var resp CheckAttributeResponse
 	query := url.Values{}
 	query.Add("source_object_id", sourceObjectID.String())

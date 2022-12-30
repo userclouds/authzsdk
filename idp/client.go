@@ -8,11 +8,13 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	"userclouds.com/idp/paths"
+	"userclouds.com/idp/socialprovider"
 	"userclouds.com/idp/userstore"
 	"userclouds.com/infra/emailutil"
 	"userclouds.com/infra/jsonclient"
-	"userclouds.com/infra/pagination"
 	"userclouds.com/infra/ucerr"
+	"userclouds.com/policy"
 )
 
 // AuthnType defines the kinds of authentication factors
@@ -35,76 +37,6 @@ func (a AuthnType) Validate() error {
 	return ucerr.Errorf("invalid AuthnType: %s", string(a))
 }
 
-// SocialProvider defines the known External/Social Identity Providers
-type SocialProvider int
-
-// SocialProvider constants
-const (
-	// When sync'ing data from other IDPs, it's possible to encounter social auth providers not yet supported,
-	// in which case we store SocialProviderUnsupported in the DB.
-	SocialProviderUnsupported SocialProvider = -1
-
-	// Not having a social provider is the "default", hence why SocialProviderNone is 0.
-	SocialProviderNone SocialProvider = 0
-
-	// Valid social auth providers are numbered starting with 1
-	SocialProviderGoogle SocialProvider = 1
-)
-
-//go:generate genconstant SocialProvider
-
-// Validate implements Validateable
-func (s SocialProvider) Validate() error {
-	// None and Unsupported are both "valid" for different scenarios (see documentation on constants)
-	if s == SocialProviderGoogle || s == SocialProviderNone || s == SocialProviderUnsupported {
-		return nil
-	}
-	return ucerr.Errorf("invalid SocialProvider: %s", s.String())
-}
-
-// UsernamePasswordLoginRequest specifies the IDP request to login with username & password.
-type UsernamePasswordLoginRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-// LoginStatus indicates whether a login attempt succeeded, failed, or requires additional validation (e.g. MFA)
-type LoginStatus string
-
-// LoginStatus constants
-const (
-	LoginStatusSuccess     LoginStatus = "success"
-	LoginStatusMFARequired LoginStatus = "mfa_required"
-)
-
-// LoginResponse is the full response returned from an IDP login API
-type LoginResponse struct {
-	Status LoginStatus `json:"status"`
-
-	// UserID is set iff Status == LoginStatusSuccess (TODO: maybe also LoginStatusMFARequired?)
-	UserID uuid.UUID `json:"user_id"`
-
-	// MFAToken is set iff Status == LoginStatusMFARequired
-	MFAToken string `json:"mfa_token,omitempty"`
-}
-
-// UpdateUsernamePasswordRequest is used to keep the follower IDP(s) in sync
-type UpdateUsernamePasswordRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-// UpdateUsernamePasswordResponse confirms an update succeeded (or not)
-type UpdateUsernamePasswordResponse struct {
-	Success bool `json:"success"`
-}
-
-// MFALoginRequest allows the client to submit an MFA code
-type MFALoginRequest struct {
-	MFARequestID uuid.UUID
-	MFACode      string
-}
-
 // Client represents a client to talk to the Userclouds IDP
 type Client struct {
 	client *jsonclient.Client
@@ -121,68 +53,6 @@ func NewClient(url string, opts ...jsonclient.Option) (*Client, error) {
 	return c, nil
 }
 
-// Login supports username/password login to the UC IDP
-func (c *Client) Login(ctx context.Context, username, password string) (*LoginResponse, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
-	lr := UsernamePasswordLoginRequest{
-		Username: username,
-		Password: password,
-	}
-	var response LoginResponse
-
-	if err := c.client.Post(ctx, "/authn/uplogin", lr, &response, jsonclient.ParseOAuthError()); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
-	return &response, nil
-}
-
-// LoginWithMFA sends the MFA code response
-func (c *Client) LoginWithMFA(ctx context.Context, sessionID, code string) (*LoginResponse, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
-	id, err := uuid.FromString(sessionID)
-	if err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
-	body := MFALoginRequest{id, code}
-	var response LoginResponse
-	if err := c.client.Post(ctx, "/authn/mfaresponse", body, &response, jsonclient.ParseOAuthError()); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
-	return &response, nil
-}
-
-// UpdateUsernamePassword updates the stored password for a user for follower-sync purposes
-func (c *Client) UpdateUsernamePassword(ctx context.Context, username, password string) error {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return ucerr.Wrap(err)
-	}
-
-	lr := UpdateUsernamePasswordRequest{
-		Username: username,
-		Password: password,
-	}
-
-	var response UpdateUsernamePasswordResponse
-	if err := c.client.Post(ctx, "/authn/upupdate", lr, &response); err != nil {
-		return ucerr.Wrap(err)
-	}
-
-	if !response.Success {
-		return ucerr.New("update username/password failure")
-	}
-
-	return nil
-}
-
 // UserAuthn represents an authentication factor for a user.
 // NOTE: some fields are not used in some circumstances, e.g. Password is only
 // used when creating an account but never used when getting an account.
@@ -195,26 +65,8 @@ type UserAuthn struct {
 	Password string `json:"password,omitempty"`
 
 	// Fields specified if AuthnType == 'social'
-	SocialProvider SocialProvider `json:"social_provider,omitempty"`
-	OIDCSubject    string         `json:"oidc_subject,omitempty"`
-}
-
-// NewPasswordAuthn creates a new UserAuthn for username + password.
-func NewPasswordAuthn(username, password string) UserAuthn {
-	return UserAuthn{
-		AuthnType: AuthnTypePassword,
-		Username:  username,
-		Password:  password,
-	}
-}
-
-// NewSocialAuthn creates a new UserAuthn for social / OIDC login.
-func NewSocialAuthn(provider SocialProvider, oidcSubject string) UserAuthn {
-	return UserAuthn{
-		AuthnType:      AuthnTypeSocial,
-		SocialProvider: provider,
-		OIDCSubject:    oidcSubject,
-	}
+	SocialProvider socialprovider.SocialProvider `json:"social_provider,omitempty"`
+	OIDCSubject    string                        `json:"oidc_subject,omitempty"`
 }
 
 // UserProfile is a collection of per-user properties stored in the DB as JSON since
@@ -239,6 +91,9 @@ type UserProfile struct {
 //go:generate genvalidate UserProfile
 
 func (up UserProfile) extraValidate() error {
+	if up.Email == "" {
+		return nil
+	}
 	a := emailutil.Address(up.Email)
 	if err := a.Validate(); err != nil {
 		return ucerr.Wrap(err)
@@ -246,112 +101,62 @@ func (up UserProfile) extraValidate() error {
 	return nil
 }
 
-// CreateUserRequest creates a user on the IDP
-type CreateUserRequest struct {
+// CreateUserAndAuthnRequest creates a user on the IDP
+type CreateUserAndAuthnRequest struct {
 	UserProfile `json:"profile"`
 
-	RequireMFA bool `json:"require_mfa"`
+	// TODO: these fields really belong in a better client-facing User type
+	ExternalAlias *string `json:"external_alias,omitempty"`
+	RequireMFA    bool    `json:"require_mfa"`
 
 	UserExtendedProfile userstore.Record `json:"profile_ext"`
 
 	UserAuthn
 }
 
-// UserResponse is the response body for methods which return user data.
-type UserResponse struct {
+// UserAndAuthnResponse is the response body for methods which return user data.
+type UserAndAuthnResponse struct {
 	ID        uuid.UUID `json:"id"`
 	UpdatedAt int64     `json:"updated_at"` // seconds since the Unix Epoch (UTC)
 
 	UserProfile `json:"profile"`
 
-	RequireMFA bool `json:"require_mfa"`
+	ExternalAlias *string `json:"external_alias,omitempty"`
+	RequireMFA    bool    `json:"require_mfa"`
 
 	UserExtendedProfile userstore.Record `json:"profile_ext"`
 
 	Authns []UserAuthn `json:"authns"`
 }
 
-// CreateUserWithPassword creates a user on the IDP
-func (c *Client) CreateUserWithPassword(ctx context.Context, username, password string, profile UserProfile) (uuid.UUID, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return uuid.Nil, ucerr.Wrap(err)
+// CreateUser creates a user without authn. extendedProfile & externalAlias are optional (nil is ok)
+func (c *Client) CreateUser(ctx context.Context,
+	profile UserProfile,
+	extendedProfile userstore.Record,
+	externalAlias string) (uuid.UUID, error) {
+	// TODO: we don't validate the profile here, since we don't require email in this path
+	// this probably should be refactored to be more consistent in this client
+
+	req := CreateUserAndAuthnRequest{
+		UserProfile:         profile,
+		UserExtendedProfile: extendedProfile,
 	}
 
-	if err := profile.Validate(); err != nil {
-		return uuid.Nil, ucerr.Wrap(err)
+	if externalAlias != "" {
+		req.ExternalAlias = &externalAlias
 	}
 
-	req := CreateUserRequest{
-		UserProfile: profile,
-		RequireMFA:  false,
-		UserAuthn:   NewPasswordAuthn(username, password),
-	}
-
-	var res UserResponse
-
-	if err := c.client.Post(ctx, "/authn/users", req, &res); err != nil {
-		return uuid.Nil, ucerr.Wrap(err)
-	}
-
-	return res.ID, nil
-}
-
-// CreateUserWithSocial creates a user on the IDP
-func (c *Client) CreateUserWithSocial(ctx context.Context, provider SocialProvider, subject string, profile UserProfile) (uuid.UUID, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return uuid.Nil, ucerr.Wrap(err)
-	}
-
-	req := CreateUserRequest{
-		UserProfile: profile,
-		RequireMFA:  false,
-		UserAuthn:   NewSocialAuthn(provider, subject),
-	}
-
-	var res UserResponse
-
-	if err := c.client.Post(ctx, "/authn/users", req, &res); err != nil {
+	var res UserAndAuthnResponse
+	if err := c.client.Post(ctx, paths.CreateUser, req, &res); err != nil {
 		return uuid.Nil, ucerr.Wrap(err)
 	}
 
 	return res.ID, nil
-}
-
-// ListUsersResponse is the paginated response from listing users.
-type ListUsersResponse struct {
-	Data []UserResponse `json:"data"`
-	pagination.ResponseFields
-}
-
-// ListUsers lists all users
-func (c *Client) ListUsers(ctx context.Context, opts ...pagination.Option) (*ListUsersResponse, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
-	options := pagination.ApplyOptions(opts)
-
-	var res ListUsersResponse
-	query := options.Query()
-	requestURL := url.URL{
-		Path:     "/authn/users",
-		RawQuery: query.Encode(),
-	}
-
-	if err := c.client.Get(ctx, requestURL.String(), &res); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
-	return &res, nil
 }
 
 // GetUser gets a user by ID
-func (c *Client) GetUser(ctx context.Context, id uuid.UUID) (*UserResponse, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
-	var res UserResponse
+func (c *Client) GetUser(ctx context.Context, id uuid.UUID) (*UserAndAuthnResponse, error) {
+	var res UserAndAuthnResponse
 
 	requestURL := url.URL{
 		Path: fmt.Sprintf("/authn/users/%s", id),
@@ -364,57 +169,21 @@ func (c *Client) GetUser(ctx context.Context, id uuid.UUID) (*UserResponse, erro
 	return &res, nil
 }
 
-// GetUserForSocial gets a user by social provider / ID
-func (c *Client) GetUserForSocial(ctx context.Context, provider SocialProvider, oidcSubject string) (*UserResponse, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
-	var res []UserResponse
-
-	prov, err := provider.MarshalText()
-	if err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-	reqURL := url.URL{
-		Path: "/authn/users",
+// GetUserByExternalAlias gets a user by external alias
+func (c *Client) GetUserByExternalAlias(ctx context.Context, alias string) (*UserAndAuthnResponse, error) {
+	u := url.URL{
+		Path: paths.GetUserByExternalAlias,
 		RawQuery: url.Values{
-			"provider": []string{string(prov)},
-			"subject":  []string{oidcSubject},
-		}.Encode(),
-	}
-	if err := c.client.Get(ctx, reqURL.String(), &res); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
-	if len(res) != 1 {
-		return nil, ucerr.Errorf("unexpected number of results (%d)", len(res))
-	}
-
-	return &res[0], nil
-}
-
-// ListUsersForEmail gets all user accounts associated with an email and authn type
-func (c *Client) ListUsersForEmail(ctx context.Context, email string, authnType AuthnType) ([]UserResponse, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
-	var res []UserResponse
-
-	requestURL := url.URL{
-		Path: "/authn/users",
-		RawQuery: url.Values{
-			"email":      []string{email},
-			"authn_type": []string{string(authnType)},
+			"external_alias": []string{alias},
 		}.Encode(),
 	}
 
-	if err := c.client.Get(ctx, requestURL.String(), &res); err != nil {
+	var res UserAndAuthnResponse
+	if err := c.client.Get(ctx, u.String(), &res); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	return res, nil
+	return &res, nil
 }
 
 // MutableUserProfile is used by UpdateUserRequest to update parts of the core user profile.
@@ -441,16 +210,12 @@ type UpdateUserRequest struct {
 }
 
 // UpdateUser updates user profile data for a given user ID
-func (c *Client) UpdateUser(ctx context.Context, id uuid.UUID, req UpdateUserRequest) (*UserResponse, error) {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
+func (c *Client) UpdateUser(ctx context.Context, id uuid.UUID, req UpdateUserRequest) (*UserAndAuthnResponse, error) {
 	requestURL := url.URL{
 		Path: fmt.Sprintf("/authn/users/%s", id),
 	}
 
-	var resp UserResponse
+	var resp UserAndAuthnResponse
 
 	if err := c.client.Put(ctx, requestURL.String(), &req, &resp); err != nil {
 		return nil, ucerr.Wrap(err)
@@ -461,13 +226,200 @@ func (c *Client) UpdateUser(ctx context.Context, id uuid.UUID, req UpdateUserReq
 
 // DeleteUser deletes a user by ID
 func (c *Client) DeleteUser(ctx context.Context, id uuid.UUID) error {
-	if err := c.client.RefreshBearerToken(); err != nil {
-		return ucerr.Wrap(err)
-	}
-
 	requestURL := url.URL{
 		Path: fmt.Sprintf("/authn/users/%s", id),
 	}
 
-	return ucerr.Wrap(c.client.Delete(ctx, requestURL.String()))
+	return ucerr.Wrap(c.client.Delete(ctx, requestURL.String(), nil))
+}
+
+// CreateColumnRequest is the request body for creating a new column
+// TODO: should this support multiple at once before we ship this API?
+type CreateColumnRequest struct {
+	Column userstore.Column `json:"column"`
+}
+
+// CreateColumnResponse is the response body for creating a new column
+type CreateColumnResponse struct {
+	Column userstore.Column `json:"column"`
+}
+
+// CreateColumn creates a new column for the associated tenant
+func (c *Client) CreateColumn(ctx context.Context, column userstore.Column) (*userstore.Column, error) {
+	req := CreateColumnRequest{
+		Column: column,
+	}
+	var res CreateColumnResponse
+	if err := c.client.Post(ctx, paths.CreateColumnPath, req, &res); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &res.Column, nil
+}
+
+// DeleteColumn deletes the column specified by the column ID for the associated tenant
+func (c *Client) DeleteColumn(ctx context.Context, columnID uuid.UUID) error {
+	return ucerr.Wrap(c.client.Delete(ctx, paths.DeleteColumnPath(columnID), nil))
+}
+
+// GetColumn returns the column specified by the column ID for the associated tenant
+func (c *Client) GetColumn(ctx context.Context, columnID uuid.UUID) (*userstore.Column, error) {
+	var resp userstore.Column
+	if err := c.client.Get(ctx, paths.GetColumnPath(columnID), &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// ListColumnsResponse is the response body for listing columns
+type ListColumnsResponse struct {
+	Columns []userstore.Column `json:"columns"`
+}
+
+// ListColumns lists all columns for the associated tenant
+func (c *Client) ListColumns(ctx context.Context) ([]userstore.Column, error) {
+	var res ListColumnsResponse
+	if err := c.client.Get(ctx, paths.ListColumnsPath, &res); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return res.Columns, nil
+}
+
+// UpdateColumnRequest is the request body for updating a column
+type UpdateColumnRequest struct {
+	Column userstore.Column `json:"column"`
+}
+
+// UpdateColumnResponse is the response body for updating a column
+type UpdateColumnResponse struct {
+	Column userstore.Column `json:"column"`
+}
+
+// UpdateColumn updates the column specified by the column ID with the specified data for the associated tenant
+func (c *Client) UpdateColumn(ctx context.Context, columnID uuid.UUID, updatedColumn userstore.Column) (*userstore.Column, error) {
+	req := UpdateColumnRequest{
+		Column: updatedColumn,
+	}
+
+	var resp UpdateColumnResponse
+	if err := c.client.Put(ctx, paths.UpdateColumnPath(columnID), req, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp.Column, nil
+}
+
+// CreateAccessorRequest is the request body for creating a new accessor
+type CreateAccessorRequest struct {
+	Accessor userstore.ColumnAccessor `json:"accessor"`
+}
+
+// CreateAccessorResponse is the response body for creating a new accessor
+type CreateAccessorResponse struct {
+	Accessor userstore.ColumnAccessor `json:"accessor"`
+}
+
+// CreateAccessor creates a new accessor for the associated tenant
+func (c *Client) CreateAccessor(ctx context.Context, fa userstore.ColumnAccessor) (*userstore.ColumnAccessor, error) {
+	req := CreateAccessorRequest{
+		Accessor: fa,
+	}
+	var res CreateAccessorResponse
+	if err := c.client.Post(ctx, paths.CreateAccessorPath, req, &res); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &res.Accessor, nil
+}
+
+// DeleteAccessor deletes the accessor specified by the accessor ID for the associated tenant
+func (c *Client) DeleteAccessor(ctx context.Context, accessorID uuid.UUID) error {
+	return ucerr.Wrap(c.client.Delete(ctx, paths.DeleteAccessorPath(accessorID), nil))
+}
+
+// GetAccessor returns the accessor specified by the accessor ID for the associated tenant
+func (c *Client) GetAccessor(ctx context.Context, accessorID uuid.UUID) (*userstore.ColumnAccessor, error) {
+	var resp userstore.ColumnAccessor
+	if err := c.client.Get(ctx, paths.GetAccessorPath(accessorID), &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// ListAccessorsResponse is the response body for listing accessors
+type ListAccessorsResponse struct {
+	Accessors []userstore.ColumnAccessor `json:"accessors"`
+}
+
+// ListAccessors lists all the available accessors for the associated tenant
+func (c *Client) ListAccessors(ctx context.Context) ([]userstore.ColumnAccessor, error) {
+	var res ListAccessorsResponse
+	if err := c.client.Get(ctx, paths.ListAccessorsPath, &res); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return res.Accessors, nil
+}
+
+// UpdateAccessorRequest is the request body for updating an accessor
+type UpdateAccessorRequest struct {
+	Accessor userstore.ColumnAccessor `json:"accessor"`
+}
+
+// UpdateAccessorResponse is the response body for updating an accessor
+type UpdateAccessorResponse struct {
+	Accessor userstore.ColumnAccessor `json:"accessor"`
+}
+
+// UpdateAccessor updates the accessor specified by the accessor ID with the specified data for the associated tenant
+func (c *Client) UpdateAccessor(ctx context.Context, accessorID uuid.UUID, updatedAccessor userstore.ColumnAccessor) (*userstore.ColumnAccessor, error) {
+	req := UpdateAccessorRequest{
+		Accessor: updatedAccessor,
+	}
+
+	var resp UpdateAccessorResponse
+	if err := c.client.Put(ctx, paths.UpdateAccessorPath(accessorID), req, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp.Accessor, nil
+}
+
+// UserSelector lets you request the user to run an accessor on
+// Currently we only support UserClouds ID or your own ID (ExternalAlias)
+// but plan to enhance this soon.
+type UserSelector struct {
+	ID            uuid.UUID `json:"id"`
+	ExternalAlias string    `json:"external_alias"` // TODO: using this here makes me think we should rename it
+}
+
+// ExecuteAccessorRequest is the request body for accessing a column
+type ExecuteAccessorRequest struct {
+	User       UserSelector         `json:"user"`        // the user who's data you are accessing
+	AccessorID uuid.UUID            `json:"accessor_id"` // the accessor that specifies what you're accessing
+	Context    policy.ClientContext `json:"context"`     // context that is provided to the accessor Access Policy
+}
+
+// ExecuteAccessorResponse is the response body for accessing a column
+type ExecuteAccessorResponse struct {
+	Value string `json:"value"`
+}
+
+// ExecuteAccessor accesses a column via an accessor for the associated tenant
+func (c *Client) ExecuteAccessor(ctx context.Context, user UserSelector, accessorID uuid.UUID, clientContext policy.ClientContext) (string, error) {
+	req := ExecuteAccessorRequest{
+		User:       user,
+		AccessorID: accessorID,
+		Context:    clientContext,
+	}
+
+	var res ExecuteAccessorResponse
+	if err := c.client.Post(ctx, paths.ExecuteAccessorPath, req, &res); err != nil {
+		return "", ucerr.Wrap(err)
+	}
+
+	return res.Value, nil
 }
