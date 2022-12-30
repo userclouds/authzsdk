@@ -63,17 +63,9 @@ func oneTimeProvision(ctx context.Context, idpClient *idp.Client, authZClient *a
 	}))
 
 	// Create a few test users (normally users would sign up via the UI, so this is slightly contrived)
-	AliceUserID = mustID(provisionUser(ctx, idpClient, "alice", "password_alice_123!", idp.UserProfile{
-		Email:    "alice@example.com",
-		Name:     "Alice Aardvark",
-		Nickname: "Allie",
-	}))
+	AliceUserID = mustID(provisionUser(ctx, idpClient, "Alice"))
 
-	BobUserID = mustID(provisionUser(ctx, idpClient, "bob", "password_bob_123!", idp.UserProfile{
-		Email:    "bob@example.com",
-		Name:     "Bob Birdie",
-		Nickname: "Bobby",
-	}))
+	BobUserID = mustID(provisionUser(ctx, idpClient, "Bob"))
 
 	return nil
 }
