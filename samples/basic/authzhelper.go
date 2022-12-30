@@ -62,19 +62,14 @@ func provisionObject(ctx context.Context, authZClient *authz.Client, typeID uuid
 	return obj.ID, nil
 }
 
-func provisionUser(ctx context.Context, idpClient *idp.Client, username, password string, profile idp.UserProfile) (uuid.UUID, error) {
-	var err error
-	if _, err = idpClient.CreateUserWithPassword(ctx, username, password, profile); !isBenign(err) {
-		return uuid.Nil, ucerr.Wrap(err)
+func provisionUser(ctx context.Context, idpClient *idp.Client, name string) (uuid.UUID, error) {
+	// Try to find user by existing alias
+	if user, err := idpClient.GetUserByExternalAlias(ctx, name); err == nil {
+		return user.ID, nil
 	}
-	users, err := idpClient.ListUsersForEmail(ctx, profile.Email, idp.AuthnTypePassword)
-	if err != nil {
-		return uuid.Nil, ucerr.Wrap(err)
-	}
-	if len(users) != 1 {
-		return uuid.Nil, ucerr.Errorf("expected 1 user with email '%s', got %d", profile.Email, len(users))
-	}
-	return users[0].ID, nil
+	// If any error occurred above, create a new user
+	id, err := idpClient.CreateUser(ctx, idp.UserProfile{Name: name}, nil, name)
+	return id, ucerr.Wrap(err)
 }
 
 // mustID panics if a UUID-producing operation returns an error, otherwise it returns the UUID
