@@ -2,7 +2,7 @@ package jsonclient
 
 import "fmt"
 
-// oAuthError lets us easily decode an oautherror response from a service we call,
+// JCOAuthError lets us easily decode an oautherror response from a service we call,
 // and keep track of the error code for clients
 // NOTE: this is very similar but different to `ucerr.OAuthError` because our usage
 // here is very limited (we're duplicating ~8 lines of code), and it prevents a weird

@@ -1,33 +1,33 @@
 // NOTE: automatically generated file -- DO NOT EDIT
 
-package idp
+package userstore
 
 import "userclouds.com/infra/ucerr"
 
 // MarshalText implements encoding.TextMarshaler (for JSON)
-func (t SocialProvider) MarshalText() ([]byte, error) {
+func (t ColumnType) MarshalText() ([]byte, error) {
 	switch t {
-	case SocialProviderGoogle:
-		return []byte("google"), nil
-	case SocialProviderNone:
-		return []byte("none"), nil
-	case SocialProviderUnsupported:
-		return []byte("unsupported"), nil
+	case ColumnTypeInvalid:
+		return []byte("invalid"), nil
+	case ColumnTypeString:
+		return []byte("string"), nil
+	case ColumnTypeTimestamp:
+		return []byte("timestamp"), nil
 	default:
 		return nil, ucerr.Errorf("unknown value %d", t)
 	}
 }
 
 // UnmarshalText implements encoding.TextMarshaler (for JSON)
-func (t *SocialProvider) UnmarshalText(b []byte) error {
+func (t *ColumnType) UnmarshalText(b []byte) error {
 	s := string(b)
 	switch s {
-	case "google":
-		*t = SocialProviderGoogle
-	case "none":
-		*t = SocialProviderNone
-	case "unsupported":
-		*t = SocialProviderUnsupported
+	case "invalid":
+		*t = ColumnTypeInvalid
+	case "string":
+		*t = ColumnTypeString
+	case "timestamp":
+		*t = ColumnTypeTimestamp
 	default:
 		return ucerr.Errorf("unknown value %s", s)
 	}
@@ -35,7 +35,7 @@ func (t *SocialProvider) UnmarshalText(b []byte) error {
 }
 
 // just here for easier debugging
-func (t SocialProvider) String() string {
+func (t ColumnType) String() string {
 	bs, err := t.MarshalText()
 	if err != nil {
 		return err.Error()

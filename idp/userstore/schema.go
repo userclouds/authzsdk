@@ -10,73 +10,73 @@ import (
 
 // Schema defines the format of the User Data Store/Vault for a given tenant.
 type Schema struct {
-	Fields []Field `json:"fields"`
+	Columns []Column `json:"columns"`
 }
 
 //go:generate gendbjson Schema
 
 //go:generate genvalidate Schema
 
-// FieldType is an enum for supported field types
-type FieldType int
+// ColumnType is an enum for supported column types
+type ColumnType int
 
-// FieldType constants (leaving gaps intentionally to allow future related types to be grouped)
-// NOTE: keep in sync with mapFieldType defined in TenantUserStoreConfig.tsx
+// ColumnType constants (leaving gaps intentionally to allow future related types to be grouped)
+// NOTE: keep in sync with mapColumnType defined in TenantUserStoreConfig.tsx
 const (
-	FieldTypeInvalid FieldType = 0
+	ColumnTypeInvalid ColumnType = 0
 
-	FieldTypeString FieldType = 100
+	ColumnTypeString ColumnType = 100
 
-	FieldTypeTimestamp FieldType = 200
+	ColumnTypeTimestamp ColumnType = 200
 )
 
-//go:generate genconstant FieldType
+//go:generate genconstant ColumnType
 
 // Validate implements Validateable
-func (ft FieldType) Validate() error {
+func (ft ColumnType) Validate() error {
 	switch ft {
-	case FieldTypeString:
+	case ColumnTypeString:
 		fallthrough
-	case FieldTypeTimestamp:
+	case ColumnTypeTimestamp:
 		return nil
 	}
-	return ucerr.Errorf("invalid FieldType: %s", ft.String())
+	return ucerr.Errorf("invalid ColumnType: %s", ft.String())
 }
 
-// Field represents a single field/column/value to be collected/stored/managed
+// Column represents a single field/column/value to be collected/stored/managed
 // in the user data store of a tenant.
-type Field struct {
-	// Fields may be renamed, but their ID cannot be changed.
-	ID   uuid.UUID `json:"id" validate:"notnil"`
-	Name string    `json:"name" validate:"notempty"`
-	Type FieldType `json:"type"`
+type Column struct {
+	// Columns may be renamed, but their ID cannot be changed.
+	ID   uuid.UUID  `json:"id" validate:"notnil"`
+	Name string     `json:"name" validate:"notempty"`
+	Type ColumnType `json:"type"`
 }
 
-//go:generate genvalidate Field
+//go:generate genvalidate Column
 
-// Record is a single "row" of data containing 0 or more Fields that adhere to a Schema.
-// The key is the Field UUID, since names can change but IDs are stable.
+// Record is a single "row" of data containing 0 or more Columns that adhere to a Schema.
+// The key is the Column UUID, since names can change but IDs are stable.
 type Record map[uuid.UUID]interface{}
 
 //go:generate gendbjson Record
 
-func getFieldType(i interface{}) FieldType {
+func getColumnType(i interface{}) ColumnType {
 	switch i.(type) {
 	case string:
-		return FieldTypeString
+		return ColumnTypeString
 	case time.Time:
-		return FieldTypeTimestamp
+		return ColumnTypeTimestamp
 	default:
-		return FieldTypeInvalid
+		return ColumnTypeInvalid
 	}
 }
 
-// Validate implements Validateable and ensures that a Record has fields
-// which consist only of valid Field Types.
+// Validate implements Validateable and ensures that a Record has columns
+// which consist only of valid ColumnTypes.
 // TODO: need a Validation method that validates against a particular schema.
 func (r Record) Validate() error {
 	for k, i := range r {
-		if t := getFieldType(i); t == FieldTypeInvalid {
+		if t := getColumnType(i); t == ColumnTypeInvalid {
 			return ucerr.Errorf("unknown type for Record[%s]: %T", k, i)
 		}
 	}
@@ -89,28 +89,28 @@ func (r Record) Validate() error {
 // This method should be called whenever a Record is deserialized.
 func (r Record) FixupAndValidate(s *Schema) error {
 	for k, i := range r {
-		var field *Field
-		for idx := range s.Fields {
-			if k == s.Fields[idx].ID {
-				field = &s.Fields[idx]
+		var col *Column
+		for idx := range s.Columns {
+			if k == s.Columns[idx].ID {
+				col = &s.Columns[idx]
 				break
 			}
 		}
-		if field == nil {
-			return ucerr.Errorf("no Field in Schema with matching ID for Record[%s]", k)
+		if col == nil {
+			return ucerr.Errorf("no Column in Schema with matching ID for Record[%s]", k)
 		}
-		actualType := getFieldType(i)
+		actualType := getColumnType(i)
 		// In JSON, times get [de-]serialized to/from strings, so we need to handle special types.
 		// Other future types will need similar conversion (e.g. lat/long, phone numbers, etc)
-		if field.Type == FieldTypeTimestamp && actualType == FieldTypeString {
+		if col.Type == ColumnTypeTimestamp && actualType == ColumnTypeString {
 			t, err := time.Parse(time.RFC3339, i.(string))
 			if err == nil {
 				r[k] = t
-				actualType = getFieldType(r[k])
+				actualType = getColumnType(r[k])
 			}
 		}
-		if actualType != field.Type {
-			return ucerr.Errorf("expected Record[%s] to have type %s, got %s instead", k, field.Type, actualType)
+		if actualType != col.Type {
+			return ucerr.Errorf("expected Record[%s] to have type %s, got %s instead", k, col.Type, actualType)
 		}
 	}
 	return nil

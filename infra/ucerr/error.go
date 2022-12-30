@@ -12,11 +12,14 @@ type UCError interface {
 	BaseError() string
 	Error() string // include this so UCError implements Error for erroras linter
 	Friendly() string
+	FriendlyStructure() interface{}
 }
 
 type ucError struct {
-	text       string // this is intended for internal use
-	friendly   string // (optional) this will get propagated to the user (or developer-user)
+	text      string      // this is intended for internal use
+	friendly  string      // (optional) this will get propagated to the user (or developer-user)
+	structure interface{} // if non-nil, then FriendlyStructure() will a marshalable struct as its value
+
 	underlying error
 
 	function string
@@ -124,7 +127,7 @@ func (e *ucError) Unwrap() error {
 
 // New creates a new ucerr
 func New(text string) error {
-	return new(text, "", nil, 1)
+	return new(text, "", nil, 1, nil)
 }
 
 // Errorf is our local version of fmt.Errorf including callsite info
@@ -141,13 +144,18 @@ func Errorf(temp string, args ...interface{}) error {
 		}
 		args = args[0 : len(args)-1]
 	}
-	return new(fmt.Sprintf(temp, args...), "", wrapped, 1)
+	return new(fmt.Sprintf(temp, args...), "", wrapped, 1, nil)
 }
 
 // Friendlyf wraps an error with a user-friendly message
-func Friendlyf(err error, temp string, args ...interface{}) error {
-	s := fmt.Sprintf(temp, args...)
-	return new("", s, err, 1)
+func Friendlyf(err error, format string, args ...interface{}) error {
+	s := fmt.Sprintf(format, args...)
+	return new("", s, err, 1, nil)
+}
+
+// WrapWithFriendlyStructure wraps an error with a structured error
+func WrapWithFriendlyStructure(err error, structure interface{}) error {
+	return new("", "", err, 1, structure)
 }
 
 // Wrap wraps an existing error with an additional level of the callstack
@@ -159,7 +167,7 @@ func Wrap(err error, opts ...Option) error {
 	for _, opt := range opts {
 		opt.apply(&options)
 	}
-	return new(wrappedText, "", err, options.skipFrames+1)
+	return new(wrappedText, "", err, options.skipFrames+1, nil)
 }
 
 // ExtraSkip tells Wrap to skip an extra frame in the stack when wrapping an error
@@ -171,7 +179,7 @@ func ExtraSkip() Option {
 }
 
 // skips is the number of stack frames (besides new itself) to skip
-func new(text, friendly string, wraps error, skips int) error {
+func new(text, friendly string, wraps error, skips int, structure interface{}) error {
 	function, filename, line := whereAmI(skips + 1)
 	err := &ucError{
 		text:       text,
@@ -180,6 +188,7 @@ func new(text, friendly string, wraps error, skips int) error {
 		function:   function,
 		filename:   filename,
 		line:       line,
+		structure:  structure,
 	}
 	return err
 }
@@ -210,6 +219,21 @@ func (e ucError) Friendly() string {
 	return "an unspecified error occurred"
 }
 
+// FriendlyStructure returns something that can be marshaled to JSON for the client to
+// access programatically
+func (e ucError) FriendlyStructure() interface{} {
+	if e.structure != nil {
+		return e.structure
+	}
+
+	var uce UCError
+	if errors.As(e.underlying, &uce) {
+		return uce.FriendlyStructure()
+	}
+
+	return nil
+}
+
 // UserFriendlyMessage is just a simple wrapper to handle casting error -> ucError
 func UserFriendlyMessage(err error) string {
 	var uce UCError
@@ -220,4 +244,14 @@ func UserFriendlyMessage(err error) string {
 	// note subtle difference in language from Friendly() identifies an
 	// (unlikely) place where we didn't wrap an error with a ucError ever
 	return "an unknown error occurred"
+}
+
+// UserFriendlyStructure exposes the structured error data if error is a ucError
+func UserFriendlyStructure(err error) interface{} {
+	var uce UCError
+	if errors.As(err, &uce) {
+		return uce.FriendlyStructure()
+	}
+
+	return nil
 }
