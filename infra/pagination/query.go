@@ -4,48 +4,55 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/gofrs/uuid"
-
 	"userclouds.com/infra/ucerr"
 )
 
-// ParseQuery parses the standard HTTP GET parameters from the URL's query,
-// `starting_after` (cursor) and `limit` (# results).
-func ParseQuery(query url.Values) (uuid.UUID, int, error) {
-	var err error
+// NewPaginatorFromQuery applies any default options and any additional options from parsing
+// the query to produce a Paginator instance, validates that instance, and returns it if valid
+func NewPaginatorFromQuery(query url.Values, defaultOptions ...Option) (*Paginator, error) {
+	options := []Option{}
 
-	startingAfter := StartingID
-	limit := DefaultLimit
+	// since we apply options in order, make sure defaults are applied first
+	options = append(options, defaultOptions...)
 
-	if startingAfterStr := query.Get("starting_after"); startingAfterStr != "" {
-		if startingAfter, err = uuid.FromString(startingAfterStr); err != nil {
-			return uuid.Nil, 0, ucerr.Friendlyf(err, "error parsing 'starting_after' argument")
-		}
+	if query.Has("starting_after") {
+		options = append(options, StartingAfter(Cursor(query.Get("starting_after"))))
 	}
 
-	if limitStr := query.Get("limit"); limitStr != "" {
-		if limit, err = strconv.Atoi(limitStr); err != nil {
-			return uuid.Nil, 0, ucerr.Friendlyf(err, "error parsing 'limit' argument")
-		}
-
-		if limit <= 0 || limit > MaxLimit {
-			return uuid.Nil, 0, ucerr.Friendlyf(nil, "'limit' argument must be greater than 0 and less than %d", MaxLimit)
-		}
+	if query.Has("ending_before") {
+		options = append(options, EndingBefore(Cursor(query.Get("ending_before"))))
 	}
 
-	return startingAfter, limit, nil
-}
+	if query.Has("limit") {
+		limit, err := strconv.Atoi(query.Get("limit"))
+		if err != nil {
+			return nil, ucerr.Friendlyf(err, "error parsing 'limit' argument")
+		}
+		options = append(options, Limit(limit))
+	}
 
-// NewOptionsFromQuery parses the query and returns Option values.
-func NewOptionsFromQuery(query url.Values) ([]Option, error) {
-	startingAfter, limit, err := ParseQuery(query)
+	if query.Has("sort_key") {
+		options = append(options, SortKey(Key(query.Get("sort_key"))))
+	}
+
+	if query.Has("sort_order") {
+		options = append(options, SortOrder(Order(query.Get("sort_order"))))
+	}
+
+	if query.Has("version") {
+		version, err := strconv.Atoi(query.Get("version"))
+		if err != nil {
+			return nil, ucerr.Friendlyf(err, "error parsing 'version' argument")
+		}
+		options = append(options, requestVersion(Version(version)))
+	} else {
+		options = append(options, requestVersion(Version1))
+	}
+
+	pager, err := ApplyOptions(options...)
 	if err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-	cursor := CursorBegin
-	if startingAfter != uuid.Nil {
-		cursor = Cursor(startingAfter.String())
+		return nil, ucerr.Friendlyf(err, "paginator settings are invalid")
 	}
 
-	return []Option{StartingAfter(cursor), Limit(limit)}, nil
+	return pager, nil
 }
