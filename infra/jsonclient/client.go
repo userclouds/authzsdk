@@ -23,8 +23,8 @@ type Error struct {
 }
 
 type structuredError struct {
-	StatusCode int         `json:"http_status_code"`
-	Body       interface{} `json:"response_body"`
+	Code  int         `json:"http_status_code"`
+	Error interface{} `json:"error"`
 }
 
 // Error implements UCError

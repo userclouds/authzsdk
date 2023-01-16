@@ -161,15 +161,17 @@ func (c *Client) ListObjectTypes(ctx context.Context) ([]ObjectType, error) {
 
 	// TODO: we should eventually support pagination arguments to this method, but for now we assume
 	// there aren't that many object types and just fetch them all.
-	var startingAfter uuid.UUID
-	for {
-		var resp ListObjectTypesResponse
-		query := url.Values{}
-		query.Add("starting_after", startingAfter.String())
-		// Use default page size
 
-		decodeFunc := newPaginatedDecodeFunc(&resp, &resp.Data)
-		if err := c.client.Get(ctx, fmt.Sprintf("/authz/objecttypes?%s", query.Encode()), nil, jsonclient.CustomDecoder(decodeFunc)); err != nil {
+	pager, err := pagination.ApplyOptions()
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	for {
+		query := pager.Query()
+
+		var resp ListObjectTypesResponse
+		if err := c.client.Get(ctx, fmt.Sprintf("/authz/objecttypes?%s", query.Encode()), &resp); err != nil {
 			return nil, ucerr.Wrap(err)
 		}
 
@@ -178,12 +180,9 @@ func (c *Client) ListObjectTypes(ctx context.Context) ([]ObjectType, error) {
 		}
 		ots = append(ots, resp.Data...)
 
-		// Defensively check length of response too.
-		if !resp.HasNext || len(resp.Data) == 0 {
+		if !pager.AdvanceCursor(resp.ResponseFields) {
 			break
 		}
-
-		startingAfter = resp.Data[len(resp.Data)-1].ID
 	}
 
 	// Swap to new cache on success
@@ -298,15 +297,17 @@ func (c *Client) ListEdgeTypes(ctx context.Context) ([]EdgeType, error) {
 
 	// TODO: we should eventually support pagination arguments to this method, but for now we assume
 	// there aren't that many edge types and just fetch them all.
-	var startingAfter uuid.UUID
-	for {
-		var resp ListEdgeTypesResponse
-		query := url.Values{}
-		query.Add("starting_after", startingAfter.String())
-		// Use default page size
 
-		decodeFunc := newPaginatedDecodeFunc(&resp, &resp.Data)
-		if err := c.client.Get(ctx, fmt.Sprintf("/authz/edgetypes?%s", query.Encode()), nil, jsonclient.CustomDecoder(decodeFunc)); err != nil {
+	pager, err := pagination.ApplyOptions()
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	for {
+		query := pager.Query()
+
+		var resp ListEdgeTypesResponse
+		if err := c.client.Get(ctx, fmt.Sprintf("/authz/edgetypes?%s", query.Encode()), &resp); err != nil {
 			return nil, ucerr.Wrap(err)
 		}
 
@@ -315,12 +316,9 @@ func (c *Client) ListEdgeTypes(ctx context.Context) ([]EdgeType, error) {
 		}
 		ets = append(ets, resp.Data...)
 
-		// Defensively check length of response too.
-		if !resp.HasNext || len(resp.Data) == 0 {
+		if !pager.AdvanceCursor(resp.ResponseFields) {
 			break
 		}
-
-		startingAfter = resp.Data[len(resp.Data)-1].ID
 	}
 
 	// Swap to new cache on success
@@ -464,17 +462,24 @@ func (r ListObjectsResponse) Less(left, right int) bool {
 
 // ListObjects lists `limit` objects in sorted order with pagination, starting after a given ID (or uuid.Nil to start from the beginning).
 func (c *Client) ListObjects(ctx context.Context, opts ...pagination.Option) (*ListObjectsResponse, error) {
-	options := pagination.ApplyOptions(opts)
+	pager, err := pagination.ApplyOptions(opts...)
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
 
 	var resp ListObjectsResponse
 	legacyResult := []Object{}
 	decodeFunc := newPaginatedDecodeFunc(&resp, &legacyResult)
-	query := options.Query()
+	query := pager.Query()
 	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects?%s", query.Encode()), nil, jsonclient.CustomDecoder(decodeFunc)); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
 	if numObjects := len(legacyResult); numObjects > 0 {
+		cursorMaker := func(o Object) pagination.Cursor {
+			return pagination.Cursor(fmt.Sprintf("id:%v", o.ID))
+		}
+
 		// We got a legacy response that's not paginated, so fix it on the client.
 		// NOTE: it's obviously not efficient to "re-paginate" it but this makes it easier
 		// to test the client behavior before/after the server change.
@@ -484,15 +489,15 @@ func (c *Client) ListObjects(ctx context.Context, opts ...pagination.Option) (*L
 		sort.Sort(resp)
 		firstElem := numObjects
 		for i := range resp.Data {
-			if resp.Data[i].ID.String() > options.StartingAfterCOMPAT() {
+			if string(cursorMaker(resp.Data[i])) > string(pager.GetCursor()) {
 				firstElem = i
 				break
 			}
 		}
-		lastElem := firstElem + options.LimitCOMPAT()
+		lastElem := firstElem + pager.GetLimit()
 		if lastElem < numObjects {
 			resp.HasNext = true
-			resp.Next = pagination.Cursor(resp.Data[lastElem-1].ID.String())
+			resp.Next = cursorMaker(resp.Data[lastElem-1])
 		} else if lastElem > numObjects {
 			lastElem = numObjects
 		}
@@ -514,59 +519,18 @@ type ListEdgesResponse struct {
 	pagination.ResponseFields
 }
 
-// TODO: get rid of sort.Interface code when the legacy path in ListObjects goes away
-// Len implements sort.Interface
-func (r ListEdgesResponse) Len() int {
-	return len(r.Data)
-}
-
-// Swap implements sort.Interface
-func (r ListEdgesResponse) Swap(left, right int) {
-	tmp := r.Data[left]
-	r.Data[left] = r.Data[right]
-	r.Data[right] = tmp
-}
-
-// Less implements sort.Interface
-func (r ListEdgesResponse) Less(left, right int) bool {
-	return r.Data[left].ID.String() < r.Data[right].ID.String()
-}
-
 // ListEdgesOnObject lists `limit` edges (relationships) where the given object is a source or target.
 func (c *Client) ListEdgesOnObject(ctx context.Context, objectID uuid.UUID, opts ...pagination.Option) (*ListEdgesResponse, error) {
-	options := pagination.ApplyOptions(opts)
-
-	var resp ListEdgesResponse
-	legacyResult := []Edge{}
-	decodeFunc := newPaginatedDecodeFunc(&resp, &legacyResult)
-	query := options.Query()
-	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects/%s/edges?%s", objectID, query.Encode()), nil, jsonclient.CustomDecoder(decodeFunc)); err != nil {
+	pager, err := pagination.ApplyOptions(opts...)
+	if err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	if numEdges := len(legacyResult); numEdges > 0 {
-		// We got a legacy response that's not paginated, so fix it on the client.
-		// NOTE: it's obviously not efficient to "re-paginate" it but this makes it easier
-		// to test the client behavior before/after the server change.
-		// TODO: this code is not going to perform well longer term, but it's very temporary.
-		// TODO: remove this code (and "COMPAT" methods) once we support more advanced filtering/sorting/traversal since it's not worth keeping.
-		resp.Data = legacyResult
-		sort.Sort(resp)
-		firstElem := numEdges
-		for i := range resp.Data {
-			if resp.Data[i].ID.String() > options.StartingAfterCOMPAT() {
-				firstElem = i
-				break
-			}
-		}
-		lastElem := firstElem + options.LimitCOMPAT()
-		if lastElem < numEdges {
-			resp.HasNext = true
-			resp.Next = pagination.Cursor(resp.Data[lastElem-1].ID.String())
-		} else if lastElem > numEdges {
-			lastElem = numEdges
-		}
-		resp.Data = resp.Data[firstElem:lastElem]
+	query := pager.Query()
+
+	var resp ListEdgesResponse
+	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects/%s/edges?%s", objectID, query.Encode()), &resp); err != nil {
+		return nil, ucerr.Wrap(err)
 	}
 
 	c.mEdges.Lock()
