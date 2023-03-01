@@ -7,13 +7,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"userclouds.com/infra/ucerr"
 	"userclouds.com/infra/ucjwt"
 )
+
+const maxRetries = 3
+const backoff = time.Millisecond * 500
 
 // Error defines a jsonclient error for non-2XX/3XX status codes
 // TODO: decide how to handle 3XX results
@@ -33,11 +38,6 @@ func (e Error) Error() string {
 		return e.Body
 	}
 	return fmt.Sprintf("HTTP Status %d", e.StatusCode)
-}
-
-// BaseError implements UCError
-func (e Error) BaseError() string {
-	return e.Error()
 }
 
 // Friendly implements UCError
@@ -134,7 +134,11 @@ func (c *Client) ValidateBearerTokenHeader() error {
 
 // refreshBearerToken checks if the current token is invalid or expired, and refreshes it via
 // the Client Credentials Flow if needed.
-func (c *Client) refreshBearerToken() error {
+func (c *Client) refreshBearerToken(ctx context.Context) error {
+	return ucerr.Wrap(c.refreshBearerTokenRetry(ctx, 1))
+}
+
+func (c *Client) refreshBearerTokenRetry(ctx context.Context, retries int) error {
 	if c.tokenNeedsRefresh() {
 		if !c.hasTokenSource() {
 			return ucerr.New("cannot refresh bearer token without specifying valid ClientCredentialsTokenSource option for jsonclient")
@@ -144,6 +148,18 @@ func (c *Client) refreshBearerToken() error {
 		accessToken, err := c.options.tokenSource.GetToken()
 		c.optionsMutex.RUnlock()
 		if err != nil {
+			// TODO: can we simplify this design somehow? would be nice for GetToken to reuse client or at least opts?
+			if c.options.retryNetworkErrors && isNetworkError(err) {
+				if retries >= maxRetries {
+					return ucerr.Errorf("max retries exceeded: %v", err)
+				}
+
+				c.logError(ctx, http.MethodPost, "refreshBearerToken",
+					ucerr.Errorf("network error, retry %d: %v", retries, err).Error(), 0)
+
+				time.Sleep(backoff)
+				return ucerr.Wrap(c.refreshBearerTokenRetry(ctx, retries+1))
+			}
 			return ucerr.Wrap(err)
 		}
 
@@ -201,11 +217,27 @@ func (c *Client) Delete(ctx context.Context, path string, body interface{}, opts
 	return ucerr.Wrap(c.makeRequest(ctx, http.MethodDelete, path, bs, nil, opts))
 }
 
+func isNetworkError(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne)
+}
+
 func (c *Client) makeRequest(ctx context.Context, method, path string, bs []byte, response interface{}, opts []Option) error {
+	return ucerr.Wrap(c.makeRequestRetry(ctx, method, path, bs, response, opts, 1))
+}
+
+func (c *Client) makeRequestRetry(ctx context.Context,
+	method,
+	path string,
+	bs []byte,
+	response interface{},
+	opts []Option,
+	retries int) error {
+
 	// auto-refresh bearer token if needed
 	// do this before cloning (it's threadsafe) so we don't "lose" the refresh
 	if c.hasTokenSource() {
-		if err := c.refreshBearerToken(); err != nil {
+		if err := c.refreshBearerToken(ctx); err != nil {
 			return ucerr.Wrap(err)
 		}
 	}
@@ -259,6 +291,16 @@ func (c *Client) makeRequest(ctx context.Context, method, path string, bs []byte
 
 	res, err := client.Do(req)
 	if err != nil {
+		if options.retryNetworkErrors && isNetworkError(err) {
+			if retries >= maxRetries {
+				return ucerr.Errorf("max retries exceeded: %v", err)
+			}
+
+			c.logError(ctx, req.Method, req.URL.String(), ucerr.Errorf("network error, retry %d: %v", retries, err).Error(), 0)
+
+			time.Sleep(backoff)
+			return ucerr.Wrap(c.makeRequestRetry(ctx, method, path, bs, response, opts, retries+1))
+		}
 		return ucerr.Wrap(err)
 	}
 	defer res.Body.Close()
@@ -285,8 +327,8 @@ func (c *Client) makeRequest(ctx context.Context, method, path string, bs []byte
 		} else {
 			body = string(b)
 		}
-		// Use a package-internal method to log so we can diverge behavior between private vs public repos easily
-		logError(ctx, options.stopLogging, method, reqURL, body, res.StatusCode)
+
+		c.logError(ctx, method, reqURL, body, res.StatusCode)
 
 		if options.parseOAuthError {
 			var oauthe oAuthError

@@ -18,8 +18,8 @@ func RegisterLogger(l Logger) {
 	logger = l
 }
 
-func logError(ctx context.Context, dontLog bool, method, url, errorMsg string, code int) {
-	if logger != nil && !dontLog {
+func (c *Client) logError(ctx context.Context, method, url, errorMsg string, code int) {
+	if logger != nil && !c.options.stopLogging {
 		logger.Debugf(ctx, "http %s request to URL '%s' returned error response (code %d): %s", method, url, code, errorMsg)
 	}
 }

@@ -34,6 +34,24 @@ func (t *ColumnType) UnmarshalText(b []byte) error {
 	return nil
 }
 
+// Validate implements Validateable
+func (t *ColumnType) Validate() error {
+	switch *t {
+	case ColumnTypeString:
+		return nil
+	case ColumnTypeTimestamp:
+		return nil
+	default:
+		return ucerr.Errorf("unknown ColumnType value %d", *t)
+	}
+}
+
+// AllColumnTypes is a slice of all ColumnType values
+var AllColumnTypes = []ColumnType{
+	ColumnTypeString,
+	ColumnTypeTimestamp,
+}
+
 // just here for easier debugging
 func (t ColumnType) String() string {
 	bs, err := t.MarshalText()

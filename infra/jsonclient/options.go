@@ -34,6 +34,10 @@ type options struct {
 	perRequestHeaders []HeaderFunc
 
 	decodeFunc DecodeFunc
+
+	// retryNetworkErrors causes the client to retry requests that fail due to network errors,
+	// up to `maxRetries`, with a `backoff` pause each time
+	retryNetworkErrors bool
 }
 
 func (o *options) clone() *options {
@@ -133,5 +137,14 @@ func TokenSource(ts oidc.TokenSource) Option {
 func CustomDecoder(f DecodeFunc) Option {
 	return optFunc(func(opts *options) {
 		opts.decodeFunc = f
+	})
+}
+
+// RetryNetworkErrors causes the client to retry on underlying network errors
+// TODO: is this a good idea?
+// TODO: should we have a max retry count, backoff, etc config?
+func RetryNetworkErrors() Option {
+	return optFunc(func(opts *options) {
+		opts.retryNetworkErrors = true
 	})
 }
