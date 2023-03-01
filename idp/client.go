@@ -9,96 +9,28 @@ import (
 	"github.com/gofrs/uuid"
 
 	"userclouds.com/idp/paths"
-	"userclouds.com/idp/socialprovider"
 	"userclouds.com/idp/userstore"
-	"userclouds.com/infra/emailutil"
 	"userclouds.com/infra/jsonclient"
 	"userclouds.com/infra/ucerr"
 	"userclouds.com/policy"
 )
 
-// AuthnType defines the kinds of authentication factors
-type AuthnType string
-
-// AuthnType constants
-const (
-	AuthnTypePassword AuthnType = "password"
-	AuthnTypeSocial   AuthnType = "social"
-
-	// Used for filter queries; not a valid type
-	AuthnTypeAll AuthnType = "all"
-)
-
-// Validate implements Validateable
-func (a AuthnType) Validate() error {
-	if a == AuthnTypePassword || a == AuthnTypeSocial || a == AuthnTypeAll {
-		return nil
-	}
-	return ucerr.Errorf("invalid AuthnType: %s", string(a))
-}
-
 // Client represents a client to talk to the Userclouds IDP
 type Client struct {
-	client *jsonclient.Client
+	client         *jsonclient.Client
+	organizationID *uuid.UUID
 }
 
 // NewClient constructs a new IDP client
-func NewClient(url string, opts ...jsonclient.Option) (*Client, error) {
+func NewClient(url string, organizationID *uuid.UUID, opts ...jsonclient.Option) (*Client, error) {
 	c := &Client{
-		client: jsonclient.New(strings.TrimSuffix(url, "/"), opts...),
+		client:         jsonclient.New(strings.TrimSuffix(url, "/"), opts...),
+		organizationID: organizationID,
 	}
 	if err := c.client.ValidateBearerTokenHeader(); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 	return c, nil
-}
-
-// UserAuthn represents an authentication factor for a user.
-// NOTE: some fields are not used in some circumstances, e.g. Password is only
-// used when creating an account but never used when getting an account.
-// TODO: use this for UpdateUser too.
-type UserAuthn struct {
-	AuthnType AuthnType `json:"authn_type"`
-
-	// Fields specified if AuthnType == 'password'
-	Username string `json:"username,omitempty"`
-	Password string `json:"password,omitempty"`
-
-	// Fields specified if AuthnType == 'social'
-	SocialProvider socialprovider.SocialProvider `json:"social_provider,omitempty"`
-	OIDCSubject    string                        `json:"oidc_subject,omitempty"`
-}
-
-// UserProfile is a collection of per-user properties stored in the DB as JSON since
-// they are likely to be sparse and change more frequently.
-// Follow conventions of https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims for
-// all standard fields.
-type UserProfile struct {
-	Email         string `json:"email"`
-	EmailVerified bool   `json:"email_verified"`
-	Name          string `json:"name,omitempty"`     // Full name in displayable form (incl titles, suffixes, etc) localized to end-user.
-	Nickname      string `json:"nickname,omitempty"` // Casual name of the user, may or may not be same as Given Name.
-	Picture       string `json:"picture,omitempty"`  // URL of the user's profile picture.
-
-	// TODO: email is tricky; it's used for authn, 2fa, and (arguably) user profile.
-	// If a user merges authns (e.g. I had 2 accounts, oops), then there can be > 1.
-	// It may make sense to keep the primary user email (used for 2FA) in `User`, separately
-	// from the profile, but allow 0+ profile emails (e.g. alternate contacts, merged accounts, etc).
-}
-
-//go:generate gendbjson UserProfile
-
-//go:generate genvalidate UserProfile
-
-func (up UserProfile) extraValidate() error {
-	if up.Email == "" {
-		return nil
-	}
-	a := emailutil.Address(up.Email)
-	if err := a.Validate(); err != nil {
-		return ucerr.Wrap(err)
-	}
-	return nil
 }
 
 // CreateUserAndAuthnRequest creates a user on the IDP
@@ -110,6 +42,8 @@ type CreateUserAndAuthnRequest struct {
 	RequireMFA    bool    `json:"require_mfa"`
 
 	UserExtendedProfile userstore.Record `json:"profile_ext"`
+
+	OrganizationID uuid.UUID `json:"organization_id"`
 
 	UserAuthn
 }
@@ -126,6 +60,8 @@ type UserAndAuthnResponse struct {
 
 	UserExtendedProfile userstore.Record `json:"profile_ext"`
 
+	OrganizationID uuid.UUID `json:"organization_id"`
+
 	Authns []UserAuthn `json:"authns"`
 }
 
@@ -137,9 +73,14 @@ func (c *Client) CreateUser(ctx context.Context,
 	// TODO: we don't validate the profile here, since we don't require email in this path
 	// this probably should be refactored to be more consistent in this client
 
+	var organizationID uuid.UUID
+	if c.organizationID != nil {
+		organizationID = *c.organizationID
+	}
 	req := CreateUserAndAuthnRequest{
 		UserProfile:         profile,
 		UserExtendedProfile: extendedProfile,
+		OrganizationID:      organizationID,
 	}
 
 	if externalAlias != "" {
@@ -207,6 +148,8 @@ type UpdateUserRequest struct {
 
 	// Only fields set in the underlying map will be updated
 	UserExtendedProfile userstore.Record `json:"profile_ext"`
+
+	OrganizationID *uuid.UUID `json:"organization_id"`
 }
 
 // UpdateUser updates user profile data for a given user ID
@@ -313,16 +256,16 @@ func (c *Client) UpdateColumn(ctx context.Context, columnID uuid.UUID, updatedCo
 
 // CreateAccessorRequest is the request body for creating a new accessor
 type CreateAccessorRequest struct {
-	Accessor userstore.ColumnAccessor `json:"accessor"`
+	Accessor userstore.Accessor `json:"accessor"`
 }
 
 // CreateAccessorResponse is the response body for creating a new accessor
 type CreateAccessorResponse struct {
-	Accessor userstore.ColumnAccessor `json:"accessor"`
+	Accessor userstore.Accessor `json:"accessor"`
 }
 
 // CreateAccessor creates a new accessor for the associated tenant
-func (c *Client) CreateAccessor(ctx context.Context, fa userstore.ColumnAccessor) (*userstore.ColumnAccessor, error) {
+func (c *Client) CreateAccessor(ctx context.Context, fa userstore.Accessor) (*userstore.Accessor, error) {
 	req := CreateAccessorRequest{
 		Accessor: fa,
 	}
@@ -340,9 +283,19 @@ func (c *Client) DeleteAccessor(ctx context.Context, accessorID uuid.UUID) error
 }
 
 // GetAccessor returns the accessor specified by the accessor ID for the associated tenant
-func (c *Client) GetAccessor(ctx context.Context, accessorID uuid.UUID) (*userstore.ColumnAccessor, error) {
-	var resp userstore.ColumnAccessor
+func (c *Client) GetAccessor(ctx context.Context, accessorID uuid.UUID) (*userstore.Accessor, error) {
+	var resp userstore.Accessor
 	if err := c.client.Get(ctx, paths.GetAccessorPath(accessorID), &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// GetAccessorByVersion returns the version of an accessor specified by the accessor ID and version for the associated tenant
+func (c *Client) GetAccessorByVersion(ctx context.Context, accessorID uuid.UUID, version int) (*userstore.Accessor, error) {
+	var resp userstore.Accessor
+	if err := c.client.Get(ctx, paths.GetAccessorByVersionPath(accessorID, version), &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
@@ -351,11 +304,11 @@ func (c *Client) GetAccessor(ctx context.Context, accessorID uuid.UUID) (*userst
 
 // ListAccessorsResponse is the response body for listing accessors
 type ListAccessorsResponse struct {
-	Accessors []userstore.ColumnAccessor `json:"accessors"`
+	Accessors []userstore.Accessor `json:"accessors"`
 }
 
 // ListAccessors lists all the available accessors for the associated tenant
-func (c *Client) ListAccessors(ctx context.Context) ([]userstore.ColumnAccessor, error) {
+func (c *Client) ListAccessors(ctx context.Context) ([]userstore.Accessor, error) {
 	var res ListAccessorsResponse
 	if err := c.client.Get(ctx, paths.ListAccessorsPath, &res); err != nil {
 		return nil, ucerr.Wrap(err)
@@ -366,16 +319,16 @@ func (c *Client) ListAccessors(ctx context.Context) ([]userstore.ColumnAccessor,
 
 // UpdateAccessorRequest is the request body for updating an accessor
 type UpdateAccessorRequest struct {
-	Accessor userstore.ColumnAccessor `json:"accessor"`
+	Accessor userstore.Accessor `json:"accessor"`
 }
 
 // UpdateAccessorResponse is the response body for updating an accessor
 type UpdateAccessorResponse struct {
-	Accessor userstore.ColumnAccessor `json:"accessor"`
+	Accessor userstore.Accessor `json:"accessor"`
 }
 
 // UpdateAccessor updates the accessor specified by the accessor ID with the specified data for the associated tenant
-func (c *Client) UpdateAccessor(ctx context.Context, accessorID uuid.UUID, updatedAccessor userstore.ColumnAccessor) (*userstore.ColumnAccessor, error) {
+func (c *Client) UpdateAccessor(ctx context.Context, accessorID uuid.UUID, updatedAccessor userstore.Accessor) (*userstore.Accessor, error) {
 	req := UpdateAccessorRequest{
 		Accessor: updatedAccessor,
 	}
@@ -386,6 +339,83 @@ func (c *Client) UpdateAccessor(ctx context.Context, accessorID uuid.UUID, updat
 	}
 
 	return &resp.Accessor, nil
+}
+
+// CreateMutatorRequest is the request body for creating a new mutator
+type CreateMutatorRequest struct {
+	Mutator userstore.Mutator `json:"mutator"`
+}
+
+// CreateMutatorResponse is the response body for creating a new mutator
+type CreateMutatorResponse struct {
+	Mutator userstore.Mutator `json:"mutator"`
+}
+
+// CreateMutator creates a new mutator for the associated tenant
+func (c *Client) CreateMutator(ctx context.Context, fa userstore.Mutator) (*userstore.Mutator, error) {
+	req := CreateMutatorRequest{
+		Mutator: fa,
+	}
+	var res CreateMutatorResponse
+	if err := c.client.Post(ctx, paths.CreateMutatorPath, req, &res); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &res.Mutator, nil
+}
+
+// DeleteMutator deletes the mutator specified by the mutator ID for the associated tenant
+func (c *Client) DeleteMutator(ctx context.Context, mutatorID uuid.UUID) error {
+	return ucerr.Wrap(c.client.Delete(ctx, paths.DeleteMutatorPath(mutatorID), nil))
+}
+
+// GetMutator returns the mutator specified by the mutator ID for the associated tenant
+func (c *Client) GetMutator(ctx context.Context, mutatorID uuid.UUID) (*userstore.Mutator, error) {
+	var resp userstore.Mutator
+	if err := c.client.Get(ctx, paths.GetMutatorPath(mutatorID), &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// ListMutatorsResponse is the response body for listing mutators
+type ListMutatorsResponse struct {
+	Mutators []userstore.Mutator `json:"mutators"`
+}
+
+// ListMutators lists all the available mutators for the associated tenant
+func (c *Client) ListMutators(ctx context.Context) ([]userstore.Mutator, error) {
+	var res ListMutatorsResponse
+	if err := c.client.Get(ctx, paths.ListMutatorsPath, &res); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return res.Mutators, nil
+}
+
+// UpdateMutatorRequest is the request body for updating a mutator
+type UpdateMutatorRequest struct {
+	Mutator userstore.Mutator `json:"mutator"`
+}
+
+// UpdateMutatorResponse is the response body for updating a mutator
+type UpdateMutatorResponse struct {
+	Mutator userstore.Mutator `json:"mutator"`
+}
+
+// UpdateMutator updates the mutator specified by the mutator ID with the specified data for the associated tenant
+func (c *Client) UpdateMutator(ctx context.Context, mutatorID uuid.UUID, updatedMutator userstore.Mutator) (*userstore.Mutator, error) {
+	req := UpdateMutatorRequest{
+		Mutator: updatedMutator,
+	}
+
+	var resp UpdateMutatorResponse
+	if err := c.client.Put(ctx, paths.UpdateMutatorPath(mutatorID), req, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp.Mutator, nil
 }
 
 // UserSelector lets you request the user to run an accessor on

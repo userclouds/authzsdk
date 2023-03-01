@@ -9,7 +9,6 @@ import (
 
 // UCError lets us figure out if this is a wrapped error
 type UCError interface {
-	BaseError() string
 	Error() string // include this so UCError implements Error for erroras linter
 	Friendly() string
 	FriendlyStructure() interface{}
@@ -20,7 +19,7 @@ type ucError struct {
 	friendly  string      // (optional) this will get propagated to the user (or developer-user)
 	structure interface{} // if non-nil, then FriendlyStructure() will a marshalable struct as its value
 
-	underlying error
+	underlying []error
 
 	function string
 	filename string
@@ -45,17 +44,11 @@ func (o optFunc) apply(os *options) {
 var errorWrappingSuffix = ": %w"
 var wrappedText = "(wrapped)"
 
-const repoRoot = "userclouds/"
-
-// Return a path relative to the repo root, assuming that:
-// (1) there is no 'userclouds' directory created within the source tree of our repo,
-// (2) the repo is cloned into the default directory.
+// Return a path relative to the repo root
 // If the path is not within the repo, return the path unmodified.
 func repoRelativePath(s string) string {
-	if idx := strings.LastIndex(s, repoRoot); idx >= 0 {
-		return s[idx+len(repoRoot):]
-	}
-	return s
+	// need the trailing slash here so the paths are obviously relative
+	return strings.TrimPrefix(s, fmt.Sprintf("%s/", repoRelativeBasePath()))
 }
 
 // Given a fully qualified go function name "pkgname.[type].func",
@@ -67,46 +60,17 @@ func funcName(s string) string {
 	return s
 }
 
-// BaseError implements UCError
-// Just return the error message(s), no stack trace
-func (e ucError) BaseError() string {
-	var msg string
-	// how do we wrap what's underlying us?
-	// 1) keep unwrapping until we're at the bottom of the wrapped stack
-	// 2) start with the error message from the original error
-	var uce UCError
-	if errors.As(e.underlying, &uce) {
-		msg = uce.BaseError()
-	} else if e.underlying != nil {
-		msg = e.underlying.Error()
-	}
-
-	// how do we display ourselves rationally?
-	// 3) if the bottom of the stack is just wrapping a non-UCError, don't show (wrapped)
-	t := e.text
-	if t == wrappedText {
-		t = ""
-	}
-
-	// is there enough to add a :
-	// 4) if the bottom of the stack was a ucerr.New(), just show the text
-	// 5) if the bottom of the stack was a ucerr.Wrap(), just show the base error
-	if msg == "" {
-		return t
-	} else if t == "" {
-		return msg
-	}
-
-	// 6) if the bottom of the stack was ucerr.Errorf(), show the original annotation + base error
-	return fmt.Sprintf("%s: %s", t, msg)
-}
-
 // Error implements error
 func (e ucError) Error() string {
-	var u string
-	if e.underlying != nil {
-		u = fmt.Sprintf("%s\n", e.underlying.Error())
+	var messages []string
+	for _, u := range e.underlying {
+		if u == nil {
+			continue
+		}
+		messages = append(messages, fmt.Sprintf("%s\n", u.Error()))
 	}
+
+	msg := strings.Join(messages, "\n")
 
 	// fall back to friendly message if no internal message is defined
 	t := e.text
@@ -114,20 +78,21 @@ func (e ucError) Error() string {
 		t = fmt.Sprintf("[friendly] %s", e.friendly)
 	}
 
-	return fmt.Sprintf("%s%s (File %s:%d, in %s)", u, t, e.filename, e.line, e.function)
+	return fmt.Sprintf("%s%s (File %s:%d, in %s)", msg, t, e.filename, e.line, e.function)
 }
 
 // Unwrap implements errors.Unwrap for errors.Is
 func (e *ucError) Unwrap() error {
-	if e == nil {
+	if e == nil || len(e.underlying) == 0 {
 		return nil
 	}
-	return e.underlying // ok if this returns nil
+	return e.underlying[0]
 }
 
 // New creates a new ucerr
 func New(text string) error {
-	return new(text, "", nil, 1, nil)
+	wraps := errors.New(text) // this makes the base error just the text, no stack trace
+	return new(text, "", wraps, 1, nil)
 }
 
 // Errorf is our local version of fmt.Errorf including callsite info
@@ -178,13 +143,40 @@ func ExtraSkip() Option {
 	return optFunc(func(o *options) { o.skipFrames++ })
 }
 
+// Combine lets you merge multiple errors and return them all (eg. 2 of 5 in a batch failed)
+// TODO: write some tests, fix up output nicely
+func Combine(l, r error) error {
+	if l == nil && r == nil {
+		return nil
+	}
+
+	// choose the non-nil base
+	base, other := l, r
+	if base == nil {
+		other, base = base, other
+	}
+
+	newBase, ok := base.(*ucError) // lint: ecast-safe
+	if !ok {
+		newBase = Wrap(base, ExtraSkip()).(*ucError) // lint: ecast-safe
+	}
+
+	if _, ok := other.(*ucError); !ok { // lint: ecast-safe
+		other = Wrap(other, ExtraSkip())
+	}
+
+	newBase.underlying = append(newBase.underlying, other)
+
+	return newBase
+}
+
 // skips is the number of stack frames (besides new itself) to skip
 func new(text, friendly string, wraps error, skips int, structure interface{}) error {
 	function, filename, line := whereAmI(skips + 1)
 	err := &ucError{
 		text:       text,
 		friendly:   friendly,
-		underlying: wraps,
+		underlying: []error{wraps},
 		function:   function,
 		filename:   filename,
 		line:       line,
@@ -212,8 +204,10 @@ func (e ucError) Friendly() string {
 	}
 
 	var uce UCError
-	if errors.As(e.underlying, &uce) {
-		return uce.Friendly()
+	for _, u := range e.underlying {
+		if errors.As(u, &uce) {
+			return uce.Friendly()
+		}
 	}
 
 	return "an unspecified error occurred"
@@ -227,8 +221,10 @@ func (e ucError) FriendlyStructure() interface{} {
 	}
 
 	var uce UCError
-	if errors.As(e.underlying, &uce) {
-		return uce.FriendlyStructure()
+	for _, u := range e.underlying {
+		if errors.As(u, &uce) {
+			return uce.FriendlyStructure()
+		}
 	}
 
 	return nil
@@ -254,4 +250,13 @@ func UserFriendlyStructure(err error) interface{} {
 	}
 
 	return nil
+}
+
+// BaseError returns the bottom of the stack original error
+func BaseError(err error) error {
+	if base := errors.Unwrap(err); base != nil {
+		return BaseError(base)
+	}
+
+	return err
 }

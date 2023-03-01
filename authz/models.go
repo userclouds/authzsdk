@@ -80,6 +80,8 @@ type EdgeType struct {
 	SourceObjectTypeID uuid.UUID  `db:"source_object_type_id,immutable" json:"source_object_type_id"  validate:"notnil"`
 	TargetObjectTypeID uuid.UUID  `db:"target_object_type_id,immutable" json:"target_object_type_id"  validate:"notnil"`
 	Attributes         Attributes `db:"attributes" json:"attributes"`
+
+	OrganizationID uuid.UUID `db:"organization_id" json:"organization_id"`
 }
 
 //go:generate genvalidate EdgeType
@@ -88,8 +90,10 @@ type EdgeType struct {
 type Object struct {
 	ucdb.BaseModel
 
-	Alias  string    `db:"alias" json:"alias" validate:"notempty"`
+	Alias  *string   `db:"alias" json:"alias,omitempty" validate:"allownil"`
 	TypeID uuid.UUID `db:"type_id,immutable" json:"type_id" validate:"notnil"`
+
+	OrganizationID uuid.UUID `db:"organization_id" json:"organization_id"`
 }
 
 //go:generate genvalidate Object
@@ -114,3 +118,13 @@ type Edge struct {
 type UserObject struct {
 	ucdb.BaseModel
 }
+
+// Organization defines a collection of objects inside of a single AuthZ namespace.
+// Uniqueness (of eg. Object aliases) is enforced by organization, rather than globally in a tenant
+type Organization struct {
+	ucdb.BaseModel
+
+	Name string `db:"name" json:"name" validate:"notempty"`
+}
+
+//go:generate genvalidate Organization

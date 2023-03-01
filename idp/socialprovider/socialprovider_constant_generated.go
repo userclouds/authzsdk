@@ -46,6 +46,36 @@ func (t *SocialProvider) UnmarshalText(b []byte) error {
 	return nil
 }
 
+// Validate implements Validateable
+func (t *SocialProvider) Validate() error {
+	switch *t {
+	case SocialProviderFacebook:
+		return nil
+	case SocialProviderGoogle:
+		return nil
+	case SocialProviderLinkedIn:
+		return nil
+	case SocialProviderMsft:
+		return nil
+	case SocialProviderNone:
+		return nil
+	case SocialProviderUnsupported:
+		return nil
+	default:
+		return ucerr.Errorf("unknown SocialProvider value %d", *t)
+	}
+}
+
+// AllSocialProviders is a slice of all SocialProvider values
+var AllSocialProviders = []SocialProvider{
+	SocialProviderFacebook,
+	SocialProviderGoogle,
+	SocialProviderLinkedIn,
+	SocialProviderMsft,
+	SocialProviderNone,
+	SocialProviderUnsupported,
+}
+
 // just here for easier debugging
 func (t SocialProvider) String() string {
 	bs, err := t.MarshalText()

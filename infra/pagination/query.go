@@ -1,11 +1,19 @@
 package pagination
 
 import (
+	"net/http"
 	"net/url"
 	"strconv"
 
 	"userclouds.com/infra/ucerr"
 )
+
+// NewPaginatorFromRequest calls NewPaginatorFromQuery, passing in the URL query from the
+// request and any specified default pagination options
+func NewPaginatorFromRequest(r *http.Request, defaultOptions ...Option) (*Paginator, error) {
+	p, err := NewPaginatorFromQuery(r.URL.Query(), defaultOptions...)
+	return p, ucerr.Wrap(err)
+}
 
 // NewPaginatorFromQuery applies any default options and any additional options from parsing
 // the query to produce a Paginator instance, validates that instance, and returns it if valid

@@ -22,8 +22,11 @@ const defaultTokenExpiry int64 = 86400
 func CreateToken(ctx context.Context, privateKey *rsa.PrivateKey, keyID string, tokenID uuid.UUID, claims oidc.TokenClaims, jwtIssuerURL string) (string, error) {
 	// Augment claims with special fields.
 	claims.IssuedAt = time.Now().Unix()
-	claims.ExpiresAt = claims.IssuedAt + defaultTokenExpiry
 	claims.Issuer = jwtIssuerURL
+
+	if claims.ExpiresAt == 0 {
+		claims.ExpiresAt = claims.IssuedAt + defaultTokenExpiry
+	}
 
 	// Put unique token ID in claims so we can track tokens back to any context around their issuance.
 	// As a side effect, we also get unique tokens which is currently required since we want to be able to look

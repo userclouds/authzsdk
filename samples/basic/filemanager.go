@@ -205,9 +205,9 @@ func summarizePermissions(ctx context.Context, idpClient *idp.Client, authZClien
 				if err != nil {
 					return "<error fetching user>"
 				}
-				displayName = user.Name
+				displayName = &user.Name
 			}
-			perm := fmt.Sprintf("%s (%s)", displayName, et.TypeName)
+			perm := fmt.Sprintf("%s (%s)", *displayName, et.TypeName)
 			if len(permsList) == 0 {
 				permsList = perm
 			} else {

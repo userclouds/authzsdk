@@ -15,6 +15,7 @@ type ClientCredentialsTokenSource struct {
 	ClientID        string
 	ClientSecret    string
 	CustomAudiences []string
+	SubjectJWT      string // optional, ID Token for a UC user if this access token is being created on their behalf
 }
 
 // GetToken issues a request to an OIDC-compliant token endpoint to perform
@@ -27,6 +28,9 @@ func (ccts ClientCredentialsTokenSource) GetToken() (string, error) {
 	query.Add("client_secret", ccts.ClientSecret)
 	for _, aud := range ccts.CustomAudiences {
 		query.Add("audience", aud)
+	}
+	if ccts.SubjectJWT != "" {
+		query.Add("subject_jwt", ccts.SubjectJWT)
 	}
 	req, err := http.NewRequest(http.MethodPost, ccts.TokenURL, strings.NewReader(query.Encode()))
 	if err != nil {

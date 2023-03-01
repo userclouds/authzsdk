@@ -10,8 +10,10 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/patrickmn/go-cache"
 
 	"userclouds.com/infra/jsonclient"
 	"userclouds.com/infra/pagination"
@@ -19,35 +21,82 @@ import (
 	"userclouds.com/infra/ucerr"
 )
 
+const (
+	objTypePrefix   string = "OBJECTTYPE_"
+	edgeTypePrefix  string = "EDGETYPE_"
+	keyArrrayPrefix string = "KEYS_"
+)
+
+const (
+	// DefaultObjTypeTTL specifies how long ObjectTypes remain in the cache by default. If you frequently delete ObjectTypes - you should lower this number
+	DefaultObjTypeTTL time.Duration = 10 * time.Minute
+	// DefaultEdgeTypeTTL specifies how long EdgeTypes remain in the cache by default. If you frequently delete ObjectTypes - you should lower this number
+	DefaultEdgeTypeTTL time.Duration = 10 * time.Minute
+	// DefaultObjTTL specifies how long Objects remain in the cache by default. If you frequently delete Objects (such as users) - you should lower this number
+	DefaultObjTTL time.Duration = 5 * time.Minute
+	// DefaultEdgeTTL specifies how long Edges remain in the cache by default. It is assumed that edges churn frequently so this number is set lower
+	DefaultEdgeTTL time.Duration = 30 * time.Second
+
+	defaultCacheTTL time.Duration = 5 * time.Minute
+	gcInterval      time.Duration = 5 * time.Minute
+)
+
 // Client is a client for the authz service
 type Client struct {
 	client *jsonclient.Client
 
-	// TODO: these should timeout at some point :)
-	// TODO: slightly more abstract cache interface here?
-	objectTypes  map[string]ObjectType
-	mObjectTypes sync.RWMutex
+	// Object type cache contains:
+	//  ObjTypeID -> ObjType and objTypePrefix + TypeName -> ObjType
+	cacheObjTypes *cache.Cache
+	// Edge type cache contains:
+	//  EdgeTypeID -> EdgeType and edgeTypePrefix + TypeName -> EdgeType
+	cacheEdgeTypes *cache.Cache
+	// Object cache contains:
+	//  ObjectID -> Object and typeID + Object.Alias -> Object
+	cacheObjects *cache.Cache
+	// Edge cache contains:
+	//  ObjectID -> []Edges (all outgoing/incoming)
+	//  EdgeID -> Edge
+	//  SourceObjID + TargetObjID -> []Edges (edge between source and target objects)
+	//  SourceObjID + TargetObjID + EdgeTypeID -> Edge
+	//  keyArrrayPrefix + ObjectID -> [] keys (contains all key name in above three mapping that maybe in the cache)
+	cacheEdges *cache.Cache
 
-	edgeTypes  map[string]EdgeType
-	mEdgeTypes sync.RWMutex
+	objTypeTTL  time.Duration
+	edgeTypeTTL time.Duration
+	objTTL      time.Duration
+	edgeTTL     time.Duration
 
-	objects  map[uuid.UUID]Object
-	mObjects sync.RWMutex
-
-	edges  map[uuid.UUID]Edge
-	mEdges sync.RWMutex
+	keysMutex sync.Mutex
 }
 
 // NewClient creates a new authz client
 // Web API base URL, e.g. "http://localhost:1234".
 func NewClient(url string, opts ...jsonclient.Option) (*Client, error) {
+	return NewCustomClient(DefaultObjTypeTTL, DefaultEdgeTypeTTL, DefaultObjTTL, DefaultEdgeTTL, url, opts...)
+}
+
+// NewCustomClient creates a new authz client with different cache defaults
+// Web API base URL, e.g. "http://localhost:1234".
+func NewCustomClient(objTypeTTL time.Duration, edgeTypeTTL time.Duration, objTTL time.Duration, edgeTTL time.Duration,
+	url string, opts ...jsonclient.Option) (*Client, error) {
+	cacheObjTypes := cache.New(defaultCacheTTL, gcInterval)
+	cacheEdgeTypes := cache.New(defaultCacheTTL, gcInterval)
+	cacheObjects := cache.New(defaultCacheTTL, gcInterval)
+	cacheEdges := cache.New(defaultCacheTTL, gcInterval)
+
 	c := &Client{
-		client:      jsonclient.New(strings.TrimSuffix(url, "/"), opts...),
-		objectTypes: make(map[string]ObjectType),
-		edgeTypes:   make(map[string]EdgeType),
-		objects:     make(map[uuid.UUID]Object),
-		edges:       make(map[uuid.UUID]Edge),
+		client:         jsonclient.New(strings.TrimSuffix(url, "/"), opts...),
+		cacheObjTypes:  cacheObjTypes,
+		cacheEdgeTypes: cacheEdgeTypes,
+		cacheObjects:   cacheObjects,
+		cacheEdges:     cacheEdges,
+		objTypeTTL:     objTypeTTL,
+		edgeTypeTTL:    edgeTypeTTL,
+		objTTL:         objTTL,
+		edgeTTL:        edgeTTL,
 	}
+
 	if err := c.client.ValidateBearerTokenHeader(); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
@@ -61,6 +110,160 @@ var ErrObjectNotFound = ucerr.New("object not found")
 // (e.g. "editor") is not found.
 var ErrRelationshipTypeNotFound = ucerr.New("relationship type not found")
 
+// objectTypeKeyName returns key name for [objTypePrefix + TypeName] -> [ObjType] mapping
+func objectTypeKeyName(typeName string) string {
+	return objTypePrefix + typeName
+}
+
+// edgeTypeKeyName returns key name for [edgeTypePrefix + TypeName] -> [EdgeType] mapping
+func edgeTypeKeyName(typeName string) string {
+	return edgeTypePrefix + typeName
+}
+
+// objAliasKeyName returns key name for [TypeID + Alias] -> [Object] mapping
+func objAliasKeyName(typeID uuid.UUID, alias string) string {
+	return typeID.String() + alias
+}
+
+// edgesObjToObj returns key name for [SourceObjID _ TargetObjID] -> [Edge [] ] mapping
+func edgesObjToObj(sourceObjID uuid.UUID, targetObjID uuid.UUID) string {
+	return fmt.Sprintf("%v_%v", sourceObjID, targetObjID)
+}
+
+// edgeFullKeyNameFromEdge returns key name for [SourceObjID _ TargetObjID _ EdgeTypeID] -> [Edge] mapping
+func edgeFullKeyNameFromEdge(edge *Edge) string {
+	return fmt.Sprintf("%v_%v_%v", edge.SourceObjectID, edge.TargetObjectID.String(), edge.EdgeTypeID)
+}
+
+// edgeFullKeyNameFromIDs returns key name for [SourceObjID _ TargetObjID _ EdgeTypeID] -> [Edge] mapping
+func edgeFullKeyNameFromIDs(sourceID uuid.UUID, targetID uuid.UUID, typeID uuid.UUID) string {
+	return fmt.Sprintf("%v_%v_%v", sourceID, targetID, typeID)
+}
+func keyArrayKeyName(sourceID uuid.UUID) string {
+	return keyArrrayPrefix + sourceID.String()
+}
+
+func (c *Client) saveObjectType(objType ObjectType) {
+	c.cacheObjTypes.Set(objType.ID.String(), objType, c.objTypeTTL)
+	c.cacheObjTypes.Set(objectTypeKeyName(objType.TypeName), objType, c.objTypeTTL)
+}
+
+func (c *Client) saveEdgeType(edgeType EdgeType) {
+	c.cacheEdgeTypes.Set(edgeType.ID.String(), edgeType, c.edgeTypeTTL)
+	c.cacheEdgeTypes.Set(edgeTypeKeyName(edgeType.TypeName), edgeType, c.edgeTypeTTL)
+}
+
+func (c *Client) saveObject(obj Object) {
+	c.cacheObjects.Set(obj.ID.String(), obj, c.objTTL)
+	if obj.Alias != nil {
+		c.cacheObjects.Set(objAliasKeyName(obj.TypeID, *(obj.Alias)), obj, c.objTTL)
+	}
+}
+
+func (c *Client) saveKeyArray(newKeys []string, sourceObjectID uuid.UUID) {
+	c.keysMutex.Lock()
+	defer c.keysMutex.Unlock()
+
+	if x, found := c.cacheEdges.Get(keyArrayKeyName(sourceObjectID)); found {
+		keyNames := x.([]string)
+		for _, keyName := range keyNames {
+			if _, found := c.cacheEdges.Get(keyName); found {
+				newKeys = append(newKeys, keyName)
+			}
+		}
+	}
+	c.cacheEdges.Set(keyArrayKeyName(sourceObjectID), newKeys, c.edgeTTL)
+}
+
+func (c *Client) deleteKeyArray(sourceObjectID uuid.UUID) {
+	c.keysMutex.Lock()
+	defer c.keysMutex.Unlock()
+
+	if x, found := c.cacheEdges.Get(keyArrayKeyName(sourceObjectID)); found {
+		keyNames := x.([]string)
+
+		for _, keyName := range keyNames {
+			if x, found := c.cacheEdges.Get(keyName); found {
+				if edge, ok := x.(Edge); ok {
+					c.deleteEdgeFromCache(edge)
+				} else {
+					if edges, ok := x.([]Edge); ok {
+						for _, edge := range edges {
+							c.deleteEdgeFromCache(edge)
+						}
+					}
+				}
+			}
+		}
+	}
+	c.cacheEdges.Delete(keyArrayKeyName(sourceObjectID))
+}
+
+func (c *Client) saveEdges(edges []Edge, sourceObjectID uuid.UUID, targetObjectID uuid.UUID) {
+	// Make a copy of the edges for caching
+	cEdges := make([]Edge, len(edges))
+	copy(cEdges, edges)
+	keyNames := make([]string, 0, len(edges)+1)
+	if targetObjectID != uuid.Nil { // We are only saving edges between sourceObjectID and targetObjectID
+		keyName := edgesObjToObj(sourceObjectID, targetObjectID)
+		c.cacheEdges.Set(keyName, cEdges, c.edgeTTL)
+		keyNames = append(keyNames, keyName)
+	} else { // We are saving all edges incoming/outgoing from sourceObjectID
+		c.cacheEdges.Set(sourceObjectID.String(), cEdges, c.edgeTTL)
+	}
+	for _, edge := range cEdges {
+		keyNamesEdge := []string{edgeFullKeyNameFromEdge(&edge), edge.ID.String()}
+		c.cacheEdges.Set(keyNamesEdge[0], edge, c.objTTL)
+		c.cacheEdges.Set(keyNamesEdge[1], edge, c.objTTL)
+		keyNames = append(keyNames, keyNamesEdge...)
+	}
+	c.saveKeyArray(keyNames, sourceObjectID)
+}
+
+func (c *Client) saveEdge(edge Edge) {
+	// We could also append the edge to the object edges but it requires us to ensure that we don't reset the expiration time
+	// We don't clear the KeyArray since we don't need to invalidate individual edges just the sets that now include newly created edge
+	c.cacheEdges.Delete(edgesObjToObj(edge.SourceObjectID, edge.TargetObjectID))
+	c.cacheEdges.Delete(edge.SourceObjectID.String())
+
+	keyNames := []string{edgeFullKeyNameFromEdge(&edge), edge.ID.String()}
+	c.cacheEdges.Set(keyNames[0], edge, c.objTTL)
+	c.cacheEdges.Set(keyNames[1], edge, c.objTTL)
+	c.saveKeyArray(keyNames, edge.SourceObjectID)
+}
+
+// deleteObjectromCache deletes all the cached values/collections in which the object may be present. It assumes that all edges into/out of the object are also
+// invalid and need to flushed
+func (c *Client) deleteObjectromCache(id uuid.UUID) {
+	if x, found := c.cacheObjects.Get(id.String()); found {
+		obj := x.(Object)
+		c.cacheObjects.Delete(obj.ID.String())
+		if obj.Alias != nil {
+			c.cacheObjects.Delete(objAliasKeyName(obj.TypeID, *(obj.Alias)))
+		}
+	}
+	// Clear all edges that have object as target or source
+	c.deleteKeyArray(id)
+}
+
+// deleteEdgeFromCache deletes all the cached values/collections in which the edge may be present
+func (c *Client) deleteEdgeFromCache(edge Edge) {
+	c.cacheEdges.Delete(edgeFullKeyNameFromEdge(&edge))                          // Clear Source_Target_Type -> Edge mapping
+	c.cacheEdges.Delete(edge.ID.String())                                        // Clear EdgeID -> Edge mapping
+	c.cacheEdges.Delete(edgesObjToObj(edge.SourceObjectID, edge.TargetObjectID)) // Clear edge set between source and target object
+	c.cacheEdges.Delete(edgesObjToObj(edge.TargetObjectID, edge.SourceObjectID)) // Clear edge set between target and source object
+	c.cacheEdges.Delete(edge.SourceObjectID.String())                            // Clear edge set for incoming/outgoing for source object
+	c.cacheEdges.Delete(edge.TargetObjectID.String())                            // Clear edge set for incoming/outgoing for target object
+}
+
+// FlushCache clears all contents of the cache
+func (c *Client) FlushCache() {
+	c.cacheObjTypes.Flush()
+	c.cacheEdgeTypes.Flush()
+	c.cacheObjects.Flush()
+	c.cacheEdges.Flush()
+}
+
 // CreateObjectType creates a new type of object for the authz system.
 func (c *Client) CreateObjectType(ctx context.Context, id uuid.UUID, typeName string) (*ObjectType, error) {
 	req := ObjectType{
@@ -72,56 +275,49 @@ func (c *Client) CreateObjectType(ctx context.Context, id uuid.UUID, typeName st
 		return nil, ucerr.Wrap(err)
 	}
 
-	c.mObjectTypes.Lock()
-	defer c.mObjectTypes.Unlock()
-	c.objectTypes[resp.TypeName] = resp
-
+	c.saveObjectType(resp)
 	return &resp, nil
 }
 
 // FindObjectTypeID resolves an object type name to an ID.
 func (c *Client) FindObjectTypeID(ctx context.Context, typeName string) (uuid.UUID, error) {
-	c.mObjectTypes.RLock()
-	if ot, ok := c.objectTypes[typeName]; ok {
-		c.mObjectTypes.RUnlock()
-		return ot.ID, nil
+	if x, found := c.cacheObjTypes.Get(objectTypeKeyName(typeName)); found {
+		objType := x.(ObjectType)
+		return objType.ID, nil
 	}
-	c.mObjectTypes.RUnlock()
 
-	if _, err := c.ListObjectTypes(ctx); err != nil {
+	objTypes, err := c.ListObjectTypes(ctx)
+	if err != nil {
 		return uuid.Nil, ucerr.Wrap(err)
 	}
 
-	// take advantage of the cache update in ListObjectTypes
-	objType, ok := c.objectTypes[typeName]
-	if !ok {
-		return uuid.Nil, ucerr.Errorf("authz object type '%s' not found", typeName)
+	if x, found := c.cacheObjTypes.Get(objectTypeKeyName(typeName)); found {
+		objType := x.(ObjectType)
+		return objType.ID, nil
 	}
 
-	return objType.ID, nil
+	// Double check in case the cache was invalidated between the get and the lookup
+	for _, objType := range objTypes {
+		if objType.TypeName == typeName {
+			return objType.ID, nil
+		}
+	}
+
+	return uuid.Nil, ucerr.Errorf("authz object type '%s' not found", typeName)
 }
 
 // GetObjectType returns an object type by ID.
 func (c *Client) GetObjectType(ctx context.Context, id uuid.UUID) (*ObjectType, error) {
-	c.mObjectTypes.RLock()
-	for _, ot := range c.objectTypes {
-		if ot.ID == id {
-			c.mObjectTypes.RUnlock()
-			cpy := c.objectTypes[ot.TypeName]
-			return &cpy, nil
-		}
+	if x, found := c.cacheObjTypes.Get(id.String()); found {
+		objType := x.(ObjectType)
+		return &objType, nil
 	}
-	c.mObjectTypes.RUnlock()
 
 	var resp ObjectType
 	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objecttypes/%v", id), &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
-
-	c.mObjectTypes.Lock()
-	c.objectTypes[resp.TypeName] = resp
-	c.mObjectTypes.Unlock()
-
+	c.saveObjectType(resp)
 	return &resp, nil
 }
 
@@ -156,8 +352,8 @@ type ListObjectTypesResponse struct {
 // ListObjectTypes lists all object types in the system
 func (c *Client) ListObjectTypes(ctx context.Context) ([]ObjectType, error) {
 	// Rebuild the cache while we build up the response
-	newCache := make(map[string]ObjectType)
-	ots := make([]ObjectType, 0)
+	c.cacheObjTypes.Flush()
+	objTypes := make([]ObjectType, 0)
 
 	// TODO: we should eventually support pagination arguments to this method, but for now we assume
 	// there aren't that many object types and just fetch them all.
@@ -175,36 +371,28 @@ func (c *Client) ListObjectTypes(ctx context.Context) ([]ObjectType, error) {
 			return nil, ucerr.Wrap(err)
 		}
 
-		for _, objType := range resp.Data {
-			newCache[objType.TypeName] = objType
-		}
-		ots = append(ots, resp.Data...)
+		objTypes = append(objTypes, resp.Data...)
 
 		if !pager.AdvanceCursor(resp.ResponseFields) {
 			break
 		}
 	}
 
-	// Swap to new cache on success
-	c.mObjectTypes.Lock()
-	defer c.mObjectTypes.Unlock()
-	c.objectTypes = newCache
-
-	return ots, nil
+	for _, objType := range objTypes {
+		c.saveObjectType(objType)
+	}
+	return objTypes, nil
 }
 
 // DeleteObjectType deletes an object type by ID.
 func (c *Client) DeleteObjectType(ctx context.Context, objectTypeID uuid.UUID) error {
-	c.mObjectTypes.Lock()
-	for _, v := range c.objectTypes {
-		if v.ID == objectTypeID {
-			delete(c.objectTypes, v.TypeName)
-			break
-		}
+	if err := c.client.Delete(ctx, fmt.Sprintf("/authz/objecttypes/%s", objectTypeID), nil); err != nil {
+		return ucerr.Wrap(err)
 	}
-	c.mObjectTypes.Unlock()
 
-	return ucerr.Wrap(c.client.Delete(ctx, fmt.Sprintf("/authz/objecttypes/%s", objectTypeID), nil))
+	// There are so many potential inconsistencies when object type is deleted so flush the whole cache
+	c.FlushCache()
+	return nil
 }
 
 // CreateEdgeType creates a new type of edge for the authz system.
@@ -216,15 +404,13 @@ func (c *Client) CreateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectT
 		TargetObjectTypeID: targetObjectTypeID,
 		Attributes:         attributes,
 	}
+
 	var resp EdgeType
 	if err := c.client.Post(ctx, "/authz/edgetypes", req, &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	c.mEdgeTypes.Lock()
-	defer c.mEdgeTypes.Unlock()
-	c.edgeTypes[resp.TypeName] = resp
-
+	c.saveEdgeType(resp)
 	return &resp, nil
 }
 
@@ -237,50 +423,43 @@ func (c *Client) UpdateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectT
 
 // GetEdgeType gets an edge type (relationship) by its type ID.
 func (c *Client) GetEdgeType(ctx context.Context, edgeTypeID uuid.UUID) (*EdgeType, error) {
-	c.mEdgeTypes.RLock()
-	for _, v := range c.edgeTypes {
-		if v.ID == edgeTypeID {
-			rv := v
-			c.mEdgeTypes.RUnlock()
-			return &rv, nil
-		}
+	if x, found := c.cacheEdgeTypes.Get(edgeTypeID.String()); found {
+		edgeType := x.(EdgeType)
+		return &edgeType, nil
 	}
-	c.mEdgeTypes.RUnlock()
 
 	var resp EdgeType
 	if err := c.client.Get(ctx, fmt.Sprintf("/authz/edgetypes/%s", edgeTypeID), &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
-
-	c.mEdgeTypes.Lock()
-	defer c.mEdgeTypes.Unlock()
-	c.edgeTypes[resp.TypeName] = resp
-
+	c.saveEdgeType(resp)
 	return &resp, nil
 }
 
 // FindEdgeTypeID resolves an edge type name to an ID.
 func (c *Client) FindEdgeTypeID(ctx context.Context, typeName string) (uuid.UUID, error) {
-	c.mEdgeTypes.RLock()
-	if et, ok := c.edgeTypes[typeName]; ok {
-		c.mEdgeTypes.RUnlock()
-		return et.ID, nil
+	if x, found := c.cacheEdgeTypes.Get(edgeTypeKeyName(typeName)); found {
+		edgeType := x.(EdgeType)
+		return edgeType.ID, nil
 	}
-	c.mEdgeTypes.RUnlock()
 
-	if _, err := c.ListEdgeTypes(ctx); err != nil {
+	edgeTypes, err := c.ListEdgeTypes(ctx)
+	if err != nil {
 		return uuid.Nil, ucerr.Wrap(err)
 	}
 
-	// take advantage of the fact that ListEdgeTypes updated the cache
-	c.mEdgeTypes.RLock()
-	defer c.mEdgeTypes.RUnlock()
-	edgeType, ok := c.edgeTypes[typeName]
-
-	if !ok {
-		return uuid.Nil, ucerr.Errorf("authz edge type '%s' not found", typeName)
+	if x, found := c.cacheEdgeTypes.Get(edgeTypeKeyName(typeName)); found {
+		edgeType := x.(EdgeType)
+		return edgeType.ID, nil
 	}
-	return edgeType.ID, nil
+
+	// Double check if the cache was invalidated on the miss
+	for _, edgeType := range edgeTypes {
+		if edgeType.TypeName == typeName {
+			return edgeType.ID, nil
+		}
+	}
+	return uuid.Nil, ucerr.Errorf("authz edge type '%s' not found", typeName)
 }
 
 // ListEdgeTypesResponse is the paginated response from listing edge types.
@@ -292,8 +471,8 @@ type ListEdgeTypesResponse struct {
 // ListEdgeTypes lists all available edge types
 func (c *Client) ListEdgeTypes(ctx context.Context) ([]EdgeType, error) {
 	// Rebuild the cache while we build up the response
-	newCache := make(map[string]EdgeType)
-	ets := make([]EdgeType, 0)
+	c.cacheEdgeTypes.Flush()
+	edgeTypes := make([]EdgeType, 0)
 
 	// TODO: we should eventually support pagination arguments to this method, but for now we assume
 	// there aren't that many edge types and just fetch them all.
@@ -311,88 +490,70 @@ func (c *Client) ListEdgeTypes(ctx context.Context) ([]EdgeType, error) {
 			return nil, ucerr.Wrap(err)
 		}
 
-		for _, edgeType := range resp.Data {
-			newCache[edgeType.TypeName] = edgeType
-		}
-		ets = append(ets, resp.Data...)
+		edgeTypes = append(edgeTypes, resp.Data...)
 
 		if !pager.AdvanceCursor(resp.ResponseFields) {
 			break
 		}
 	}
 
-	// Swap to new cache on success
-	c.mEdgeTypes.Lock()
-	defer c.mEdgeTypes.Unlock()
-	c.edgeTypes = newCache
-
-	return ets, nil
+	for _, edgeType := range edgeTypes {
+		c.saveEdgeType(edgeType)
+	}
+	return edgeTypes, nil
 }
 
 // DeleteEdgeType deletes an edge type by ID.
 func (c *Client) DeleteEdgeType(ctx context.Context, edgeTypeID uuid.UUID) error {
-	c.mEdgeTypes.Lock()
-	for _, v := range c.edgeTypes {
-		if v.ID == edgeTypeID {
-			delete(c.edgeTypes, v.TypeName)
-			break
-		}
+	if err := c.client.Delete(ctx, fmt.Sprintf("/authz/edgetypes/%s", edgeTypeID), nil); err != nil {
+		return ucerr.Wrap(err)
 	}
-	c.mEdgeTypes.Unlock()
-
-	return ucerr.Wrap(c.client.Delete(ctx, fmt.Sprintf("/authz/edgetypes/%s", edgeTypeID), nil))
+	// There are so many potential inconsistencies when edge type is deleted so flush the whole cache
+	c.FlushCache()
+	return nil
 }
 
 // CreateObject creates a new object with a given ID, name, and type.
 func (c *Client) CreateObject(ctx context.Context, id, typeID uuid.UUID, alias string) (*Object, error) {
 	obj := Object{
 		BaseModel: ucdb.NewBaseWithID(id),
-		Alias:     alias,
+		Alias:     &alias,
 		TypeID:    typeID,
+	}
+	if alias == "" { // TODO this avoids a breaking API change bit it introduces a change in contract in being able to store multiple objects with "" alias
+		obj.Alias = nil
 	}
 	var resp Object
 	if err := c.client.Post(ctx, "/authz/objects", obj, &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	c.mObjects.Lock()
-	defer c.mObjects.Unlock()
-	c.objects[resp.ID] = resp
-
+	c.saveObject(obj)
 	return &resp, nil
 }
 
 // GetObject returns an object by ID.
 func (c *Client) GetObject(ctx context.Context, id uuid.UUID) (*Object, error) {
-	c.mObjects.RLock()
-	if obj, ok := c.objects[id]; ok {
-		c.mObjects.RUnlock()
+	if x, found := c.cacheObjects.Get(id.String()); found {
+		obj := x.(Object)
 		return &obj, nil
 	}
-	c.mObjects.RUnlock()
 
 	var resp Object
 	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects/%s", id), &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	c.mObjects.Lock()
-	defer c.mObjects.Unlock()
-	c.objects[resp.ID] = resp
-
+	c.saveObject(resp)
 	return &resp, nil
 }
 
 // GetObjectForName returns an object with a given name.
 func (c *Client) GetObjectForName(ctx context.Context, typeID uuid.UUID, name string) (*Object, error) {
-	c.mObjects.RLock()
-	for _, obj := range c.objects {
-		if obj.TypeID == typeID && obj.Alias == name {
-			c.mObjects.RUnlock()
-			return &obj, nil
-		}
+	if x, found := c.cacheObjects.Get(objAliasKeyName(typeID, name)); found {
+		edgeType := x.(Object)
+		return &edgeType, nil
 	}
-	c.mObjects.RUnlock()
 
 	// TODO: support a name-based path, e.g. `/authz/objects/<objectname>`
 	var resp ListObjectsResponse
@@ -404,13 +565,8 @@ func (c *Client) GetObjectForName(ctx context.Context, typeID uuid.UUID, name st
 		return nil, ucerr.Wrap(err)
 	}
 
-	c.mObjects.Lock()
-	defer c.mObjects.Unlock()
-	for _, obj := range resp.Data {
-		c.objects[obj.ID] = obj
-	}
-
 	if len(resp.Data) > 0 {
+		c.saveObject(resp.Data[0])
 		return &resp.Data[0], nil
 	}
 	return nil, ErrObjectNotFound
@@ -418,22 +574,17 @@ func (c *Client) GetObjectForName(ctx context.Context, typeID uuid.UUID, name st
 
 // DeleteObject deletes an object by ID.
 func (c *Client) DeleteObject(ctx context.Context, id uuid.UUID) error {
-	// TODO: this might be a bit too "understanding" of the server behavior, is
-	// there a safer way to separate these responsibilities?
-	c.mEdges.Lock()
-	for _, e := range c.edges {
-		if e.SourceObjectID == id || e.TargetObjectID == id {
-			// NB: deleting under a range is explicitly safe in golang
-			delete(c.edges, e.ID)
-		}
-	}
-	c.mEdges.Unlock()
-
-	c.mObjects.Lock()
-	delete(c.objects, id)
-	c.mObjects.Unlock()
-
+	c.deleteObjectromCache(id)
 	return ucerr.Wrap(c.client.Delete(ctx, fmt.Sprintf("/authz/objects/%s", id), nil))
+}
+
+// DeleteEdgesByObject deletes all edges going in or  out of an object by ID.
+func (c *Client) DeleteEdgesByObject(ctx context.Context, id uuid.UUID) error {
+	if _, found := c.cacheEdges.Get(id.String()); found {
+		c.cacheEdges.Delete(id.String())
+		c.deleteKeyArray(id)
+	}
+	return ucerr.Wrap(c.client.Delete(ctx, fmt.Sprintf("/authz/objects/%s/edges", id), nil))
 }
 
 // ListObjectsResponse represents a paginated response from listing objects.
@@ -466,11 +617,18 @@ func (c *Client) ListObjects(ctx context.Context, opts ...pagination.Option) (*L
 	if err != nil {
 		return nil, ucerr.Wrap(err)
 	}
+	return c.ListObjectsFromQuery(ctx, pager.Query(), opts...)
+}
 
+// ListObjectsFromQuery takes in a query that can handle filters passed from console as well as the default method.
+func (c *Client) ListObjectsFromQuery(ctx context.Context, query url.Values, opts ...pagination.Option) (*ListObjectsResponse, error) {
 	var resp ListObjectsResponse
 	legacyResult := []Object{}
 	decodeFunc := newPaginatedDecodeFunc(&resp, &legacyResult)
-	query := pager.Query()
+	pager, err := pagination.ApplyOptions(opts...)
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
 	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects?%s", query.Encode()), nil, jsonclient.CustomDecoder(decodeFunc)); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
@@ -504,10 +662,8 @@ func (c *Client) ListObjects(ctx context.Context, opts ...pagination.Option) (*L
 		resp.Data = resp.Data[firstElem:lastElem]
 	}
 
-	c.mObjects.Lock()
-	defer c.mObjects.Unlock()
 	for _, obj := range resp.Data {
-		c.objects[obj.ID] = obj
+		c.saveObject(obj)
 	}
 
 	return &resp, nil
@@ -519,6 +675,22 @@ type ListEdgesResponse struct {
 	pagination.ResponseFields
 }
 
+// ListEdges lists `limit` edges.
+func (c *Client) ListEdges(ctx context.Context, opts ...pagination.Option) (*ListEdgesResponse, error) {
+	pager, err := pagination.ApplyOptions(opts...)
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	query := pager.Query()
+
+	var resp ListEdgesResponse
+	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects/edges?%s", query.Encode()), &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+	return &resp, nil
+}
+
 // ListEdgesOnObject lists `limit` edges (relationships) where the given object is a source or target.
 func (c *Client) ListEdgesOnObject(ctx context.Context, objectID uuid.UUID, opts ...pagination.Option) (*ListEdgesResponse, error) {
 	pager, err := pagination.ApplyOptions(opts...)
@@ -528,22 +700,46 @@ func (c *Client) ListEdgesOnObject(ctx context.Context, objectID uuid.UUID, opts
 
 	query := pager.Query()
 
+	if x, found := c.cacheEdges.Get(objectID.String()); found {
+		edges := x.([]Edge)
+		// If the client requests smaller pages than what is stored in the cache - don't use the cache
+		if len(edges) <= pager.GetLimit() {
+			resp := ListEdgesResponse{Data: x.([]Edge), ResponseFields: pagination.ResponseFields{HasNext: false}}
+			return &resp, nil
+		}
+	}
+
 	var resp ListEdgesResponse
 	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects/%s/edges?%s", objectID, query.Encode()), &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	c.mEdges.Lock()
-	defer c.mEdges.Unlock()
-	for _, e := range resp.Data {
-		c.edges[e.ID] = e
+	// Only cache the response if it fits on one page
+	if !resp.HasNext && !resp.HasPrev {
+		c.saveEdges(resp.Data, objectID, uuid.Nil)
 	}
-
 	return &resp, nil
 }
 
 // ListEdgesBetweenObjects lists all edges (relationships) with a given source & target objct.
 func (c *Client) ListEdgesBetweenObjects(ctx context.Context, sourceObjectID, targetObjectID uuid.UUID) ([]Edge, error) {
+	// If edges for source object are in the cache for all edges per object - filter them by target
+	if x, found := c.cacheEdges.Get(sourceObjectID.String()); found {
+		edges := x.([]Edge)
+		filteredEdges := make([]Edge, 0)
+		for _, edge := range edges {
+			if edge.TargetObjectID == targetObjectID {
+				filteredEdges = append(filteredEdges, edge)
+			}
+		}
+		return filteredEdges, nil
+	}
+	// If the edges are in the cache by source->target - the value can be returned directly
+	if x, found := c.cacheEdges.Get(edgesObjToObj(sourceObjectID, targetObjectID)); found {
+		edges := x.([]Edge)
+		return edges, nil
+	}
+
 	// NB: we don't currently offer any cached reads here because it's hard to know when a "list" is current?
 	var resp []Edge
 	query := url.Values{}
@@ -553,28 +749,53 @@ func (c *Client) ListEdgesBetweenObjects(ctx context.Context, sourceObjectID, ta
 		return nil, ucerr.Wrap(err)
 	}
 
-	c.mEdges.Lock()
-	defer c.mEdges.Unlock()
-	for _, e := range resp {
-		c.edges[e.ID] = e
+	c.saveEdges(resp, sourceObjectID, targetObjectID)
+	return resp, nil
+}
+
+// GetEdge returns an edge by ID.
+func (c *Client) GetEdge(ctx context.Context, id uuid.UUID) (*Edge, error) {
+	if x, found := c.cacheEdges.Get(id.String()); found {
+		edge := x.(Edge)
+		return &edge, nil
 	}
 
-	return resp, nil
+	var resp Edge
+	if err := c.client.Get(ctx, fmt.Sprintf("/authz/edges/%s", id), &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	c.saveEdge(resp)
+
+	return &resp, nil
 }
 
 // FindEdge finds an existing edge (relationship) between two objects.
 func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, edgeTypeID uuid.UUID) (*Edge, error) {
-	c.mEdges.RLock()
-	for _, edge := range c.edges {
-		if edge.SourceObjectID == sourceObjectID &&
-			edge.TargetObjectID == targetObjectID &&
-			edge.EdgeTypeID == edgeTypeID {
-			rv := edge
-			c.mEdges.RUnlock()
-			return &rv, nil
+	// If the edges are in the cache by source->target - iterate over that set first
+	if x, found := c.cacheEdges.Get(edgesObjToObj(sourceObjectID, targetObjectID)); found {
+		edges := x.([]Edge)
+		for _, edge := range edges {
+			if edge.EdgeTypeID == edgeTypeID {
+				return &edge, nil
+			}
+		}
+		// In theory we could return NotFound here but this is a rare enough case that it makes sense to try the server
+	}
+
+	if x, found := c.cacheEdges.Get(sourceObjectID.String()); found {
+		edges := x.([]Edge)
+		for _, edge := range edges {
+			if edge.TargetObjectID == targetObjectID && edge.EdgeTypeID == edgeTypeID {
+				return &edge, nil
+			}
 		}
 	}
-	c.mEdges.RUnlock()
+
+	if x, found := c.cacheEdges.Get(edgeFullKeyNameFromIDs(sourceObjectID, targetObjectID, edgeTypeID)); found {
+		edge := x.(Edge)
+		return &edge, nil
+	}
 
 	var resp []Edge
 	query := url.Values{}
@@ -588,10 +809,7 @@ func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, e
 		return nil, ucerr.Errorf("expected 1 edge from FindEdge, got %d", len(resp))
 	}
 
-	c.mEdges.Lock()
-	defer c.mEdges.Unlock()
-	c.edges[resp[0].ID] = resp[0]
-
+	c.saveEdge(resp[0])
 	return &resp[0], nil
 }
 
@@ -608,18 +826,23 @@ func (c *Client) CreateEdge(ctx context.Context, id, sourceObjectID, targetObjec
 		return nil, ucerr.Wrap(err)
 	}
 
-	c.mEdges.Lock()
-	defer c.mEdges.Unlock()
-	c.edges[req.ID] = req
+	c.saveEdge(req)
+
+	// Clear edge set for incoming/outgoing for source and target objects
+	c.cacheEdges.Delete(sourceObjectID.String())
+	c.cacheEdges.Delete(targetObjectID.String())
+	c.cacheEdges.Delete(edgesObjToObj(sourceObjectID, targetObjectID))
+	c.cacheEdges.Delete(edgesObjToObj(targetObjectID, sourceObjectID))
 
 	return &req, nil
 }
 
 // DeleteEdge deletes an edge by ID.
 func (c *Client) DeleteEdge(ctx context.Context, edgeID uuid.UUID) error {
-	c.mEdges.Lock()
-	delete(c.edges, edgeID)
-	c.mEdges.Unlock()
+	if x, found := c.cacheEdges.Get(edgeID.String()); found {
+		edge := x.(Edge)
+		c.deleteEdgeFromCache(edge)
+	}
 
 	return ucerr.Wrap(c.client.Delete(ctx, fmt.Sprintf("/authz/edges/%s", edgeID), nil))
 }
@@ -630,7 +853,7 @@ type AttributePathNode struct {
 	EdgeID   uuid.UUID `json:"edge_id"`
 }
 
-// CheckAttributeResponse is returned by the check_attribute endpoint.
+// CheckAttributeResponse is returned by the checkattribute endpoint.
 type CheckAttributeResponse struct {
 	HasAttribute bool                `json:"has_attribute"`
 	Path         []AttributePathNode `json:"path"`
@@ -643,9 +866,73 @@ func (c *Client) CheckAttribute(ctx context.Context, sourceObjectID, targetObjec
 	query.Add("source_object_id", sourceObjectID.String())
 	query.Add("target_object_id", targetObjectID.String())
 	query.Add("attribute", attributeName)
-	if err := c.client.Get(ctx, fmt.Sprintf("/authz/check_attribute?%s", query.Encode()), &resp); err != nil {
+	if err := c.client.Get(ctx, fmt.Sprintf("/authz/checkattribute?%s", query.Encode()), &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
 	return &resp, nil
+}
+
+// ListAttributes returns a list of attributes that the source object has on the target object.
+func (c *Client) ListAttributes(ctx context.Context, sourceObjectID, targetObjectID uuid.UUID) ([]string, error) {
+	var resp []string
+	query := url.Values{}
+	query.Add("source_object_id", sourceObjectID.String())
+	query.Add("target_object_id", targetObjectID.String())
+	if err := c.client.Get(ctx, fmt.Sprintf("/authz/listattributes?%s", query.Encode()), &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return resp, nil
+}
+
+// ListObjectsReachableWithAttribute returns a list of object IDs of a certain type that are reachable from the source object with the given attribute
+func (c *Client) ListObjectsReachableWithAttribute(ctx context.Context, sourceObjectID uuid.UUID, targetObjectTypeID uuid.UUID, attributeName string) ([]uuid.UUID, error) {
+	var resp []uuid.UUID
+	query := url.Values{}
+	query.Add("source_object_id", sourceObjectID.String())
+	query.Add("target_object_type_id", targetObjectTypeID.String())
+	query.Add("attribute", attributeName)
+	if err := c.client.Get(ctx, fmt.Sprintf("/authz/listobjectsreachablewithattribute?%s", query.Encode()), &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return resp, nil
+}
+
+// ListOrganizationsResponse is the response from the ListOrganizations endpoint.
+type ListOrganizationsResponse struct {
+	Data []Organization `json:"data"`
+	pagination.ResponseFields
+}
+
+// ListOrganizations lists all organizations for a tenant
+func (c *Client) ListOrganizations(ctx context.Context) ([]Organization, error) {
+
+	// TODO: we should eventually support pagination arguments to this method, but for now we assume
+	// there aren't that many organizations and just fetch them all.
+
+	orgs := make([]Organization, 0)
+
+	pager, err := pagination.ApplyOptions()
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	for {
+		query := pager.Query()
+
+		var resp ListOrganizationsResponse
+		if err := c.client.Get(ctx, fmt.Sprintf("/authz/organizations?%s", query.Encode()), &resp); err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+
+		orgs = append(orgs, resp.Data...)
+
+		if !pager.AdvanceCursor(resp.ResponseFields) {
+			break
+		}
+	}
+
+	return orgs, nil
 }

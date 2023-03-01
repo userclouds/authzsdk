@@ -1,9 +1,5 @@
 package socialprovider
 
-import (
-	"userclouds.com/infra/ucerr"
-)
-
 // SocialProvider defines the known External/Social Identity Providers
 type SocialProvider int
 
@@ -30,15 +26,6 @@ func ValidSocialProviders() []SocialProvider {
 }
 
 //go:generate genconstant SocialProvider
-
-// Validate implements Validateable
-func (s SocialProvider) Validate() error {
-	if _, err := s.MarshalText(); err != nil {
-		return ucerr.Wrap(err)
-	}
-
-	return nil
-}
 
 // IsSupported returns true if SocialProvider is recognized and not SocialProviderUnsupported or SocialProviderNone
 func (s SocialProvider) IsSupported() bool {
