@@ -264,6 +264,11 @@ func (c *Client) FlushCache() {
 	c.cacheEdges.Flush()
 }
 
+// FlushCacheEdges clears the edge cache only.
+func (c *Client) FlushCacheEdges() {
+	c.cacheEdges.Flush()
+}
+
 // CreateObjectType creates a new type of object for the authz system.
 func (c *Client) CreateObjectType(ctx context.Context, id uuid.UUID, typeName string) (*ObjectType, error) {
 	req := ObjectType{
