@@ -1,6 +1,9 @@
 package jsonclient
 
-import "fmt"
+import (
+	"fmt"
+	"net/http"
+)
 
 // JCOAuthError lets us easily decode an oautherror response from a service we call,
 // and keep track of the error code for clients
@@ -18,4 +21,11 @@ type oAuthError struct {
 // Error implements interface `error` for type `OAuthError`
 func (o oAuthError) Error() string {
 	return fmt.Sprintf("%s: %s [http status: %d]", o.ErrorType, o.ErrorDesc, o.Code)
+}
+
+// ErrIncorrectUsernamePassword indicates a bad username or password.
+var ErrIncorrectUsernamePassword = oAuthError{
+	ErrorType: "invalid_grant",
+	ErrorDesc: "incorrect username or password",
+	Code:      http.StatusBadRequest,
 }

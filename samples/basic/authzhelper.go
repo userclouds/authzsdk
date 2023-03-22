@@ -9,6 +9,7 @@ import (
 	"github.com/gofrs/uuid"
 	"userclouds.com/authz"
 	"userclouds.com/idp"
+	"userclouds.com/idp/userstore"
 	"userclouds.com/infra/jsonclient"
 	"userclouds.com/infra/ucerr"
 )
@@ -68,7 +69,10 @@ func provisionUser(ctx context.Context, idpClient *idp.Client, name string) (uui
 		return user.ID, nil
 	}
 	// If any error occurred above, create a new user
-	id, err := idpClient.CreateUser(ctx, idp.UserProfile{Name: name}, nil, name)
+	profile := userstore.Record{}
+	profile["name"] = name
+
+	id, err := idpClient.CreateUser(ctx, profile, name)
 	return id, ucerr.Wrap(err)
 }
 

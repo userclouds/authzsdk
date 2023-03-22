@@ -2,32 +2,38 @@ package policy
 
 import (
 	"encoding/json"
+	"regexp"
 
 	"github.com/gofrs/uuid"
 
 	"userclouds.com/infra/ucerr"
 )
 
+var validIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_-]*$`)
+
+const maxIdentifierLength = 128
+
 // GenerationPolicy describes a token generation policy
 type GenerationPolicy struct {
 	ID         uuid.UUID `json:"id"`
-	Name       string    `json:"name"`
-	Function   string    `json:"function"`
+	Name       string    `json:"name" validate:"notempty"`
+	Function   string    `json:"function" validate:"notempty"`
 	Parameters string    `json:"parameters"`
 }
 
-// Validate implements Validateable
-func (g GenerationPolicy) Validate() error {
-	// either ID or Function must be set, but not both
-	if (g.ID == uuid.Nil) == (g.Function == "") {
-		return ucerr.New("Exactly one of GenerationPolicy.ID and GenerationPolicy.Function must be set")
+//go:generate genvalidate GenerationPolicy
+
+func (g GenerationPolicy) extraValidate() error {
+
+	if len(g.Name) > maxIdentifierLength || !validIdentifier.MatchString(string(g.Name)) {
+		return ucerr.Friendlyf(nil, `Transformation policy name "%s" is too long or has invalid characters`, g.Name)
 	}
 
 	params := map[string]interface{}{}
 	if err := json.Unmarshal([]byte(g.Parameters), &params); g.Parameters != "" && err != nil {
 		paramsArr := []interface{}{}
 		if err := json.Unmarshal([]byte(g.Parameters), &paramsArr); err != nil {
-			return ucerr.New("GenerationPolicy.Parameters must be either empty, or a JSON dictionary or JSON array")
+			return ucerr.New("TransformationPolicy.Parameters must be either empty, or a JSON dictionary or JSON array")
 		}
 	}
 
@@ -37,21 +43,22 @@ func (g GenerationPolicy) Validate() error {
 // AccessPolicy describes a token generation policy
 type AccessPolicy struct {
 	ID         uuid.UUID `json:"id"`
-	Name       string    `json:"name"`
-	Function   string    `json:"function"`
+	Name       string    `json:"name" validate:"notempty"`
+	Function   string    `json:"function" validate:"notempty"`
 	Parameters string    `json:"parameters"`
 	Version    int       `json:"version"` // NB: this is currently emitted by the server, but not read by the server (for UI only)
 }
 
-// Validate implements Validateable
-func (g AccessPolicy) Validate() error {
-	// either ID or Function must be set, but not both
-	if (g.ID == uuid.Nil) == (g.Function == "") {
-		return ucerr.New("Exactly one of AccessPolicy.ID and AccessPolicy.Function must be set")
+//go:generate genvalidate AccessPolicy
+
+func (a AccessPolicy) extraValidate() error {
+
+	if len(a.Name) > maxIdentifierLength || !validIdentifier.MatchString(string(a.Name)) {
+		return ucerr.Friendlyf(nil, `Access policy name "%s" is too long or has invalid characters`, a.Name)
 	}
 
 	params := map[string]interface{}{}
-	if err := json.Unmarshal([]byte(g.Parameters), &params); g.Parameters != "" && err != nil {
+	if err := json.Unmarshal([]byte(a.Parameters), &params); a.Parameters != "" && err != nil {
 		return ucerr.New("AccessPolicy.Parameters must be either empty, or a JSON dictionary")
 	}
 
