@@ -16,17 +16,24 @@ import (
 	"userclouds.com/infra/ucerr"
 )
 
-const defaultTokenExpiry int64 = 86400
-
 // CreateToken creates a new JWT
-func CreateToken(ctx context.Context, privateKey *rsa.PrivateKey, keyID string, tokenID uuid.UUID, claims oidc.TokenClaims, jwtIssuerURL string) (string, error) {
+func CreateToken(ctx context.Context,
+	privateKey *rsa.PrivateKey,
+	keyID string,
+	tokenID uuid.UUID,
+	claims oidc.TokenClaims,
+	jwtIssuerURL string,
+	validFor int64) (string, error) {
+
 	// Augment claims with special fields.
 	claims.IssuedAt = time.Now().Unix()
 	claims.Issuer = jwtIssuerURL
 
-	if claims.ExpiresAt == 0 {
-		claims.ExpiresAt = claims.IssuedAt + defaultTokenExpiry
+	// we could use a default value here, but seems more useful to catch data errors
+	if validFor == 0 {
+		return "", ucerr.Errorf("validFor must be > 0")
 	}
+	claims.ExpiresAt = claims.IssuedAt + validFor
 
 	// Put unique token ID in claims so we can track tokens back to any context around their issuance.
 	// As a side effect, we also get unique tokens which is currently required since we want to be able to look

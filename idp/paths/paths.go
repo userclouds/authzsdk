@@ -51,11 +51,15 @@ var (
 	singleConfigMutatorPath = func(id uuid.UUID) string {
 		return fmt.Sprintf("%s/%s", BaseConfigMutatorPath, id)
 	}
-	CreateMutatorPath = BaseConfigMutatorPath
-	DeleteMutatorPath = singleConfigMutatorPath
-	GetMutatorPath    = singleConfigMutatorPath
-	ListMutatorsPath  = BaseConfigMutatorPath
-	UpdateMutatorPath = singleConfigMutatorPath
+	versionedSingleConfigMutatorPath = func(id uuid.UUID, version int) string {
+		return fmt.Sprintf("%s/%s?version=%d", BaseConfigMutatorPath, id, version)
+	}
+	CreateMutatorPath       = BaseConfigMutatorPath
+	DeleteMutatorPath       = singleConfigMutatorPath
+	GetMutatorPath          = singleConfigMutatorPath
+	GetMutatorByVersionPath = versionedSingleConfigMutatorPath
+	ListMutatorsPath        = BaseConfigMutatorPath
+	UpdateMutatorPath       = singleConfigMutatorPath
 
 	BaseMutatorPath    = fmt.Sprintf("%s/mutators", BaseAPIPath)
 	ExecuteMutatorPath = BaseMutatorPath

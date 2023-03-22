@@ -112,13 +112,6 @@ type Edge struct {
 
 //go:generate genvalidate Edge
 
-// UserObject is a limited view of the `users` table used by the AuthZ service.
-// To avoid a dependency on IDP packages, AuthZ uses this stub structure to load a limited slice of User
-// objects for authz purposes instead of depending on `idp/internal/storage`.`
-type UserObject struct {
-	ucdb.BaseModel
-}
-
 // Organization defines a collection of objects inside of a single AuthZ namespace.
 // Uniqueness (of eg. Object aliases) is enforced by organization, rather than globally in a tenant
 type Organization struct {

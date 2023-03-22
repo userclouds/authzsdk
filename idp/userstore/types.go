@@ -1,6 +1,8 @@
 package userstore
 
 import (
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -23,6 +25,8 @@ type ColumnType int
 const (
 	ColumnTypeInvalid ColumnType = 0
 
+	ColumnTypeBoolean ColumnType = 1
+
 	ColumnTypeString ColumnType = 100
 
 	ColumnTypeTimestamp ColumnType = 200
@@ -34,18 +38,31 @@ const (
 // in the user data store of a tenant.
 type Column struct {
 	// Columns may be renamed, but their ID cannot be changed.
-	ID           uuid.UUID  `json:"id" validate:"notnil"`
+	ID           uuid.UUID  `json:"id"`
 	Name         string     `json:"name" validate:"notempty"`
 	Type         ColumnType `json:"type"`
 	DefaultValue string     `json:"default_value,omitempty"`
 	Unique       bool       `json:"unique"`
 }
 
+var validIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_-]*$`)
+
+const maxIdentifierLength = 128
+
+func (c Column) extraValidate() error {
+
+	if len(c.Name) > maxIdentifierLength || !validIdentifier.MatchString(string(c.Name)) {
+		return ucerr.Friendlyf(nil, `"%s" is not a valid column name`, c.Name)
+	}
+
+	return nil
+}
+
 //go:generate genvalidate Column
 
 // Record is a single "row" of data containing 0 or more Columns that adhere to a Schema.
-// The key is the Column UUID, since names can change but IDs are stable.
-type Record map[uuid.UUID]interface{}
+// The key is the name of the column
+type Record map[string]interface{}
 
 //go:generate gendbjson Record
 
@@ -55,6 +72,8 @@ func getColumnType(i interface{}) ColumnType {
 		return ColumnTypeString
 	case time.Time:
 		return ColumnTypeTimestamp
+	case bool:
+		return ColumnTypeBoolean
 	default:
 		return ColumnTypeInvalid
 	}
@@ -79,7 +98,7 @@ func (r Record) ValidateAgainstSchema(s *Schema) error {
 	for k, i := range r {
 		var col *Column
 		for idx := range s.Columns {
-			if k == s.Columns[idx].ID {
+			if k == s.Columns[idx].Name {
 				col = &s.Columns[idx]
 				break
 			}
@@ -92,7 +111,9 @@ func (r Record) ValidateAgainstSchema(s *Schema) error {
 		}
 		actualType := getColumnType(i)
 		if col.Type == ColumnTypeTimestamp && actualType == ColumnTypeString {
-			if _, err := time.Parse(time.RFC3339, i.(string)); err == nil {
+			if i.(string) == "" {
+				actualType = ColumnTypeTimestamp
+			} else if _, err := time.Parse(time.RFC3339, i.(string)); err == nil {
 				actualType = ColumnTypeTimestamp
 			}
 		}
@@ -105,7 +126,7 @@ func (r Record) ValidateAgainstSchema(s *Schema) error {
 
 // Accessor represents a customer-defined view / permissions policy on a column
 type Accessor struct {
-	ID uuid.UUID `json:"id" validate:"notnil"`
+	ID uuid.UUID `json:"id"`
 
 	// Friendly ID, must be unique?
 	Name string `json:"name" validate:"notempty"`
@@ -117,18 +138,33 @@ type Accessor struct {
 	Version int `json:"version"`
 
 	// the columns that are accessed here
-	ColumnIDs []uuid.UUID `json:"column_ids" validate:"notnil"`
+	ColumnNames []string `json:"column_names" validate:"skip"`
 
 	// makes decisions about who can access this particular view of this field
 	AccessPolicyID uuid.UUID `json:"access_policy_id" validate:"notnil"`
 
 	// transforms the value of this field before it is returned to the client
 	TransformationPolicyID uuid.UUID `json:"transformation_policy_id" validate:"notnil"`
+
+	// Configuration for selectors for this accessor
+	SelectorConfig UserSelectorConfig `json:"selector_config"`
 }
 
 func (o *Accessor) extraValidate() error {
-	if len(o.ColumnIDs) == 0 {
-		return ucerr.Errorf("Accessor.ColumnIDs (%v) can't be empty", o.ID)
+
+	if len(o.Name) > maxIdentifierLength || !validIdentifier.MatchString(string(o.Name)) {
+		return ucerr.Friendlyf(nil, `"%s" is not a valid accessor name`, o.Name)
+	}
+
+	if len(o.ColumnNames) == 0 {
+		return ucerr.Errorf("Accessor.ColumnNames (%v) can't be empty", o.ID)
+	}
+	columnNameMap := map[string]bool{}
+	for i := range o.ColumnNames {
+		if _, found := columnNameMap[o.ColumnNames[i]]; found {
+			return ucerr.Errorf("duplicate name '%v' in ColumnNames", o.ColumnNames[i])
+		}
+		columnNameMap[o.ColumnNames[i]] = true
 	}
 	return nil
 }
@@ -137,7 +173,7 @@ func (o *Accessor) extraValidate() error {
 
 // Mutator represents a customer-defined permissions policy for updating columns in userstore
 type Mutator struct {
-	ID uuid.UUID `json:"id" validate:"notnil"`
+	ID uuid.UUID `json:"id"`
 
 	// Friendly ID, must be unique
 	Name string `json:"name" validate:"notempty"`
@@ -149,20 +185,60 @@ type Mutator struct {
 	Version int `json:"version"`
 
 	// The columns that are updated here
-	ColumnIDs []uuid.UUID `json:"column_ids" validate:"notnil"`
+	ColumnNames []string `json:"column_names" validate:"skip"`
 
 	// Decides who can update these columns
 	AccessPolicyID uuid.UUID `json:"access_policy_id" validate:"notnil"`
 
 	// Validates the data before it is written to the userstore
 	ValidationPolicyID uuid.UUID `json:"validation_policy_id" validate:"notnil"`
+
+	// Configuration for selectors for this mutator
+	SelectorConfig UserSelectorConfig `json:"selector_config"`
 }
 
 func (o *Mutator) extraValidate() error {
-	if len(o.ColumnIDs) == 0 {
-		return ucerr.Errorf("Mutator.ColumnIDs (%v) can't be empty", o.ID)
+
+	if len(o.Name) > maxIdentifierLength || !validIdentifier.MatchString(string(o.Name)) {
+		return ucerr.Friendlyf(nil, `"%s" is not a valid mutator name`, o.Name)
+	}
+
+	if len(o.ColumnNames) == 0 {
+		return ucerr.Errorf("Mutator.ColumnNames (%v) can't be empty", o.ID)
+	}
+	columnNameMap := map[string]bool{}
+	for i := range o.ColumnNames {
+		if _, found := columnNameMap[o.ColumnNames[i]]; found {
+			return ucerr.Errorf("duplicate name '%v' in ColumnNames", o.ColumnNames[i])
+		}
+		columnNameMap[o.ColumnNames[i]] = true
 	}
 	return nil
 }
 
 //go:generate genvalidate Mutator
+
+// UserSelectorValues are the values passed for the UserSelector of an accessor or mutator
+type UserSelectorValues []interface{}
+
+// UserSelectorConfig is the configuration for a UserSelector
+type UserSelectorConfig struct {
+	WhereClause string `json:"where_clause" validate:"notempty"`
+}
+
+func (u UserSelectorConfig) extraValidate() error {
+	// make sure the where clause only contains tokens for clauses of the form "{column_id} operator ? [conjunction {column_id} operator ?]*"
+	// e.g. "{id} IN (?) OR {e421767c-815c-46bd-8d1e-e41373c39ce9} LIKE ?"
+	columnsRE := regexp.MustCompile(`{[a-zA-Z0-9_ -]+}`)
+	operatorRE := regexp.MustCompile(`(?i) (=|<|>|<=|>=|!=|IN|LIKE) `)
+	valuesRE := regexp.MustCompile(`\?|\(\?\)`)
+	conjunctionRE := regexp.MustCompile(`(?i) (OR|AND) `)
+	if s := strings.TrimSpace(conjunctionRE.ReplaceAllString(operatorRE.ReplaceAllString(valuesRE.ReplaceAllString(columnsRE.ReplaceAllString(u.WhereClause, ""), ""), ""), "")); s != "" {
+		return ucerr.Friendlyf(nil, `invalid or unsupported SQL in UserSelectorConfig.WhereClause: "%s", near "%s"`, u.WhereClause, strings.Split(s, " ")[0])
+	}
+	return nil
+}
+
+//go:generate gendbjson UserSelectorConfig
+
+//go:generate genvalidate UserSelectorConfig

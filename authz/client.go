@@ -1,13 +1,9 @@
 package authz
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/url"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -269,6 +265,12 @@ func (c *Client) FlushCacheEdges() {
 	c.cacheEdges.Flush()
 }
 
+// FlushCacheObjectsAndEdges clears the objects/edges cache only.
+func (c *Client) FlushCacheObjectsAndEdges() {
+	c.cacheEdges.Flush()
+	c.cacheObjects.Flush()
+}
+
 // CreateObjectType creates a new type of object for the authz system.
 func (c *Client) CreateObjectType(ctx context.Context, id uuid.UUID, typeName string) (*ObjectType, error) {
 	req := ObjectType{
@@ -324,28 +326,6 @@ func (c *Client) GetObjectType(ctx context.Context, id uuid.UUID) (*ObjectType, 
 	}
 	c.saveObjectType(resp)
 	return &resp, nil
-}
-
-// newPaginatedDecodeFunc is a temporary method to smooth over the transition from non-paginated API response
-// to paginated API responses.
-// TODO: remove this once new production services are pushed (which is necessarily after clients upgrade SDK).
-func newPaginatedDecodeFunc(response interface{}, fallbackResponse interface{}) jsonclient.DecodeFunc {
-	return func(ctx context.Context, body io.ReadCloser) error {
-		b, err := io.ReadAll(body)
-		if err != nil {
-			return ucerr.Wrap(err)
-		}
-		err = json.NewDecoder(bytes.NewReader(b)).Decode(response)
-		if err != nil {
-			// Fallback to legacy format
-			if fallbackErr := json.NewDecoder(bytes.NewReader(b)).Decode(fallbackResponse); fallbackErr != nil {
-				// Return original error so it's not confusing
-				return ucerr.Wrap(err)
-			}
-			// NOTE: if we use the fallback path, `HasNext` / `HasPrev` defaults to false, which makes sense since there are no more results.
-		}
-		return nil
-	}
 }
 
 // ListObjectTypesResponse is the paginated response from listing object types.
@@ -555,18 +535,25 @@ func (c *Client) GetObject(ctx context.Context, id uuid.UUID) (*Object, error) {
 
 // GetObjectForName returns an object with a given name.
 func (c *Client) GetObjectForName(ctx context.Context, typeID uuid.UUID, name string) (*Object, error) {
+	if typeID == UserObjectTypeID {
+		return nil, ucerr.New("_user objects do not currently support lookup by alias")
+	}
+
 	if x, found := c.cacheObjects.Get(objAliasKeyName(typeID, name)); found {
-		edgeType := x.(Object)
-		return &edgeType, nil
+		obj := x.(Object)
+		return &obj, nil
 	}
 
 	// TODO: support a name-based path, e.g. `/authz/objects/<objectname>`
-	var resp ListObjectsResponse
-	decodeFunc := newPaginatedDecodeFunc(&resp, &resp.Data)
-	query := url.Values{}
+	pager, err := pagination.ApplyOptions()
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+	query := pager.Query()
 	query.Add("type_id", typeID.String())
 	query.Add("name", name)
-	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects?%s", query.Encode()), nil, jsonclient.CustomDecoder(decodeFunc)); err != nil {
+	resp, err := c.ListObjectsFromQuery(ctx, query)
+	if err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
@@ -598,73 +585,20 @@ type ListObjectsResponse struct {
 	pagination.ResponseFields
 }
 
-// TODO: get rid of sort.Interface code when the legacy path in ListObjects goes away
-// Len implements sort.Interface
-func (r ListObjectsResponse) Len() int {
-	return len(r.Data)
-}
-
-// Swap implements sort.Interface
-func (r ListObjectsResponse) Swap(left, right int) {
-	tmp := r.Data[left]
-	r.Data[left] = r.Data[right]
-	r.Data[right] = tmp
-}
-
-// Less implements sort.Interface
-func (r ListObjectsResponse) Less(left, right int) bool {
-	return r.Data[left].ID.String() < r.Data[right].ID.String()
-}
-
 // ListObjects lists `limit` objects in sorted order with pagination, starting after a given ID (or uuid.Nil to start from the beginning).
 func (c *Client) ListObjects(ctx context.Context, opts ...pagination.Option) (*ListObjectsResponse, error) {
 	pager, err := pagination.ApplyOptions(opts...)
 	if err != nil {
 		return nil, ucerr.Wrap(err)
 	}
-	return c.ListObjectsFromQuery(ctx, pager.Query(), opts...)
+	return c.ListObjectsFromQuery(ctx, pager.Query())
 }
 
 // ListObjectsFromQuery takes in a query that can handle filters passed from console as well as the default method.
-func (c *Client) ListObjectsFromQuery(ctx context.Context, query url.Values, opts ...pagination.Option) (*ListObjectsResponse, error) {
+func (c *Client) ListObjectsFromQuery(ctx context.Context, query url.Values) (*ListObjectsResponse, error) {
 	var resp ListObjectsResponse
-	legacyResult := []Object{}
-	decodeFunc := newPaginatedDecodeFunc(&resp, &legacyResult)
-	pager, err := pagination.ApplyOptions(opts...)
-	if err != nil {
+	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects?%s", query.Encode()), &resp); err != nil {
 		return nil, ucerr.Wrap(err)
-	}
-	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects?%s", query.Encode()), nil, jsonclient.CustomDecoder(decodeFunc)); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
-	if numObjects := len(legacyResult); numObjects > 0 {
-		cursorMaker := func(o Object) pagination.Cursor {
-			return pagination.Cursor(fmt.Sprintf("id:%v", o.ID))
-		}
-
-		// We got a legacy response that's not paginated, so fix it on the client.
-		// NOTE: it's obviously not efficient to "re-paginate" it but this makes it easier
-		// to test the client behavior before/after the server change.
-		// TODO: this code is not going to perform well longer term, but it's very temporary.
-		// TODO: remove this code (and "COMPAT" methods) once we support more advanced filtering/sorting/traversal since it's not worth keeping.
-		resp.Data = legacyResult
-		sort.Sort(resp)
-		firstElem := numObjects
-		for i := range resp.Data {
-			if string(cursorMaker(resp.Data[i])) > string(pager.GetCursor()) {
-				firstElem = i
-				break
-			}
-		}
-		lastElem := firstElem + pager.GetLimit()
-		if lastElem < numObjects {
-			resp.HasNext = true
-			resp.Next = cursorMaker(resp.Data[lastElem-1])
-		} else if lastElem > numObjects {
-			lastElem = numObjects
-		}
-		resp.Data = resp.Data[firstElem:lastElem]
 	}
 
 	for _, obj := range resp.Data {
@@ -726,7 +660,7 @@ func (c *Client) ListEdgesOnObject(ctx context.Context, objectID uuid.UUID, opts
 	return &resp, nil
 }
 
-// ListEdgesBetweenObjects lists all edges (relationships) with a given source & target objct.
+// ListEdgesBetweenObjects lists all edges (relationships) with a given source & target object.
 func (c *Client) ListEdgesBetweenObjects(ctx context.Context, sourceObjectID, targetObjectID uuid.UUID) ([]Edge, error) {
 	// If edges for source object are in the cache for all edges per object - filter them by target
 	if x, found := c.cacheEdges.Get(sourceObjectID.String()); found {
