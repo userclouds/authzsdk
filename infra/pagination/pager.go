@@ -6,28 +6,27 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gofrs/uuid"
-
 	"userclouds.com/infra/ucerr"
 )
 
 // Paginator represents a configured paginator, based on a set of Options and defaults
 // derived from those options
 type Paginator struct {
-	cursor               Cursor       // set via StartingAfter or EndingBefore option, defaults to CursorBegin
-	direction            Direction    // set via StartingAfter or EndingBefore option, defaults to DirectionForward
-	backwardDirectionSet bool         // set via StartingAfter option
-	forwardDirectionSet  bool         // set via EndingBefore option
-	hasResultType        bool         // set if type of result has been specified
-	limit                int          // set via Limit option or defaulted to DefaultLimit
-	sortKey              Key          // set via SortKey option, defaults to "id"
-	sortOrder            Order        // set via SortOrder option, defaults to SortAscending
-	filter               string       // set via Filter option
-	supportedKeys        SortableKeys // set based on type of result
-	anyDuplicateKeys     bool         // set as part of initialization and validation of sort keys
-	anyUnsupportedKeys   bool         // set as part of initialization and validation of sort keys
-	options              []Option     // collection of options used to produce the Paginator
-	version              Version      // the pagination request version
+	cursor                 Cursor       // set via StartingAfter or EndingBefore option, defaults to CursorBegin
+	direction              Direction    // set via StartingAfter or EndingBefore option, defaults to DirectionForward
+	backwardDirectionSet   bool         // set via StartingAfter option
+	forwardDirectionSet    bool         // set via EndingBefore option
+	hasResultType          bool         // set if type of result has been specified
+	limit                  int          // set via Limit option or defaulted to DefaultLimit
+	sortKey                Key          // set via SortKey option, defaults to "id"
+	sortOrder              Order        // set via SortOrder option, defaults to SortAscending
+	filter                 string       // set via Filter option
+	filterQuery            *FilterQuery // parsed filter
+	supportedKeys          KeyTypes     // set based on type of result
+	anyDuplicateSortKeys   bool         // set as part of initialization and validation of sort keys
+	anyUnsupportedSortKeys bool         // set as part of initialization and validation of sort keys
+	options                []Option     // collection of options used to produce the Paginator
+	version                Version      // the pagination request version
 }
 
 // ApplyOptions initializes and validates a Paginator from a series of Option objects
@@ -35,8 +34,8 @@ func ApplyOptions(options ...Option) (*Paginator, error) {
 	p := Paginator{
 		sortKey:       Key("id"),
 		sortOrder:     OrderAscending,
-		supportedKeys: SortableKeys{},
-		version:       Version2,
+		supportedKeys: KeyTypes{},
+		version:       Version3,
 	}
 
 	for _, option := range options {
@@ -58,36 +57,28 @@ func ApplyOptions(options ...Option) (*Paginator, error) {
 		p.direction = DirectionBackward
 	}
 
-	if p.version == Version1 {
-		// for this version, cursor must either be CursorBegin or a raw UUID
-		if p.cursor != CursorBegin {
-			if _, err := uuid.FromString(string(p.cursor)); err == nil {
-				p.cursor = Cursor(fmt.Sprintf("id:%v", p.cursor))
-			} else {
-				// the cursor is invalid
-				p.cursor = Cursor(fmt.Sprintf("invalid_cursor%v", p.cursor))
+	uniqueSortKeys := map[string]bool{}
+	for _, key := range strings.Split(string(p.sortKey), ",") {
+		if uniqueSortKeys[key] {
+			p.anyDuplicateSortKeys = true
+		} else if p.HasResultType() {
+			if _, found := p.supportedKeys[key]; !found {
+				p.anyUnsupportedSortKeys = true
 			}
 		}
+		uniqueSortKeys[key] = true
 	}
 
-	uniqueKeys := map[string]bool{}
-	supportedKeys := SortableKeys{}
-	for _, key := range strings.Split(string(p.sortKey), ",") {
-		if uniqueKeys[key] {
-			p.anyDuplicateKeys = true
-		} else if p.HasResultType() {
-			if validator, found := p.supportedKeys[key]; found {
-				supportedKeys[key] = validator
-			} else {
-				p.anyUnsupportedKeys = true
-			}
+	if p.filter != "" {
+		filterQuery, err := CreateFilterQuery(p.filter)
+		if err != nil {
+			return nil, ucerr.Wrap(err)
 		}
-		uniqueKeys[key] = true
+		p.filterQuery = filterQuery
 	}
-	p.supportedKeys = supportedKeys
 
 	if err := p.Validate(); err != nil {
-		return nil, err
+		return nil, ucerr.Wrap(err)
 	}
 
 	return &p, nil
@@ -155,6 +146,10 @@ func (p Paginator) Query() url.Values {
 		query.Add("limit", strconv.Itoa(p.limit))
 	}
 
+	if p.filter != "" {
+		query.Add("filter", p.filter)
+	}
+
 	query.Add("sort_key", string(p.sortKey))
 
 	query.Add("sort_order", string(p.sortOrder))
@@ -195,13 +190,8 @@ func (p Paginator) ValidateCursor(c Cursor) error {
 		uniqueKeys[pair[0]] = true
 
 		if p.HasResultType() {
-			validator, found := p.supportedKeys[pair[0]]
-			if !found {
-				return ucerr.Errorf("cursor key:value pair key is unsupported: '%s'", keyValue)
-			}
-
-			if !validator(pair[1]) {
-				return ucerr.Errorf("cursor key:value pair value is invalid: '%s'", keyValue)
+			if err := p.supportedKeys.isValidExactValue(pair[0], pair[1]); err != nil {
+				return ucerr.Errorf("cursor key:value pair '%s' is invalid: '%v'", keyValue, err)
 			}
 		}
 	}
@@ -235,12 +225,32 @@ func (p Paginator) Validate() error {
 		return ucerr.New("no sort keys specified")
 	}
 
-	if p.anyUnsupportedKeys {
+	if p.anyUnsupportedSortKeys {
 		return ucerr.Errorf("specified sort key contains unsupported keys: %v", p.sortKey)
 	}
 
-	if p.anyDuplicateKeys {
+	if p.anyDuplicateSortKeys {
 		return ucerr.Errorf("specified sort key contains duplicate keys: %v", p.sortKey)
+	}
+
+	if p.filter != "" {
+		if p.filterQuery == nil {
+			return ucerr.Errorf("could not successfully parse filter '%s'", p.filter)
+		}
+	} else if p.filterQuery != nil {
+		return ucerr.New("cannot not have a parsed filter query if filter is unspecified")
+	}
+
+	if p.HasResultType() {
+		if err := p.supportedKeys.Validate(); err != nil {
+			return ucerr.Wrap(err)
+		}
+
+		if p.filterQuery != nil {
+			if err := p.filterQuery.IsValid(p.supportedKeys); err != nil {
+				return ucerr.Wrap(err)
+			}
+		}
 	}
 
 	if err := p.ValidateCursor(p.cursor); err != nil {

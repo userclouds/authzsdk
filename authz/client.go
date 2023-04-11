@@ -12,6 +12,7 @@ import (
 	"github.com/patrickmn/go-cache"
 
 	"userclouds.com/infra/jsonclient"
+	"userclouds.com/infra/namespace/region"
 	"userclouds.com/infra/pagination"
 	"userclouds.com/infra/ucdb"
 	"userclouds.com/infra/ucerr"
@@ -37,9 +38,56 @@ const (
 	gcInterval      time.Duration = 5 * time.Minute
 )
 
+type options struct {
+	ifNotExists       bool
+	organizationID    uuid.UUID
+	paginationOptions []pagination.Option
+	jsonclientOptions []jsonclient.Option
+}
+
+// Option makes authz.Client extensible
+type Option interface {
+	apply(*options)
+}
+
+type optFunc func(*options)
+
+func (o optFunc) apply(opts *options) {
+	o(opts)
+}
+
+// IfNotExists returns an Option that will cause the client not to return an error if an identical object to the one being created already exists
+func IfNotExists() Option {
+	return optFunc(func(opts *options) {
+		opts.ifNotExists = true
+	})
+}
+
+// OrganizationID returns an Option that will cause the client to use the specified organization ID for the request
+func OrganizationID(organizationID uuid.UUID) Option {
+	return optFunc(func(opts *options) {
+		opts.organizationID = organizationID
+	})
+}
+
+// Pagination is a wrapper around pagination.Option
+func Pagination(opt ...pagination.Option) Option {
+	return optFunc(func(opts *options) {
+		opts.paginationOptions = append(opts.paginationOptions, opt...)
+	})
+}
+
+// JSONClient is a wrapper around jsonclient.Option
+func JSONClient(opt ...jsonclient.Option) Option {
+	return optFunc(func(opts *options) {
+		opts.jsonclientOptions = append(opts.jsonclientOptions, opt...)
+	})
+}
+
 // Client is a client for the authz service
 type Client struct {
-	client *jsonclient.Client
+	client  *jsonclient.Client
+	options options
 
 	// Object type cache contains:
 	//  ObjTypeID -> ObjType and objTypePrefix + TypeName -> ObjType
@@ -68,21 +116,27 @@ type Client struct {
 
 // NewClient creates a new authz client
 // Web API base URL, e.g. "http://localhost:1234".
-func NewClient(url string, opts ...jsonclient.Option) (*Client, error) {
+func NewClient(url string, opts ...Option) (*Client, error) {
 	return NewCustomClient(DefaultObjTypeTTL, DefaultEdgeTypeTTL, DefaultObjTTL, DefaultEdgeTTL, url, opts...)
 }
 
 // NewCustomClient creates a new authz client with different cache defaults
 // Web API base URL, e.g. "http://localhost:1234".
 func NewCustomClient(objTypeTTL time.Duration, edgeTypeTTL time.Duration, objTTL time.Duration, edgeTTL time.Duration,
-	url string, opts ...jsonclient.Option) (*Client, error) {
+	url string, opts ...Option) (*Client, error) {
 	cacheObjTypes := cache.New(defaultCacheTTL, gcInterval)
 	cacheEdgeTypes := cache.New(defaultCacheTTL, gcInterval)
 	cacheObjects := cache.New(defaultCacheTTL, gcInterval)
 	cacheEdges := cache.New(defaultCacheTTL, gcInterval)
 
+	var options options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
 	c := &Client{
-		client:         jsonclient.New(strings.TrimSuffix(url, "/"), opts...),
+		client:         jsonclient.New(strings.TrimSuffix(url, "/"), options.jsonclientOptions...),
+		options:        options,
 		cacheObjTypes:  cacheObjTypes,
 		cacheEdgeTypes: cacheEdgeTypes,
 		cacheObjects:   cacheObjects,
@@ -272,14 +326,35 @@ func (c *Client) FlushCacheObjectsAndEdges() {
 }
 
 // CreateObjectType creates a new type of object for the authz system.
-func (c *Client) CreateObjectType(ctx context.Context, id uuid.UUID, typeName string) (*ObjectType, error) {
+func (c *Client) CreateObjectType(ctx context.Context, id uuid.UUID, typeName string, opts ...Option) (*ObjectType, error) {
+
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
 	req := ObjectType{
-		BaseModel: ucdb.NewBaseWithID(id),
+		BaseModel: ucdb.NewBase(),
 		TypeName:  typeName,
 	}
+	if id != uuid.Nil {
+		req.ID = id
+	}
+
 	var resp ObjectType
-	if err := c.client.Post(ctx, "/authz/objecttypes", req, &resp); err != nil {
-		return nil, ucerr.Wrap(err)
+	if options.ifNotExists && id == uuid.Nil {
+		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/objecttypes", req, &resp)
+		if err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+		if exists {
+			resp = req
+			resp.ID = existingID
+		}
+	} else {
+		if err := c.client.Post(ctx, "/authz/objecttypes", req, &resp); err != nil {
+			return nil, ucerr.Wrap(err)
+		}
 	}
 
 	c.saveObjectType(resp)
@@ -381,18 +456,39 @@ func (c *Client) DeleteObjectType(ctx context.Context, objectTypeID uuid.UUID) e
 }
 
 // CreateEdgeType creates a new type of edge for the authz system.
-func (c *Client) CreateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectTypeID, targetObjectTypeID uuid.UUID, typeName string, attributes Attributes) (*EdgeType, error) {
+func (c *Client) CreateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectTypeID, targetObjectTypeID uuid.UUID, typeName string, attributes Attributes, opts ...Option) (*EdgeType, error) {
+
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
 	req := EdgeType{
-		BaseModel:          ucdb.NewBaseWithID(id),
+		BaseModel:          ucdb.NewBase(),
 		TypeName:           typeName,
 		SourceObjectTypeID: sourceObjectTypeID,
 		TargetObjectTypeID: targetObjectTypeID,
 		Attributes:         attributes,
+		OrganizationID:     options.organizationID,
+	}
+	if id != uuid.Nil {
+		req.ID = id
 	}
 
 	var resp EdgeType
-	if err := c.client.Post(ctx, "/authz/edgetypes", req, &resp); err != nil {
-		return nil, ucerr.Wrap(err)
+	if options.ifNotExists && id == uuid.Nil {
+		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/edgetypes", req, &resp)
+		if err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+		if exists {
+			resp = req
+			resp.ID = existingID
+		}
+	} else {
+		if err := c.client.Post(ctx, "/authz/edgetypes", req, &resp); err != nil {
+			return nil, ucerr.Wrap(err)
+		}
 	}
 
 	c.saveEdgeType(resp)
@@ -454,9 +550,13 @@ type ListEdgeTypesResponse struct {
 }
 
 // ListEdgeTypes lists all available edge types
-func (c *Client) ListEdgeTypes(ctx context.Context) ([]EdgeType, error) {
-	// Rebuild the cache while we build up the response
-	c.cacheEdgeTypes.Flush()
+func (c *Client) ListEdgeTypes(ctx context.Context, opts ...Option) ([]EdgeType, error) {
+
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
 	edgeTypes := make([]EdgeType, 0)
 
 	// TODO: we should eventually support pagination arguments to this method, but for now we assume
@@ -469,6 +569,9 @@ func (c *Client) ListEdgeTypes(ctx context.Context) ([]EdgeType, error) {
 
 	for {
 		query := pager.Query()
+		if options.organizationID != uuid.Nil {
+			query.Add("organization_id", options.organizationID.String())
+		}
 
 		var resp ListEdgeTypesResponse
 		if err := c.client.Get(ctx, fmt.Sprintf("/authz/edgetypes?%s", query.Encode()), &resp); err != nil {
@@ -499,18 +602,40 @@ func (c *Client) DeleteEdgeType(ctx context.Context, edgeTypeID uuid.UUID) error
 }
 
 // CreateObject creates a new object with a given ID, name, and type.
-func (c *Client) CreateObject(ctx context.Context, id, typeID uuid.UUID, alias string) (*Object, error) {
+func (c *Client) CreateObject(ctx context.Context, id, typeID uuid.UUID, alias string, opts ...Option) (*Object, error) {
+
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
 	obj := Object{
-		BaseModel: ucdb.NewBaseWithID(id),
-		Alias:     &alias,
-		TypeID:    typeID,
+		BaseModel:      ucdb.NewBase(),
+		Alias:          &alias,
+		TypeID:         typeID,
+		OrganizationID: options.organizationID,
+	}
+	if id != uuid.Nil {
+		obj.ID = id
 	}
 	if alias == "" { // TODO this avoids a breaking API change bit it introduces a change in contract in being able to store multiple objects with "" alias
 		obj.Alias = nil
 	}
+
 	var resp Object
-	if err := c.client.Post(ctx, "/authz/objects", obj, &resp); err != nil {
-		return nil, ucerr.Wrap(err)
+	if options.ifNotExists && id == uuid.Nil {
+		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/objects", obj, &resp)
+		if err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+		if exists {
+			resp = obj
+			resp.ID = existingID
+		}
+	} else {
+		if err := c.client.Post(ctx, "/authz/objects", obj, &resp); err != nil {
+			return nil, ucerr.Wrap(err)
+		}
 	}
 
 	c.saveObject(obj)
@@ -586,16 +711,35 @@ type ListObjectsResponse struct {
 }
 
 // ListObjects lists `limit` objects in sorted order with pagination, starting after a given ID (or uuid.Nil to start from the beginning).
-func (c *Client) ListObjects(ctx context.Context, opts ...pagination.Option) (*ListObjectsResponse, error) {
-	pager, err := pagination.ApplyOptions(opts...)
+func (c *Client) ListObjects(ctx context.Context, opts ...Option) (*ListObjectsResponse, error) {
+
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	pager, err := pagination.ApplyOptions(options.paginationOptions...)
 	if err != nil {
 		return nil, ucerr.Wrap(err)
 	}
-	return c.ListObjectsFromQuery(ctx, pager.Query())
+	query := pager.Query()
+	if options.organizationID != uuid.Nil {
+		query.Add("organization_id", options.organizationID.String())
+	}
+	return c.ListObjectsFromQuery(ctx, query)
 }
 
 // ListObjectsFromQuery takes in a query that can handle filters passed from console as well as the default method.
-func (c *Client) ListObjectsFromQuery(ctx context.Context, query url.Values) (*ListObjectsResponse, error) {
+func (c *Client) ListObjectsFromQuery(ctx context.Context, query url.Values, opts ...Option) (*ListObjectsResponse, error) {
+
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+	if options.organizationID != uuid.Nil {
+		query.Add("organization_id", options.organizationID.String())
+	}
+
 	var resp ListObjectsResponse
 	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects?%s", query.Encode()), &resp); err != nil {
 		return nil, ucerr.Wrap(err)
@@ -616,6 +760,10 @@ type ListEdgesResponse struct {
 
 // ListEdges lists `limit` edges.
 func (c *Client) ListEdges(ctx context.Context, opts ...pagination.Option) (*ListEdgesResponse, error) {
+
+	// TODO: this function doesn't support organizations yet, because I haven't figured out a performant way to
+	// do it.  The problem is that we need to filter by organization ID, but we don't have that information in
+	// the edges table, only on the objects they connect.
 	pager, err := pagination.ApplyOptions(opts...)
 	if err != nil {
 		return nil, ucerr.Wrap(err)
@@ -753,19 +901,40 @@ func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, e
 }
 
 // CreateEdge creates an edge (relationship) between two objects.
-func (c *Client) CreateEdge(ctx context.Context, id, sourceObjectID, targetObjectID, edgeTypeID uuid.UUID) (*Edge, error) {
+func (c *Client) CreateEdge(ctx context.Context, id, sourceObjectID, targetObjectID, edgeTypeID uuid.UUID, opts ...Option) (*Edge, error) {
+
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
 	req := Edge{
-		BaseModel:      ucdb.NewBaseWithID(id),
+		BaseModel:      ucdb.NewBase(),
 		EdgeTypeID:     edgeTypeID,
 		SourceObjectID: sourceObjectID,
 		TargetObjectID: targetObjectID,
 	}
-
-	if err := c.client.Post(ctx, "/authz/edges", req, &req); err != nil {
-		return nil, ucerr.Wrap(err)
+	if id != uuid.Nil {
+		req.ID = id
 	}
 
-	c.saveEdge(req)
+	var resp Edge
+	if options.ifNotExists && id == uuid.Nil {
+		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/edges", req, &resp)
+		if err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+		if exists {
+			resp = req
+			resp.ID = existingID
+		}
+	} else {
+		if err := c.client.Post(ctx, "/authz/edges", req, &resp); err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+	}
+
+	c.saveEdge(resp)
 
 	// Clear edge set for incoming/outgoing for source and target objects
 	c.cacheEdges.Delete(sourceObjectID.String())
@@ -773,7 +942,7 @@ func (c *Client) CreateEdge(ctx context.Context, id, sourceObjectID, targetObjec
 	c.cacheEdges.Delete(edgesObjToObj(sourceObjectID, targetObjectID))
 	c.cacheEdges.Delete(edgesObjToObj(targetObjectID, sourceObjectID))
 
-	return &req, nil
+	return &resp, nil
 }
 
 // DeleteEdge deletes an edge by ID.
@@ -874,4 +1043,27 @@ func (c *Client) ListOrganizations(ctx context.Context) ([]Organization, error) 
 	}
 
 	return orgs, nil
+}
+
+// CreateOrganizationRequest is the request struct to the CreateOrganization endpoint
+type CreateOrganizationRequest struct {
+	ID     uuid.UUID     `json:"id"`
+	Name   string        `json:"name" validate:"notempty"`
+	Region region.Region `json:"region"` // this is a UC Region (not an AWS region)
+}
+
+// CreateOrganization creates an organization
+func (c *Client) CreateOrganization(ctx context.Context, id uuid.UUID, name string, region region.Region) (*Organization, error) {
+	req := CreateOrganizationRequest{
+		ID:     id,
+		Name:   name,
+		Region: region,
+	}
+
+	var resp Organization
+	if err := c.client.Post(ctx, "/authz/organizations", req, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
 }

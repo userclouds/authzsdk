@@ -15,6 +15,8 @@ const (
 	ObjectTypeUser     = "_user"
 	ObjectTypeGroup    = "_group"
 	ObjectTypeLoginApp = "_login_app"
+	EdgeTypeCanLogin   = "_can_login"
+	CanLoginAttribute  = "_can_login"
 )
 
 // UserObjectTypeID is the ID of a built-in object type called "_user"
@@ -23,12 +25,24 @@ var UserObjectTypeID = uuid.Must(uuid.FromString("1bf2b775-e521-41d3-8b7e-78e894
 // GroupObjectTypeID is the ID of a built-in object type called "_group"
 var GroupObjectTypeID = uuid.Must(uuid.FromString("f5bce640-f866-4464-af1a-9e7474c4a90c"))
 
-// AppObjectTypeID is the ID of a built-in object type called "_login_app"
-var AppObjectTypeID = uuid.Must(uuid.FromString("9b90794f-0ed0-48d6-99a5-6fd578a9134d"))
+// LoginAppObjectTypeID is the ID of a built-in object type called "_login_app"
+var LoginAppObjectTypeID = uuid.Must(uuid.FromString("9b90794f-0ed0-48d6-99a5-6fd578a9134d"))
 
-// RBACAuthZObjectTypes is an array containing default AuthZ object types
-var RBACAuthZObjectTypes = []ObjectType{
+// CanLoginEdgeTypeID is the ID of a built-in edge type called "_can_login"
+var CanLoginEdgeTypeID = uuid.Must(uuid.FromString("ea723951-fb93-4a29-b977-d27c01a61f58"))
+
+// DefaultAuthZObjectTypes is an array containing default AuthZ object types
+var DefaultAuthZObjectTypes = []ObjectType{
 	{BaseModel: ucdb.NewBaseWithID(UserObjectTypeID), TypeName: ObjectTypeUser},
 	{BaseModel: ucdb.NewBaseWithID(GroupObjectTypeID), TypeName: ObjectTypeGroup},
-	{BaseModel: ucdb.NewBaseWithID(AppObjectTypeID), TypeName: ObjectTypeLoginApp},
+	{BaseModel: ucdb.NewBaseWithID(LoginAppObjectTypeID), TypeName: ObjectTypeLoginApp},
+}
+
+// DefaultAuthZEdgeTypes is an array containing default AuthZ edge types
+var DefaultAuthZEdgeTypes = []EdgeType{
+	{BaseModel: ucdb.NewBaseWithID(CanLoginEdgeTypeID), TypeName: EdgeTypeCanLogin, SourceObjectTypeID: UserObjectTypeID, TargetObjectTypeID: LoginAppObjectTypeID,
+		Attributes: []Attribute{
+			{Name: CanLoginAttribute, Direct: true},
+		},
+	},
 }

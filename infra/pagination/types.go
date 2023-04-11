@@ -24,8 +24,57 @@ const (
 // Key is a comma-separated list of fields in the collection in which a view can be sorted
 type Key string
 
-// KeyValueValidator is a function that returns true if the passed in string is a valid value
-type KeyValueValidator func(string) bool
+// KeyType represents the type of a key; cursor keys, ordering keys, and filter keys must all be of a supported type
+type KeyType string
+
+// Valid KeyTypes
+const (
+	BoolKeyType      KeyType = "Boolean"
+	StringKeyType    KeyType = "String"
+	TimestampKeyType KeyType = "Timestamp"
+	UUIDKeyType      KeyType = "UUID"
+)
+
+// TimestampKeyTypeLayout represents the supported format for TimestampKeyType
+const TimestampKeyTypeLayout = "2006-01-02 15:04:05"
+
+// Validate implements the Validatable interface
+func (kt KeyType) Validate() error {
+	switch kt {
+	case BoolKeyType:
+	case StringKeyType:
+	case TimestampKeyType:
+	case UUIDKeyType:
+	default:
+		return ucerr.Errorf("KeyType is unsupported: '%v'", kt)
+	}
+
+	return nil
+}
+
+// KeyTypes is a map from pagination keys to their associated KeyTypes
+type KeyTypes map[string]KeyType
+
+// Validate implements the Validatable interface
+func (kt KeyTypes) Validate() error {
+	if len(kt) == 0 {
+		return ucerr.New("There must be at least one pagination key")
+	}
+
+	for k, t := range kt {
+		if err := t.Validate(); err != nil {
+			return ucerr.Errorf("key '%s' has invalid key type '%v'", k, t)
+		}
+	}
+
+	return nil
+}
+
+// PageableType is an interface that should be implemented for result types for which we want to
+// iterate or filter based on more than the default id UUID column
+type PageableType interface {
+	GetPaginationKeys() KeyTypes
+}
 
 // Order is a direction in which a view on a collection can be sorted, mapping to ASC/DESC in SQL.
 type Order string
@@ -45,22 +94,29 @@ func (o Order) Validate() error {
 	return nil
 }
 
-// SortableKeys is a map from supported keys to associated KeyValueValidators
-type SortableKeys map[string]KeyValueValidator
-
 // Version represents the version of the pagination request and reply wire format. It will
 // be incremented any time that the wire format has changed.
 type Version int
 
-// Supported pagination versions
+// Deprecated pagination versions
 const (
 	Version1 Version = 1 // cursor format is "id"
+)
+
+// Supported pagination versions
+const (
 	Version2 Version = 2 // cursor format is "key1:id1,...,keyN:idN"
+	Version3 Version = 3 // filter option now supported in client
 )
 
 // Validate implements the Validatable interface for the Version type
 func (v Version) Validate() error {
-	if v != Version1 && v != Version2 {
+	switch v {
+	case Version1:
+		return ucerr.Errorf("version '%v' is no longer supported", v)
+	case Version2:
+	case Version3:
+	default:
 		return ucerr.Errorf("version '%v' is unsupported", v)
 	}
 

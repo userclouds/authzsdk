@@ -39,6 +39,10 @@ func NewPaginatorFromQuery(query url.Values, defaultOptions ...Option) (*Paginat
 		options = append(options, Limit(limit))
 	}
 
+	if query.Has("filter") {
+		options = append(options, Filter(query.Get("filter")))
+	}
+
 	if query.Has("sort_key") {
 		options = append(options, SortKey(Key(query.Get("sort_key"))))
 	}
@@ -53,8 +57,6 @@ func NewPaginatorFromQuery(query url.Values, defaultOptions ...Option) (*Paginat
 			return nil, ucerr.Friendlyf(err, "error parsing 'version' argument")
 		}
 		options = append(options, requestVersion(Version(version)))
-	} else {
-		options = append(options, requestVersion(Version1))
 	}
 
 	pager, err := ApplyOptions(options...)
