@@ -104,12 +104,12 @@ func initClients() (*idp.Client, *authz.Client) {
 	tokenSource := jsonclient.ClientCredentialsTokenSource(tenantURL+"/oidc/token", clientID, clientSecret, nil)
 
 	orgID := uuid.Nil
-	idpClient, err := idp.NewClient(tenantURL, &orgID, tokenSource)
+	idpClient, err := idp.NewClient(tenantURL, idp.OrganizationID(orgID), idp.JSONClient(tokenSource))
 	if err != nil {
 		log.Fatalf("error initializing idp client: %v", err)
 	}
 
-	authZClient, err := authz.NewClient(tenantURL, tokenSource)
+	authZClient, err := authz.NewClient(tenantURL, authz.JSONClient(tokenSource))
 	if err != nil {
 		log.Fatalf("error initializing authz client: %v", err)
 	}

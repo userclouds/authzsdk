@@ -64,15 +64,11 @@ func provisionObject(ctx context.Context, authZClient *authz.Client, typeID uuid
 }
 
 func provisionUser(ctx context.Context, idpClient *idp.Client, name string) (uuid.UUID, error) {
-	// Try to find user by existing alias
-	if user, err := idpClient.GetUserByExternalAlias(ctx, name); err == nil {
-		return user.ID, nil
-	}
-	// If any error occurred above, create a new user
+	// Create a new user
 	profile := userstore.Record{}
 	profile["name"] = name
 
-	id, err := idpClient.CreateUser(ctx, profile, name)
+	id, err := idpClient.CreateUser(ctx, profile)
 	return id, ucerr.Wrap(err)
 }
 
