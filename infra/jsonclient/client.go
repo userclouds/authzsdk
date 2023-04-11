@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gofrs/uuid"
+
 	"userclouds.com/infra/ucerr"
 	"userclouds.com/infra/ucjwt"
 )
@@ -30,6 +32,17 @@ type Error struct {
 type structuredError struct {
 	Code  int         `json:"http_status_code"`
 	Error interface{} `json:"error"`
+}
+
+// SDKStructuredError is the standard structured error returned by our APIs for SDK clients to handle
+type SDKStructuredError struct {
+	Error     string    `json:"error"`
+	ID        uuid.UUID `json:"id"`
+	Identical bool      `json:"identical"`
+}
+
+type sdkStructuredErrorBody struct {
+	Error SDKStructuredError `json:"error"`
 }
 
 // Error implements UCError
@@ -183,6 +196,27 @@ func (c *Client) Post(ctx context.Context, path string, body, response interface
 	}
 
 	return ucerr.Wrap(c.makeRequest(ctx, http.MethodPost, path, bs, response, opts))
+}
+
+// CreateIfNotExists does a POST and handles the 409 conflict error for the caller
+func (c *Client) CreateIfNotExists(ctx context.Context, path string, body, response interface{}, opts ...Option) (bool, uuid.UUID, error) {
+	bs, err := json.Marshal(body)
+	if err != nil {
+		return false, uuid.Nil, ucerr.Wrap(err)
+	}
+
+	if err := c.makeRequest(ctx, http.MethodPost, path, bs, response, opts); err != nil {
+		var jce Error
+		if errors.As(err, &jce) && jce.StatusCode == http.StatusConflict {
+			var sdkErrorBody sdkStructuredErrorBody
+			if err := json.Unmarshal([]byte(jce.Body), &sdkErrorBody); err == nil && sdkErrorBody.Error.Identical {
+				return true, sdkErrorBody.Error.ID, nil
+			}
+		}
+		return false, uuid.Nil, ucerr.Wrap(err)
+	}
+
+	return false, uuid.Nil, nil
 }
 
 // Put makes an HTTP put using this client

@@ -2,6 +2,7 @@ package userstore
 
 import (
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -9,13 +10,6 @@ import (
 
 	"userclouds.com/infra/ucerr"
 )
-
-// Schema defines the format of the User Data Store/Vault for a given tenant.
-type Schema struct {
-	Columns []Column `json:"columns,omitempty"` // the omitempty will cause us to *not* serialize `columns: null` in the JSON for an empty-and-not-initialized array
-}
-
-//go:generate genvalidate Schema
 
 // ColumnType is an enum for supported column types
 type ColumnType int
@@ -30,26 +24,44 @@ const (
 	ColumnTypeString ColumnType = 100
 
 	ColumnTypeTimestamp ColumnType = 200
+
+	ColumnTypeUUID ColumnType = 300
 )
 
 //go:generate genconstant ColumnType
+
+// ColumnIndexType is an enum for supported column index types
+type ColumnIndexType int
+
+const (
+	// ColumnIndexTypeNone is the default value
+	ColumnIndexTypeNone ColumnIndexType = iota
+
+	// ColumnIndexTypeIndexed indicates that the column should be indexed
+	ColumnIndexTypeIndexed
+
+	// ColumnIndexTypeUnique indicates that the column should be indexed and unique
+	ColumnIndexTypeUnique
+)
+
+//go:generate genconstant ColumnIndexType
 
 // Column represents a single field/column/value to be collected/stored/managed
 // in the user data store of a tenant.
 type Column struct {
 	// Columns may be renamed, but their ID cannot be changed.
-	ID           uuid.UUID  `json:"id"`
-	Name         string     `json:"name" validate:"notempty"`
-	Type         ColumnType `json:"type"`
-	DefaultValue string     `json:"default_value,omitempty"`
-	Unique       bool       `json:"unique"`
+	ID           uuid.UUID       `json:"id"`
+	Name         string          `json:"name" validate:"notempty"`
+	Type         ColumnType      `json:"type"`
+	DefaultValue string          `json:"default_value"`
+	IndexType    ColumnIndexType `json:"index_type"`
 }
 
 var validIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_-]*$`)
 
 const maxIdentifierLength = 128
 
-func (c Column) extraValidate() error {
+func (c *Column) extraValidate() error {
 
 	if len(c.Name) > maxIdentifierLength || !validIdentifier.MatchString(string(c.Name)) {
 		return ucerr.Friendlyf(nil, `"%s" is not a valid column name`, c.Name)
@@ -60,13 +72,23 @@ func (c Column) extraValidate() error {
 
 //go:generate genvalidate Column
 
-// Record is a single "row" of data containing 0 or more Columns that adhere to a Schema.
+// Equals returns true if the two columns are equal
+func (c *Column) Equals(other *Column) bool {
+	return (c.ID == other.ID || c.ID == uuid.Nil || other.ID == uuid.Nil) &&
+		c.Name == other.Name &&
+		c.Type == other.Type &&
+		c.DefaultValue == other.DefaultValue &&
+		c.IndexType == other.IndexType
+}
+
+// Record is a single "row" of data containing 0 or more Columns from userstore's schema
 // The key is the name of the column
 type Record map[string]interface{}
 
 //go:generate gendbjson Record
 
-func getColumnType(i interface{}) ColumnType {
+// GetColumnType returns the ColumnType for the given value
+func GetColumnType(i interface{}) ColumnType {
 	switch i.(type) {
 	case string:
 		return ColumnTypeString
@@ -74,6 +96,8 @@ func getColumnType(i interface{}) ColumnType {
 		return ColumnTypeTimestamp
 	case bool:
 		return ColumnTypeBoolean
+	case uuid.UUID:
+		return ColumnTypeUUID
 	default:
 		return ColumnTypeInvalid
 	}
@@ -85,7 +109,7 @@ func getColumnType(i interface{}) ColumnType {
 func (r Record) Validate() error {
 	for k, i := range r {
 		if i != nil {
-			if t := getColumnType(i); t == ColumnTypeInvalid {
+			if t := GetColumnType(i); t == ColumnTypeInvalid {
 				return ucerr.Errorf("unknown type for Record[%s]: %T", k, i)
 			}
 		}
@@ -93,35 +117,21 @@ func (r Record) Validate() error {
 	return nil
 }
 
-// ValidateAgainstSchema validates a record against a schema
-func (r Record) ValidateAgainstSchema(s *Schema) error {
-	for k, i := range r {
-		var col *Column
-		for idx := range s.Columns {
-			if k == s.Columns[idx].Name {
-				col = &s.Columns[idx]
-				break
-			}
-		}
-		if col == nil {
-			return ucerr.Errorf("no Column in Schema with matching ID for Record[%s]", k)
-		}
-		if i == nil {
-			continue
-		}
-		actualType := getColumnType(i)
-		if col.Type == ColumnTypeTimestamp && actualType == ColumnTypeString {
-			if i.(string) == "" {
-				actualType = ColumnTypeTimestamp
-			} else if _, err := time.Parse(time.RFC3339, i.(string)); err == nil {
-				actualType = ColumnTypeTimestamp
-			}
-		}
-		if actualType != col.Type {
-			return ucerr.Errorf("expected Record[%s] to have type %s, got %s instead", k, col.Type, actualType)
+func stringArraysEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	sort.Strings(a)
+	sort.Strings(b)
+
+	for i := range a {
+		if a[i] != b[i] {
+			return false
 		}
 	}
-	return nil
+
+	return true
 }
 
 // Accessor represents a customer-defined view / permissions policy on a column
@@ -167,6 +177,24 @@ func (o *Accessor) extraValidate() error {
 		columnNameMap[o.ColumnNames[i]] = true
 	}
 	return nil
+}
+
+// Equals returns true if the two accessors are equal
+func (o *Accessor) Equals(other *Accessor) bool {
+	if o == nil && other == nil {
+		return true
+	}
+	if o == nil || other == nil {
+		return false
+	}
+	return (o.ID == other.ID || o.ID == uuid.Nil || other.ID == uuid.Nil) &&
+		o.Name == other.Name &&
+		o.Description == other.Description &&
+		o.Version == other.Version &&
+		stringArraysEqual(o.ColumnNames, other.ColumnNames) &&
+		o.AccessPolicyID == other.AccessPolicyID &&
+		o.TransformationPolicyID == other.TransformationPolicyID &&
+		o.SelectorConfig.WhereClause == other.SelectorConfig.WhereClause
 }
 
 //go:generate genvalidate Accessor
@@ -216,6 +244,24 @@ func (o *Mutator) extraValidate() error {
 	return nil
 }
 
+// Equals returns true if the two mutators are equal
+func (o *Mutator) Equals(other *Mutator) bool {
+	if o == nil && other == nil {
+		return true
+	}
+	if o == nil || other == nil {
+		return false
+	}
+	return (o.ID == other.ID || o.ID == uuid.Nil || other.ID == uuid.Nil) &&
+		o.Name == other.Name &&
+		o.Description == other.Description &&
+		o.Version == other.Version &&
+		stringArraysEqual(o.ColumnNames, other.ColumnNames) &&
+		o.AccessPolicyID == other.AccessPolicyID &&
+		o.ValidationPolicyID == other.ValidationPolicyID &&
+		o.SelectorConfig.WhereClause == other.SelectorConfig.WhereClause
+}
+
 //go:generate genvalidate Mutator
 
 // UserSelectorValues are the values passed for the UserSelector of an accessor or mutator
@@ -228,9 +274,9 @@ type UserSelectorConfig struct {
 
 func (u UserSelectorConfig) extraValidate() error {
 	// make sure the where clause only contains tokens for clauses of the form "{column_id} operator ? [conjunction {column_id} operator ?]*"
-	// e.g. "{id} IN (?) OR {e421767c-815c-46bd-8d1e-e41373c39ce9} LIKE ?"
-	columnsRE := regexp.MustCompile(`{[a-zA-Z0-9_ -]+}`)
-	operatorRE := regexp.MustCompile(`(?i) (=|<|>|<=|>=|!=|IN|LIKE) `)
+	// e.g. "{id} = ANY (?) OR {phone_number} LIKE ?"
+	columnsRE := regexp.MustCompile(`{[a-zA-Z0-9_-]+}`)
+	operatorRE := regexp.MustCompile(`(?i) (=|<|>|<=|>=|!=|LIKE|ANY)`)
 	valuesRE := regexp.MustCompile(`\?|\(\?\)`)
 	conjunctionRE := regexp.MustCompile(`(?i) (OR|AND) `)
 	if s := strings.TrimSpace(conjunctionRE.ReplaceAllString(operatorRE.ReplaceAllString(valuesRE.ReplaceAllString(columnsRE.ReplaceAllString(u.WhereClause, ""), ""), ""), "")); s != "" {

@@ -12,9 +12,8 @@ var (
 	IDPBasePath = "/authn" // TODO change this
 
 	// TODO: finish converting IDP path handling to use these
-	CreateUser             = fmt.Sprintf("%s/users", IDPBasePath)
-	GetUserByExternalAlias = fmt.Sprintf("%s/users", IDPBasePath)
-	AddAuthnToUser         = fmt.Sprintf("%s/addauthntouser", IDPBasePath)
+	CreateUser     = fmt.Sprintf("%s/users", IDPBasePath)
+	AddAuthnToUser = fmt.Sprintf("%s/addauthntouser", IDPBasePath)
 
 	UserStoreBasePath = "/userstore"
 
@@ -77,7 +76,7 @@ func GetReferenceURLForAccessor(id uuid.UUID, v int) string {
 	return fmt.Sprintf("%s/%s/%d", BaseAccessorPath, id.String(), v)
 }
 
-// GetReferenceURLForMutator return URL pointing at a particular generation policy object
+// GetReferenceURLForMutator return URL pointing at a particular transformation policy object
 func GetReferenceURLForMutator(id uuid.UUID, v int) string {
 	return fmt.Sprintf("%s/%s/%d", BaseMutatorPath, id.String(), v)
 }

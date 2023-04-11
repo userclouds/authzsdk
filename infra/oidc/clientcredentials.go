@@ -11,11 +11,11 @@ import (
 
 // ClientCredentialsTokenSource encapsulates parameters required to issue a Client Credentials OIDC request and return a token
 type ClientCredentialsTokenSource struct {
-	TokenURL        string
-	ClientID        string
-	ClientSecret    string
-	CustomAudiences []string
-	SubjectJWT      string // optional, ID Token for a UC user if this access token is being created on their behalf
+	TokenURL        string   `json:"token_url"`
+	ClientID        string   `json:"client_id"`
+	ClientSecret    string   `json:"client_secret"`
+	CustomAudiences []string `json:"custom_audiences"`
+	SubjectJWT      string   `json:"subject_jwt"` // optional, ID Token for a UC user if this access token is being created on their behalf
 }
 
 // GetToken issues a request to an OIDC-compliant token endpoint to perform

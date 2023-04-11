@@ -15,6 +15,8 @@ func (t ColumnType) MarshalText() ([]byte, error) {
 		return []byte("string"), nil
 	case ColumnTypeTimestamp:
 		return []byte("timestamp"), nil
+	case ColumnTypeUUID:
+		return []byte("uuid"), nil
 	default:
 		return nil, ucerr.Errorf("unknown value %d", t)
 	}
@@ -32,6 +34,8 @@ func (t *ColumnType) UnmarshalText(b []byte) error {
 		*t = ColumnTypeString
 	case "timestamp":
 		*t = ColumnTypeTimestamp
+	case "uuid":
+		*t = ColumnTypeUUID
 	default:
 		return ucerr.Errorf("unknown value %s", s)
 	}
@@ -47,6 +51,8 @@ func (t *ColumnType) Validate() error {
 		return nil
 	case ColumnTypeTimestamp:
 		return nil
+	case ColumnTypeUUID:
+		return nil
 	default:
 		return ucerr.Errorf("unknown ColumnType value %d", *t)
 	}
@@ -57,6 +63,7 @@ var AllColumnTypes = []ColumnType{
 	ColumnTypeBoolean,
 	ColumnTypeString,
 	ColumnTypeTimestamp,
+	ColumnTypeUUID,
 }
 
 // just here for easier debugging

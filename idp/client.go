@@ -11,21 +11,82 @@ import (
 	"userclouds.com/idp/paths"
 	"userclouds.com/idp/userstore"
 	"userclouds.com/infra/jsonclient"
+	"userclouds.com/infra/pagination"
 	"userclouds.com/infra/ucerr"
 	"userclouds.com/policy"
 )
 
+type options struct {
+	ifNotExists       bool
+	includeAuthN      bool
+	organizationID    uuid.UUID
+	paginationOptions []pagination.Option
+	jsonclientOptions []jsonclient.Option
+}
+
+// Option makes idp.Client extensible
+type Option interface {
+	apply(*options)
+}
+
+type optFunc func(*options)
+
+func (o optFunc) apply(opts *options) {
+	o(opts)
+}
+
+// IfNotExists returns an Option that will cause the client not to return an error if an identical object to the one being created already exists
+func IfNotExists() Option {
+	return optFunc(func(opts *options) {
+		opts.ifNotExists = true
+	})
+}
+
+// IncludeAuthN returns a ManagementOption that will have the called method include AuthN fields
+func IncludeAuthN() Option {
+	return optFunc(func(opts *options) {
+		opts.includeAuthN = true
+	})
+}
+
+// OrganizationID returns an Option that will cause the client to use the specified organization ID for the request
+func OrganizationID(organizationID uuid.UUID) Option {
+	return optFunc(func(opts *options) {
+		opts.organizationID = organizationID
+	})
+}
+
+// Pagination is a wrapper around pagination.Option
+func Pagination(opt ...pagination.Option) Option {
+	return optFunc(func(opts *options) {
+		opts.paginationOptions = append(opts.paginationOptions, opt...)
+	})
+}
+
+// JSONClient is a wrapper around jsonclient.Option
+func JSONClient(opt ...jsonclient.Option) Option {
+	return optFunc(func(opts *options) {
+		opts.jsonclientOptions = append(opts.jsonclientOptions, opt...)
+	})
+}
+
 // Client represents a client to talk to the Userclouds IDP
 type Client struct {
-	client         *jsonclient.Client
-	organizationID *uuid.UUID
+	client  *jsonclient.Client
+	options options
 }
 
 // NewClient constructs a new IDP client
-func NewClient(url string, organizationID *uuid.UUID, opts ...jsonclient.Option) (*Client, error) {
+func NewClient(url string, opts ...Option) (*Client, error) {
+
+	var options options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
 	c := &Client{
-		client:         jsonclient.New(strings.TrimSuffix(url, "/"), opts...),
-		organizationID: organizationID,
+		client:  jsonclient.New(strings.TrimSuffix(url, "/"), options.jsonclientOptions...),
+		options: options,
 	}
 	if err := c.client.ValidateBearerTokenHeader(); err != nil {
 		return nil, ucerr.Wrap(err)
@@ -35,11 +96,9 @@ func NewClient(url string, organizationID *uuid.UUID, opts ...jsonclient.Option)
 
 // CreateUserAndAuthnRequest creates a user on the IDP
 type CreateUserAndAuthnRequest struct {
-	// TODO: these fields really belong in a better client-facing User type
-	ExternalAlias *string `json:"external_alias,omitempty"`
-	RequireMFA    bool    `json:"require_mfa"`
-
 	Profile userstore.Record `json:"profile"`
+
+	RequireMFA bool `json:"require_mfa"`
 
 	OrganizationID uuid.UUID `json:"organization_id"`
 
@@ -51,8 +110,7 @@ type UserAndAuthnResponse struct {
 	ID        uuid.UUID `json:"id"`
 	UpdatedAt int64     `json:"updated_at"` // seconds since the Unix Epoch (UTC)
 
-	ExternalAlias *string `json:"external_alias,omitempty"`
-	RequireMFA    bool    `json:"require_mfa"`
+	RequireMFA bool `json:"require_mfa"`
 
 	Profile userstore.Record `json:"profile"`
 
@@ -61,22 +119,21 @@ type UserAndAuthnResponse struct {
 	Authns []UserAuthn `json:"authns"`
 }
 
-// CreateUser creates a user without authn. profile & externalAlias are optional
-func (c *Client) CreateUser(ctx context.Context, profile userstore.Record, externalAlias string) (uuid.UUID, error) {
+// CreateUser creates a user without authn. Profile is optional (okay to pass nil)
+func (c *Client) CreateUser(ctx context.Context, profile userstore.Record, opts ...Option) (uuid.UUID, error) {
 	// TODO: we don't validate the profile here, since we don't require email in this path
 	// this probably should be refactored to be more consistent in this client
 
-	var organizationID uuid.UUID
-	if c.organizationID != nil {
-		organizationID = *c.organizationID
-	}
-	req := CreateUserAndAuthnRequest{
-		Profile:        profile,
-		OrganizationID: organizationID,
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
 	}
 
-	if externalAlias != "" {
-		req.ExternalAlias = &externalAlias
+	req := CreateUserAndAuthnRequest{
+		Profile: profile,
+	}
+	if options.organizationID != uuid.Nil {
+		req.OrganizationID = options.organizationID
 	}
 
 	var res UserAndAuthnResponse
@@ -88,31 +145,25 @@ func (c *Client) CreateUser(ctx context.Context, profile userstore.Record, exter
 }
 
 // GetUser gets a user by ID
-func (c *Client) GetUser(ctx context.Context, id uuid.UUID) (*UserAndAuthnResponse, error) {
-	var res UserAndAuthnResponse
+func (c *Client) GetUser(ctx context.Context, id uuid.UUID, opts ...Option) (*UserAndAuthnResponse, error) {
 
 	requestURL := url.URL{
 		Path: fmt.Sprintf("/authn/users/%s", id),
 	}
 
-	if err := c.client.Get(ctx, requestURL.String(), &res); err != nil {
-		return nil, ucerr.Wrap(err)
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
 	}
 
-	return &res, nil
-}
-
-// GetUserByExternalAlias gets a user by external alias
-func (c *Client) GetUserByExternalAlias(ctx context.Context, alias string) (*UserAndAuthnResponse, error) {
-	u := url.URL{
-		Path: paths.GetUserByExternalAlias,
-		RawQuery: url.Values{
-			"external_alias": []string{alias},
-		}.Encode(),
+	if options.includeAuthN {
+		requestURL.RawQuery = url.Values{
+			"include_authn": []string{"true"},
+		}.Encode()
 	}
 
 	var res UserAndAuthnResponse
-	if err := c.client.Get(ctx, u.String(), &res); err != nil {
+	if err := c.client.Get(ctx, requestURL.String(), &res); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
@@ -129,8 +180,6 @@ type UpdateUserRequest struct {
 
 	// Only fields set in the underlying map will be updated
 	Profile userstore.Record `json:"profile"`
-
-	OrganizationID *uuid.UUID `json:"organization_id"`
 }
 
 // UpdateUser updates user profile data for a given user ID
@@ -171,16 +220,34 @@ type CreateColumnResponse struct {
 }
 
 // CreateColumn creates a new column for the associated tenant
-func (c *Client) CreateColumn(ctx context.Context, column userstore.Column) (*userstore.Column, error) {
+func (c *Client) CreateColumn(ctx context.Context, column userstore.Column, opts ...Option) (*userstore.Column, error) {
+
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
 	req := CreateColumnRequest{
 		Column: column,
 	}
-	var res CreateColumnResponse
-	if err := c.client.Post(ctx, paths.CreateColumnPath, req, &res); err != nil {
-		return nil, ucerr.Wrap(err)
+
+	var resp CreateColumnResponse
+	if options.ifNotExists {
+		exists, existingID, err := c.client.CreateIfNotExists(ctx, paths.CreateColumnPath, req, &resp)
+		if err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+		if exists {
+			resp.Column = req.Column
+			resp.Column.ID = existingID
+		}
+	} else {
+		if err := c.client.Post(ctx, paths.CreateColumnPath, req, &resp); err != nil {
+			return nil, ucerr.Wrap(err)
+		}
 	}
 
-	return &res.Column, nil
+	return &resp.Column, nil
 }
 
 // DeleteColumn deletes the column specified by the column ID for the associated tenant
@@ -252,16 +319,34 @@ type CreateAccessorResponse struct {
 }
 
 // CreateAccessor creates a new accessor for the associated tenant
-func (c *Client) CreateAccessor(ctx context.Context, fa userstore.Accessor) (*userstore.Accessor, error) {
+func (c *Client) CreateAccessor(ctx context.Context, fa userstore.Accessor, opts ...Option) (*userstore.Accessor, error) {
+
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
 	req := CreateAccessorRequest{
 		Accessor: fa,
 	}
-	var res CreateAccessorResponse
-	if err := c.client.Post(ctx, paths.CreateAccessorPath, req, &res); err != nil {
-		return nil, ucerr.Wrap(err)
+
+	var resp CreateAccessorResponse
+	if options.ifNotExists {
+		exists, existingID, err := c.client.CreateIfNotExists(ctx, paths.CreateAccessorPath, req, &resp)
+		if err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+		if exists {
+			resp.Accessor = req.Accessor
+			resp.Accessor.ID = existingID
+		}
+	} else {
+		if err := c.client.Post(ctx, paths.CreateAccessorPath, req, &resp); err != nil {
+			return nil, ucerr.Wrap(err)
+		}
 	}
 
-	return &res.Accessor, nil
+	return &resp.Accessor, nil
 }
 
 // DeleteAccessor deletes the accessor specified by the accessor ID for the associated tenant
@@ -343,16 +428,34 @@ type CreateMutatorResponse struct {
 }
 
 // CreateMutator creates a new mutator for the associated tenant
-func (c *Client) CreateMutator(ctx context.Context, fa userstore.Mutator) (*userstore.Mutator, error) {
+func (c *Client) CreateMutator(ctx context.Context, fa userstore.Mutator, opts ...Option) (*userstore.Mutator, error) {
+
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
 	req := CreateMutatorRequest{
 		Mutator: fa,
 	}
-	var res CreateMutatorResponse
-	if err := c.client.Post(ctx, paths.CreateMutatorPath, req, &res); err != nil {
-		return nil, ucerr.Wrap(err)
+
+	var resp CreateMutatorResponse
+	if options.ifNotExists {
+		exists, existingID, err := c.client.CreateIfNotExists(ctx, paths.CreateMutatorPath, req, &resp)
+		if err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+		if exists {
+			resp.Mutator = req.Mutator
+			resp.Mutator.ID = existingID
+		}
+	} else {
+		if err := c.client.Post(ctx, paths.CreateMutatorPath, req, &resp); err != nil {
+			return nil, ucerr.Wrap(err)
+		}
 	}
 
-	return &res.Mutator, nil
+	return &resp.Mutator, nil
 }
 
 // DeleteMutator deletes the mutator specified by the mutator ID for the associated tenant

@@ -13,17 +13,17 @@ var validIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_-]*$`)
 
 const maxIdentifierLength = 128
 
-// GenerationPolicy describes a token generation policy
-type GenerationPolicy struct {
+// TransformationPolicy describes a token transformation policy
+type TransformationPolicy struct {
 	ID         uuid.UUID `json:"id"`
 	Name       string    `json:"name" validate:"notempty"`
 	Function   string    `json:"function" validate:"notempty"`
 	Parameters string    `json:"parameters"`
 }
 
-//go:generate genvalidate GenerationPolicy
+//go:generate genvalidate TransformationPolicy
 
-func (g GenerationPolicy) extraValidate() error {
+func (g TransformationPolicy) extraValidate() error {
 
 	if len(g.Name) > maxIdentifierLength || !validIdentifier.MatchString(string(g.Name)) {
 		return ucerr.Friendlyf(nil, `Transformation policy name "%s" is too long or has invalid characters`, g.Name)
@@ -40,7 +40,13 @@ func (g GenerationPolicy) extraValidate() error {
 	return nil
 }
 
-// AccessPolicy describes a token generation policy
+// Equals returns true if the two policies are equal, ignoring the ID field
+func (g *TransformationPolicy) Equals(other *TransformationPolicy) bool {
+	return (g.ID == other.ID || g.ID == uuid.Nil || other.ID == uuid.Nil) &&
+		g.Name == other.Name && g.Function == other.Function && g.Parameters == other.Parameters
+}
+
+// AccessPolicy describes a token transformation policy
 type AccessPolicy struct {
 	ID         uuid.UUID `json:"id"`
 	Name       string    `json:"name" validate:"notempty"`
@@ -63,6 +69,12 @@ func (a AccessPolicy) extraValidate() error {
 	}
 
 	return nil
+}
+
+// Equals returns true if the two policies are equal, ignoring the ID field
+func (a *AccessPolicy) Equals(other *AccessPolicy) bool {
+	return (a.ID == other.ID || a.ID == uuid.Nil || other.ID == uuid.Nil) &&
+		a.Name == other.Name && a.Function == other.Function && a.Parameters == other.Parameters
 }
 
 // ClientContext is passed by the client at resolution time
