@@ -182,5 +182,5 @@ func main() {
 
 	renderFileTree(ctx, idpClient, authZClient, rootDir, 0)
 
-	log.Printf("succssfully ran sample")
+	log.Printf("successfully ran sample")
 }
