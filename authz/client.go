@@ -495,11 +495,26 @@ func (c *Client) CreateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectT
 	return &resp, nil
 }
 
+// UpdateEdgeTypeRequest is the request struct for updating an edge type
+type UpdateEdgeTypeRequest struct {
+	TypeName   string     `json:"type_name" validate:"notempty"`
+	Attributes Attributes `json:"attributes"`
+}
+
 // UpdateEdgeType updates an existing edge type in the authz system.
 func (c *Client) UpdateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectTypeID, targetObjectTypeID uuid.UUID, typeName string, attributes Attributes) (*EdgeType, error) {
-	// TODO: use PUT/PATCH for the update operation instead
-	et, err := c.CreateEdgeType(ctx, id, sourceObjectTypeID, targetObjectTypeID, typeName, attributes)
-	return et, ucerr.Wrap(err)
+	req := UpdateEdgeTypeRequest{
+		TypeName:   typeName,
+		Attributes: attributes,
+	}
+
+	var resp EdgeType
+	if err := c.client.Put(ctx, fmt.Sprintf("/authz/edgetypes/%s", id), req, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	c.saveEdgeType(resp)
+	return &resp, nil
 }
 
 // GetEdgeType gets an edge type (relationship) by its type ID.
