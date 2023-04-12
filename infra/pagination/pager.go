@@ -12,21 +12,24 @@ import (
 // Paginator represents a configured paginator, based on a set of Options and defaults
 // derived from those options
 type Paginator struct {
-	cursor                 Cursor       // set via StartingAfter or EndingBefore option, defaults to CursorBegin
-	direction              Direction    // set via StartingAfter or EndingBefore option, defaults to DirectionForward
-	backwardDirectionSet   bool         // set via StartingAfter option
-	forwardDirectionSet    bool         // set via EndingBefore option
-	hasResultType          bool         // set if type of result has been specified
-	limit                  int          // set via Limit option or defaulted to DefaultLimit
-	sortKey                Key          // set via SortKey option, defaults to "id"
-	sortOrder              Order        // set via SortOrder option, defaults to SortAscending
-	filter                 string       // set via Filter option
-	filterQuery            *FilterQuery // parsed filter
-	supportedKeys          KeyTypes     // set based on type of result
-	anyDuplicateSortKeys   bool         // set as part of initialization and validation of sort keys
-	anyUnsupportedSortKeys bool         // set as part of initialization and validation of sort keys
-	options                []Option     // collection of options used to produce the Paginator
-	version                Version      // the pagination request version
+	cursor                 Cursor                     // set via StartingAfter or EndingBefore option, defaults to CursorBegin
+	direction              Direction                  // set via StartingAfter or EndingBefore option, defaults to DirectionForward
+	backwardDirectionSet   bool                       // set via StartingAfter option
+	forwardDirectionSet    bool                       // set via EndingBefore option
+	hasResultType          bool                       // set if type of result has been specified
+	limit                  int                        // set via Limit option or defaulted to DefaultLimit
+	sortKey                Key                        // set via SortKey option, defaults to "id"
+	sortOrder              Order                      // set via SortOrder option, defaults to SortAscending
+	filter                 string                     // set via Filter option
+	filterQuery            *FilterQuery               // parsed filter
+	supportedKeys          KeyTypes                   // set based on type of result
+	anyDuplicateSortKeys   bool                       // set as part of initialization and validation of sort keys
+	anyUnsupportedSortKeys bool                       // set as part of initialization and validation of sort keys
+	options                []Option                   // collection of options used to produce the Paginator
+	version                Version                    // the pagination request version
+	isKeySupported         func(string) bool          // function that checks whether key is supported
+	keyValueValidator      func(string, string) error // function that returns an error if key or value are invalid
+	supportedKeysValidator func() error               // function that returns an error if the supported keys are invalid
 }
 
 // ApplyOptions initializes and validates a Paginator from a series of Option objects
@@ -61,8 +64,8 @@ func ApplyOptions(options ...Option) (*Paginator, error) {
 	for _, key := range strings.Split(string(p.sortKey), ",") {
 		if uniqueSortKeys[key] {
 			p.anyDuplicateSortKeys = true
-		} else if p.HasResultType() {
-			if _, found := p.supportedKeys[key]; !found {
+		} else if p.isKeySupported != nil {
+			if !p.isKeySupported(key) {
 				p.anyUnsupportedSortKeys = true
 			}
 		}
@@ -189,9 +192,9 @@ func (p Paginator) ValidateCursor(c Cursor) error {
 		}
 		uniqueKeys[pair[0]] = true
 
-		if p.HasResultType() {
-			if err := p.supportedKeys.isValidExactValue(pair[0], pair[1]); err != nil {
-				return ucerr.Errorf("cursor key:value pair '%s' is invalid: '%v'", keyValue, err)
+		if p.keyValueValidator != nil {
+			if err := p.keyValueValidator(pair[0], pair[1]); err != nil {
+				return ucerr.Wrap(err)
 			}
 		}
 	}
@@ -241,15 +244,9 @@ func (p Paginator) Validate() error {
 		return ucerr.New("cannot not have a parsed filter query if filter is unspecified")
 	}
 
-	if p.HasResultType() {
-		if err := p.supportedKeys.Validate(); err != nil {
+	if p.supportedKeysValidator != nil {
+		if err := p.supportedKeysValidator(); err != nil {
 			return ucerr.Wrap(err)
-		}
-
-		if p.filterQuery != nil {
-			if err := p.filterQuery.IsValid(p.supportedKeys); err != nil {
-				return ucerr.Wrap(err)
-			}
 		}
 	}
 
