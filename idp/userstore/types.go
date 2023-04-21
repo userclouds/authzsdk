@@ -26,9 +26,28 @@ const (
 	ColumnTypeTimestamp ColumnType = 200
 
 	ColumnTypeUUID ColumnType = 300
+
+	//ColumnTypeJSONB   ColumnType = 400
+	ColumnTypeAddress ColumnType = 401
 )
 
 //go:generate genconstant ColumnType
+
+// Address is a native userstore type that represents a physical address
+type Address struct {
+	Country            string `json:"country,omitempty"`
+	Name               string `json:"name,omitempty"`
+	Organization       string `json:"organization,omitempty"`
+	StreetAddressLine1 string `json:"street_address_line_1,omitempty"`
+	StreetAddressLine2 string `json:"street_address_line_2,omitempty"`
+	DependentLocality  string `json:"dependent_locality,omitempty"`
+	Locality           string `json:"locality,omitempty"`
+	AdministrativeArea string `json:"administrative_area,omitempty"`
+	PostCode           string `json:"post_code,omitempty"`
+	SortingCode        string `json:"sorting_code,omitempty"`
+}
+
+//go:generate gendbjson Address
 
 // ColumnIndexType is an enum for supported column index types
 type ColumnIndexType int
@@ -98,6 +117,8 @@ func GetColumnType(i interface{}) ColumnType {
 		return ColumnTypeBoolean
 	case uuid.UUID:
 		return ColumnTypeUUID
+	case Address:
+		return ColumnTypeAddress
 	default:
 		return ColumnTypeInvalid
 	}
@@ -275,7 +296,7 @@ type UserSelectorConfig struct {
 func (u UserSelectorConfig) extraValidate() error {
 	// make sure the where clause only contains tokens for clauses of the form "{column_id} operator ? [conjunction {column_id} operator ?]*"
 	// e.g. "{id} = ANY (?) OR {phone_number} LIKE ?"
-	columnsRE := regexp.MustCompile(`{[a-zA-Z0-9_-]+}`)
+	columnsRE := regexp.MustCompile(`{[a-zA-Z0-9_-]+}(->>'[a-zA-Z0-9_-]+')?`)
 	operatorRE := regexp.MustCompile(`(?i) (=|<|>|<=|>=|!=|LIKE|ANY)`)
 	valuesRE := regexp.MustCompile(`\?|\(\?\)`)
 	conjunctionRE := regexp.MustCompile(`(?i) (OR|AND) `)

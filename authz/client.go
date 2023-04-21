@@ -1029,8 +1029,40 @@ type ListOrganizationsResponse struct {
 	pagination.ResponseFields
 }
 
+// ListOrganizationsFromQuery takes in a query that can handle filters passed from console as well as the default method.
+func (c *Client) ListOrganizationsFromQuery(ctx context.Context, query url.Values, opts ...Option) (*ListOrganizationsResponse, error) {
+
+	var options options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	var resp ListOrganizationsResponse
+	if err := c.client.Get(ctx, fmt.Sprintf("/authz/organizations?%s", query.Encode()), &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// ListOrganizationsPaginated lists `limit` organizations in sorted order with pagination, starting after a given ID (or uuid.Nil to start from the beginning).
+func (c *Client) ListOrganizationsPaginated(ctx context.Context, opts ...Option) (*ListOrganizationsResponse, error) {
+
+	var options options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	pager, err := pagination.ApplyOptions(options.paginationOptions...)
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+	query := pager.Query()
+	return c.ListOrganizationsFromQuery(ctx, query)
+}
+
 // ListOrganizations lists all organizations for a tenant
-func (c *Client) ListOrganizations(ctx context.Context) ([]Organization, error) {
+func (c *Client) ListOrganizations(ctx context.Context, opts ...Option) ([]Organization, error) {
 
 	// TODO: we should eventually support pagination arguments to this method, but for now we assume
 	// there aren't that many organizations and just fetch them all.
@@ -1060,6 +1092,16 @@ func (c *Client) ListOrganizations(ctx context.Context) ([]Organization, error) 
 	return orgs, nil
 }
 
+// GetOrganization retrieves a single organization by its UUID
+func (c *Client) GetOrganization(ctx context.Context, id uuid.UUID) (*Organization, error) {
+	var resp Organization
+	if err := c.client.Get(ctx, fmt.Sprintf("/authz/organizations/%s", id), &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
 // CreateOrganizationRequest is the request struct to the CreateOrganization endpoint
 type CreateOrganizationRequest struct {
 	ID     uuid.UUID     `json:"id"`
@@ -1077,6 +1119,27 @@ func (c *Client) CreateOrganization(ctx context.Context, id uuid.UUID, name stri
 
 	var resp Organization
 	if err := c.client.Post(ctx, "/authz/organizations", req, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// UpdateOrganizationRequest is the request struct to the UpdateOrganization endpoint
+type UpdateOrganizationRequest struct {
+	Name   string        `json:"name" validate:"notempty"`
+	Region region.Region `json:"region"` // this is a UC Region (not an AWS region)
+}
+
+// UpdateOrganization updates an organization
+func (c *Client) UpdateOrganization(ctx context.Context, id uuid.UUID, name string, region region.Region) (*Organization, error) {
+	req := UpdateOrganizationRequest{
+		Name:   name,
+		Region: region,
+	}
+
+	var resp Organization
+	if err := c.client.Put(ctx, fmt.Sprintf("/authz/organizations/%s", id), req, &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
