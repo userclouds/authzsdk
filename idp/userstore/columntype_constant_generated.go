@@ -7,6 +7,8 @@ import "userclouds.com/infra/ucerr"
 // MarshalText implements encoding.TextMarshaler (for JSON)
 func (t ColumnType) MarshalText() ([]byte, error) {
 	switch t {
+	case ColumnTypeAddress:
+		return []byte("address"), nil
 	case ColumnTypeBoolean:
 		return []byte("boolean"), nil
 	case ColumnTypeInvalid:
@@ -26,6 +28,8 @@ func (t ColumnType) MarshalText() ([]byte, error) {
 func (t *ColumnType) UnmarshalText(b []byte) error {
 	s := string(b)
 	switch s {
+	case "address":
+		*t = ColumnTypeAddress
 	case "boolean":
 		*t = ColumnTypeBoolean
 	case "invalid":
@@ -45,6 +49,8 @@ func (t *ColumnType) UnmarshalText(b []byte) error {
 // Validate implements Validateable
 func (t *ColumnType) Validate() error {
 	switch *t {
+	case ColumnTypeAddress:
+		return nil
 	case ColumnTypeBoolean:
 		return nil
 	case ColumnTypeString:
@@ -60,6 +66,7 @@ func (t *ColumnType) Validate() error {
 
 // AllColumnTypes is a slice of all ColumnType values
 var AllColumnTypes = []ColumnType{
+	ColumnTypeAddress,
 	ColumnTypeBoolean,
 	ColumnTypeString,
 	ColumnTypeTimestamp,
