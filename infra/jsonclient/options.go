@@ -38,6 +38,8 @@ type options struct {
 	// retryNetworkErrors causes the client to retry requests that fail due to network errors,
 	// up to `maxRetries`, with a `backoff` pause each time
 	retryNetworkErrors bool
+
+	bypassRouting bool // bypass localhost routing for cross-service calls
 }
 
 func (o *options) clone() *options {
@@ -56,6 +58,13 @@ type optFunc func(*options)
 
 func (o optFunc) apply(opts *options) {
 	o(opts)
+}
+
+// BypassRouting allows you to bypass our internal request rerouting system to test performance
+func BypassRouting() Option {
+	return optFunc(func(opts *options) {
+		opts.bypassRouting = true
+	})
 }
 
 // Header allows you to add arbitrary headers to jsonclient requests

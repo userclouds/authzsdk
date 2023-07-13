@@ -2,36 +2,38 @@ package userstore
 
 import (
 	"regexp"
-	"sort"
 	"strings"
-	"time"
 
 	"github.com/gofrs/uuid"
 
 	"userclouds.com/infra/ucerr"
 )
 
-// ColumnType is an enum for supported column types
-type ColumnType int
+// DataType is an enum for supported data types
+type DataType int
 
-// ColumnType constants (leaving gaps intentionally to allow future related types to be grouped)
-// NOTE: keep in sync with mapColumnType defined in TenantUserStoreConfig.tsx
+// DataType constants (leaving gaps intentionally to allow future related types to be grouped)
+// NOTE: keep in sync with mapDataType defined in TenantUserStoreConfig.tsx
 const (
-	ColumnTypeInvalid ColumnType = 0
+	DataTypeInvalid DataType = 0
+	DataTypeBoolean DataType = 1
+	DataTypeInteger DataType = 2
 
-	ColumnTypeBoolean ColumnType = 1
+	DataTypeString DataType = 100
 
-	ColumnTypeString ColumnType = 100
+	DataTypeTimestamp DataType = 200
+	//DataTypeBirthdate DataType = 201
 
-	ColumnTypeTimestamp ColumnType = 200
+	DataTypeUUID DataType = 300
+	//DataTypeSSN DataType = 301
+	//DataTypeCreditCardNumber DataType = 302
 
-	ColumnTypeUUID ColumnType = 300
-
-	//ColumnTypeJSONB   ColumnType = 400
-	ColumnTypeAddress ColumnType = 401
+	//DataTypeJSONB   DataType = 400
+	DataTypeAddress DataType = 401
+	//DataTypePhoneNumber DataType = 402
 )
 
-//go:generate genconstant ColumnType
+//go:generate genconstant DataType
 
 // Address is a native userstore type that represents a physical address
 type Address struct {
@@ -70,19 +72,18 @@ const (
 type Column struct {
 	// Columns may be renamed, but their ID cannot be changed.
 	ID           uuid.UUID       `json:"id"`
-	Name         string          `json:"name" validate:"notempty"`
-	Type         ColumnType      `json:"type"`
+	Name         string          `json:"name" validate:"length:1,128"`
+	Type         DataType        `json:"type"`
+	IsArray      bool            `json:"is_array"`
 	DefaultValue string          `json:"default_value"`
 	IndexType    ColumnIndexType `json:"index_type"`
 }
 
 var validIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_-]*$`)
 
-const maxIdentifierLength = 128
-
 func (c *Column) extraValidate() error {
 
-	if len(c.Name) > maxIdentifierLength || !validIdentifier.MatchString(string(c.Name)) {
+	if !validIdentifier.MatchString(string(c.Name)) {
 		return ucerr.Friendlyf(nil, `"%s" is not a valid column name`, c.Name)
 	}
 
@@ -96,6 +97,7 @@ func (c *Column) Equals(other *Column) bool {
 	return (c.ID == other.ID || c.ID == uuid.Nil || other.ID == uuid.Nil) &&
 		c.Name == other.Name &&
 		c.Type == other.Type &&
+		c.IsArray == other.IsArray &&
 		c.DefaultValue == other.DefaultValue &&
 		c.IndexType == other.IndexType
 }
@@ -104,63 +106,63 @@ func (c *Column) Equals(other *Column) bool {
 // The key is the name of the column
 type Record map[string]interface{}
 
-//go:generate gendbjson Record
-
-// GetColumnType returns the ColumnType for the given value
-func GetColumnType(i interface{}) ColumnType {
-	switch i.(type) {
-	case string:
-		return ColumnTypeString
-	case time.Time:
-		return ColumnTypeTimestamp
-	case bool:
-		return ColumnTypeBoolean
-	case uuid.UUID:
-		return ColumnTypeUUID
-	case Address:
-		return ColumnTypeAddress
-	default:
-		return ColumnTypeInvalid
+func typedValue[T any](r Record, key string, defaultValue T) T {
+	if r[key] != nil {
+		if value, ok := r[key].(T); ok {
+			return value
+		}
 	}
+
+	return defaultValue
 }
 
-// Validate implements Validateable and ensures that a Record has columns
-// which consist only of valid ColumnTypes.
-// TODO: need a Validation method that validates against a particular schema.
-func (r Record) Validate() error {
-	for k, i := range r {
-		if i != nil {
-			if t := GetColumnType(i); t == ColumnTypeInvalid {
-				return ucerr.Errorf("unknown type for Record[%s]: %T", k, i)
-			}
-		}
+// BoolValue returns a boolean value for the specified key
+func (r Record) BoolValue(key string) bool {
+	return typedValue(r, key, false)
+}
+
+// StringValue returns a string value for the specified key
+func (r Record) StringValue(key string) string {
+	return typedValue(r, key, "")
+}
+
+// UUIDValue returns a UUID value for the specified key
+func (r Record) UUIDValue(key string) uuid.UUID {
+	value, err := uuid.FromString(r.StringValue(key))
+	if err != nil {
+		return uuid.Nil
+	}
+	return value
+}
+
+//go:generate gendbjson Record
+
+// ResourceID is a struct that contains a name and ID, only one of which is required to be set
+type ResourceID struct {
+	ID   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+}
+
+// Validate implements Validateable
+func (r ResourceID) Validate() error {
+	if r.ID == uuid.Nil && r.Name == "" {
+		return ucerr.Friendlyf(nil, "either ID or Name must be set")
 	}
 	return nil
 }
 
-func stringArraysEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-
-	sort.Strings(a)
-	sort.Strings(b)
-
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-
-	return true
+// ColumnOutputConfig is a struct that contains a column and the transformer to apply to that column
+type ColumnOutputConfig struct {
+	Column      ResourceID `json:"column"`
+	Transformer ResourceID `json:"transformer"`
 }
 
-// Accessor represents a customer-defined view / permissions policy on a column
+// Accessor represents a customer-defined view and permissions policy on userstore data
 type Accessor struct {
 	ID uuid.UUID `json:"id"`
 
-	// Friendly ID, must be unique?
-	Name string `json:"name" validate:"notempty"`
+	// Name of accessor, must be unique
+	Name string `json:"name" validate:"length:1,128"`
 
 	// Description of the accessor
 	Description string `json:"description"`
@@ -168,64 +170,67 @@ type Accessor struct {
 	// Version of the accessor
 	Version int `json:"version"`
 
-	// the columns that are accessed here
-	ColumnNames []string `json:"column_names" validate:"skip"`
-
-	// makes decisions about who can access this particular view of this field
-	AccessPolicyID uuid.UUID `json:"access_policy_id" validate:"notnil"`
-
-	// transforms the value of this field before it is returned to the client
-	TransformationPolicyID uuid.UUID `json:"transformation_policy_id" validate:"notnil"`
-
-	// Configuration for selectors for this accessor
+	// Configuration for which user records to return
 	SelectorConfig UserSelectorConfig `json:"selector_config"`
+
+	// Purposes for which this accessor is used
+	Purposes []ResourceID `json:"purposes" validate:"skip"`
+
+	// List of userstore columns being accessed and the transformers to apply to each column
+	Columns []ColumnOutputConfig `json:"columns" validate:"skip"`
+
+	// Policy for what data is returned by this accessor, based on properties of the caller and the user records
+	AccessPolicy ResourceID `json:"access_policy" validate:"skip"`
+
+	// Policy for token resolution in the case of transformers that tokenize data
+	TokenAccessPolicy ResourceID `json:"token_access_policy,omitempty" validate:"skip"`
 }
 
 func (o *Accessor) extraValidate() error {
 
-	if len(o.Name) > maxIdentifierLength || !validIdentifier.MatchString(string(o.Name)) {
+	if !validIdentifier.MatchString(string(o.Name)) {
 		return ucerr.Friendlyf(nil, `"%s" is not a valid accessor name`, o.Name)
 	}
 
-	if len(o.ColumnNames) == 0 {
-		return ucerr.Errorf("Accessor.ColumnNames (%v) can't be empty", o.ID)
+	if len(o.Columns) == 0 {
+		return ucerr.Errorf("Accessor.Columns (%v) can't be empty", o.ID)
 	}
-	columnNameMap := map[string]bool{}
-	for i := range o.ColumnNames {
-		if _, found := columnNameMap[o.ColumnNames[i]]; found {
-			return ucerr.Errorf("duplicate name '%v' in ColumnNames", o.ColumnNames[i])
-		}
-		columnNameMap[o.ColumnNames[i]] = true
-	}
-	return nil
-}
 
-// Equals returns true if the two accessors are equal
-func (o *Accessor) Equals(other *Accessor) bool {
-	if o == nil && other == nil {
-		return true
+	for _, ct := range o.Columns {
+		if ct.Column.ID == uuid.Nil && ct.Column.Name == "" {
+			return ucerr.Errorf("Each element of Accessor.Columns (%v) must have a column ID or name", o.ID)
+		}
+
+		if ct.Transformer.ID == uuid.Nil && ct.Transformer.Name == "" {
+			return ucerr.Errorf("Each element of Accessor.Columns (%v) must have a transformer ID or name", o.ID)
+		}
 	}
-	if o == nil || other == nil {
-		return false
+
+	if o.AccessPolicy.ID == uuid.Nil && o.AccessPolicy.Name == "" {
+		return ucerr.Errorf("Accessor.AccessPolicy (%v) must have an ID or name", o.ID)
 	}
-	return (o.ID == other.ID || o.ID == uuid.Nil || other.ID == uuid.Nil) &&
-		o.Name == other.Name &&
-		o.Description == other.Description &&
-		o.Version == other.Version &&
-		stringArraysEqual(o.ColumnNames, other.ColumnNames) &&
-		o.AccessPolicyID == other.AccessPolicyID &&
-		o.TransformationPolicyID == other.TransformationPolicyID &&
-		o.SelectorConfig.WhereClause == other.SelectorConfig.WhereClause
+
+	if len(o.Purposes) == 0 {
+		return ucerr.Errorf("Accessor.Purposes (%v) can't be empty", o.ID)
+	}
+
+	return nil
 }
 
 //go:generate genvalidate Accessor
 
-// Mutator represents a customer-defined permissions policy for updating columns in userstore
+// ColumnInputConfig is a struct that contains a column and the validator to use for that column
+type ColumnInputConfig struct {
+	Column    ResourceID `json:"column"`
+	Validator ResourceID `json:"validator"`
+}
+
+// Mutator represents a customer-defined scope and permissions policy for updating userstore data
 type Mutator struct {
 	ID uuid.UUID `json:"id"`
 
-	// Friendly ID, must be unique
-	Name string `json:"name" validate:"notempty"`
+	// Name of mutator, must be unique
+	Name string `json:"name" validate:"length:1,128"`
 
 	// Description of the mutator
 	Description string `json:"description"`
@@ -233,54 +238,41 @@ type Mutator struct {
 	// Version of the mutator
 	Version int `json:"version"`
 
-	// The columns that are updated here
-	ColumnNames []string `json:"column_names" validate:"skip"`
-
-	// Decides who can update these columns
-	AccessPolicyID uuid.UUID `json:"access_policy_id" validate:"notnil"`
-
-	// Validates the data before it is written to the userstore
-	ValidationPolicyID uuid.UUID `json:"validation_policy_id" validate:"notnil"`
-
-	// Configuration for selectors for this mutator
+	// Configuration for which user records to modify
 	SelectorConfig UserSelectorConfig `json:"selector_config"`
+
+	// The set of userstore columns to modify for each user record
+	Columns []ColumnInputConfig `json:"columns" validate:"skip"`
+
+	// Policy for whether the data for each user record can be updated
+	AccessPolicy ResourceID `json:"access_policy" validate:"skip"`
 }
 
 func (o *Mutator) extraValidate() error {
 
-	if len(o.Name) > maxIdentifierLength || !validIdentifier.MatchString(string(o.Name)) {
+	if !validIdentifier.MatchString(string(o.Name)) {
 		return ucerr.Friendlyf(nil, `"%s" is not a valid mutator name`, o.Name)
 	}
 
-	if len(o.ColumnNames) == 0 {
-		return ucerr.Errorf("Mutator.ColumnNames (%v) can't be empty", o.ID)
+	if len(o.Columns) == 0 {
+		return ucerr.Errorf("Mutator.Columns (%v) can't be empty", o.ID)
 	}
-	columnNameMap := map[string]bool{}
-	for i := range o.ColumnNames {
-		if _, found := columnNameMap[o.ColumnNames[i]]; found {
-			return ucerr.Errorf("duplicate name '%v' in ColumnNames", o.ColumnNames[i])
-		}
-		columnNameMap[o.ColumnNames[i]] = true
-	}
-	return nil
-}
 
-// Equals returns true if the two mutators are equal
-func (o *Mutator) Equals(other *Mutator) bool {
-	if o == nil && other == nil {
-		return true
+	for _, cv := range o.Columns {
+		if cv.Column.ID == uuid.Nil && cv.Column.Name == "" {
+			return ucerr.Errorf("Each element of Mutator.Columns (%v) must have a column ID or name", o.ID)
+		}
+
+		if cv.Validator.ID == uuid.Nil && cv.Validator.Name == "" {
+			return ucerr.Errorf("Each element of Mutator.Columns (%v) must have a validator ID or name", o.ID)
+		}
 	}
-	if o == nil || other == nil {
-		return false
+
+	if o.AccessPolicy.ID == uuid.Nil && o.AccessPolicy.Name == "" {
+		return ucerr.Errorf("Mutator.AccessPolicy (%v) must have an ID or name", o.ID)
 	}
-	return (o.ID == other.ID || o.ID == uuid.Nil || other.ID == uuid.Nil) &&
-		o.Name == other.Name &&
-		o.Description == other.Description &&
-		o.Version == other.Version &&
-		stringArraysEqual(o.ColumnNames, other.ColumnNames) &&
-		o.AccessPolicyID == other.AccessPolicyID &&
-		o.ValidationPolicyID == other.ValidationPolicyID &&
-		o.SelectorConfig.WhereClause == other.SelectorConfig.WhereClause
+
+	return nil
 }
 
 //go:generate genvalidate Mutator
@@ -309,3 +301,21 @@ func (u UserSelectorConfig) extraValidate() error {
 //go:generate gendbjson UserSelectorConfig
 
 //go:generate genvalidate UserSelectorConfig
+
+// Purpose represents a customer-defined purpose for userstore columns
+type Purpose struct {
+	ID          uuid.UUID `json:"id"`
+	Name        string    `json:"name" validate:"length:1,128"`
+	Description string    `json:"description"`
+}
+
+func (p *Purpose) extraValidate() error {
+
+	if !validIdentifier.MatchString(string(p.Name)) {
+		return ucerr.Friendlyf(nil, `"%s" is not a valid purpose name`, p.Name)
+	}
+
+	return nil
+}
+
+//go:generate genvalidate Purpose

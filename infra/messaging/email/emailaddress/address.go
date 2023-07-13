@@ -1,7 +1,8 @@
-package emailutil
+package emailaddress
 
 import (
 	"net/mail"
+	"strings"
 
 	"userclouds.com/infra/ucerr"
 )
@@ -50,4 +51,40 @@ func CombineAddress(name string, address string) (string, error) {
 	}
 
 	return combinedAddress, nil
+}
+
+func getMaskBoundaries(address string) (maskedBoundary int, localBoundary int) {
+	localBoundary = strings.LastIndex(address, "@")
+	switch {
+	case localBoundary > 5:
+		return 3, localBoundary
+	case localBoundary == 5:
+		return 2, localBoundary
+	case localBoundary == 4:
+		return 1, localBoundary
+	default:
+		return 0, localBoundary
+	}
+}
+
+// Mask returns a masked version of an email address
+func (a Address) Mask() string {
+	// TODO: gint - 5/26/23 - we should ultimately rely on transformers for performing
+	// masking, or at least utilize a shared implementation so our masking is consistent
+	// with the default transformer policy.
+	address := string(a)
+	parsedAddress, err := mail.ParseAddress(address)
+	if err != nil {
+		// this will not happen for a valid Address
+		return address
+	}
+
+	maskedBoundary, localBoundary := getMaskBoundaries(parsedAddress.Address)
+
+	maskedAddress := strings.Split(parsedAddress.Address, "")
+	for i := maskedBoundary; i < localBoundary; i++ {
+		maskedAddress[i] = "*"
+	}
+
+	return strings.Join(maskedAddress, "")
 }

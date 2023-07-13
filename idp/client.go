@@ -9,11 +9,11 @@ import (
 	"github.com/gofrs/uuid"
 
 	"userclouds.com/idp/paths"
+	"userclouds.com/idp/policy"
 	"userclouds.com/idp/userstore"
 	"userclouds.com/infra/jsonclient"
 	"userclouds.com/infra/pagination"
 	"userclouds.com/infra/ucerr"
-	"userclouds.com/policy"
 )
 
 type options struct {
@@ -72,8 +72,9 @@ func JSONClient(opt ...jsonclient.Option) Option {
 
 // Client represents a client to talk to the Userclouds IDP
 type Client struct {
-	client  *jsonclient.Client
-	options options
+	client          *jsonclient.Client
+	options         options
+	TokenizerClient *TokenizerClient
 }
 
 // NewClient constructs a new IDP client
@@ -88,6 +89,8 @@ func NewClient(url string, opts ...Option) (*Client, error) {
 		client:  jsonclient.New(strings.TrimSuffix(url, "/"), options.jsonclientOptions...),
 		options: options,
 	}
+	c.TokenizerClient = &TokenizerClient{client: c.client, options: options}
+
 	if err := c.client.ValidateBearerTokenHeader(); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
@@ -97,8 +100,6 @@ func NewClient(url string, opts ...Option) (*Client, error) {
 // CreateUserAndAuthnRequest creates a user on the IDP
 type CreateUserAndAuthnRequest struct {
 	Profile userstore.Record `json:"profile"`
-
-	RequireMFA bool `json:"require_mfa"`
 
 	OrganizationID uuid.UUID `json:"organization_id"`
 
@@ -110,13 +111,13 @@ type UserAndAuthnResponse struct {
 	ID        uuid.UUID `json:"id"`
 	UpdatedAt int64     `json:"updated_at"` // seconds since the Unix Epoch (UTC)
 
-	RequireMFA bool `json:"require_mfa"`
-
 	Profile userstore.Record `json:"profile"`
 
 	OrganizationID uuid.UUID `json:"organization_id"`
 
 	Authns []UserAuthn `json:"authns"`
+
+	MFAChannels []UserMFAChannel `json:"mfa_channels"`
 }
 
 // CreateUser creates a user without authn. Profile is optional (okay to pass nil)
@@ -175,9 +176,6 @@ func (c *Client) GetUser(ctx context.Context, id uuid.UUID, opts ...Option) (*Us
 // TODO: should we allow changing Email? That's a more complex one as there are more implications to
 // changing email that may affect AuthNs and security (e.g. account hijacking, unverified emails, etc).
 type UpdateUserRequest struct {
-	// TODO: add MFA factors
-	RequireMFA *bool `json:"require_mfa,omitempty"`
-
 	// Only fields set in the underlying map will be updated
 	Profile userstore.Record `json:"profile"`
 }
@@ -214,11 +212,6 @@ type CreateColumnRequest struct {
 
 //go:generate genvalidate CreateColumnRequest
 
-// CreateColumnResponse is the response body for creating a new column
-type CreateColumnResponse struct {
-	Column userstore.Column `json:"column"`
-}
-
 // CreateColumn creates a new column for the associated tenant
 func (c *Client) CreateColumn(ctx context.Context, column userstore.Column, opts ...Option) (*userstore.Column, error) {
 
@@ -231,15 +224,15 @@ func (c *Client) CreateColumn(ctx context.Context, column userstore.Column, opts
 		Column: column,
 	}
 
-	var resp CreateColumnResponse
+	var resp userstore.Column
 	if options.ifNotExists {
 		exists, existingID, err := c.client.CreateIfNotExists(ctx, paths.CreateColumnPath, req, &resp)
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
 		if exists {
-			resp.Column = req.Column
-			resp.Column.ID = existingID
+			resp = req.Column
+			resp.ID = existingID
 		}
 	} else {
 		if err := c.client.Post(ctx, paths.CreateColumnPath, req, &resp); err != nil {
@@ -247,7 +240,7 @@ func (c *Client) CreateColumn(ctx context.Context, column userstore.Column, opts
 		}
 	}
 
-	return &resp.Column, nil
+	return &resp, nil
 }
 
 // DeleteColumn deletes the column specified by the column ID for the associated tenant
@@ -265,19 +258,14 @@ func (c *Client) GetColumn(ctx context.Context, columnID uuid.UUID) (*userstore.
 	return &resp, nil
 }
 
-// ListColumnsResponse is the response body for listing columns
-type ListColumnsResponse struct {
-	Columns []userstore.Column `json:"columns"`
-}
-
 // ListColumns lists all columns for the associated tenant
 func (c *Client) ListColumns(ctx context.Context) ([]userstore.Column, error) {
-	var res ListColumnsResponse
+	var res []userstore.Column
 	if err := c.client.Get(ctx, paths.ListColumnsPath, &res); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	return res.Columns, nil
+	return res, nil
 }
 
 // UpdateColumnRequest is the request body for updating a column
@@ -287,23 +275,18 @@ type UpdateColumnRequest struct {
 
 //go:generate genvalidate UpdateColumnRequest
 
-// UpdateColumnResponse is the response body for updating a column
-type UpdateColumnResponse struct {
-	Column userstore.Column `json:"column"`
-}
-
 // UpdateColumn updates the column specified by the column ID with the specified data for the associated tenant
 func (c *Client) UpdateColumn(ctx context.Context, columnID uuid.UUID, updatedColumn userstore.Column) (*userstore.Column, error) {
 	req := UpdateColumnRequest{
 		Column: updatedColumn,
 	}
 
-	var resp UpdateColumnResponse
+	var resp userstore.Column
 	if err := c.client.Put(ctx, paths.UpdateColumnPath(columnID), req, &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	return &resp.Column, nil
+	return &resp, nil
 }
 
 // CreateAccessorRequest is the request body for creating a new accessor
@@ -312,11 +295,6 @@ type CreateAccessorRequest struct {
 }
 
 //go:generate genvalidate CreateAccessorRequest
-
-// CreateAccessorResponse is the response body for creating a new accessor
-type CreateAccessorResponse struct {
-	Accessor userstore.Accessor `json:"accessor"`
-}
 
 // CreateAccessor creates a new accessor for the associated tenant
 func (c *Client) CreateAccessor(ctx context.Context, fa userstore.Accessor, opts ...Option) (*userstore.Accessor, error) {
@@ -330,15 +308,15 @@ func (c *Client) CreateAccessor(ctx context.Context, fa userstore.Accessor, opts
 		Accessor: fa,
 	}
 
-	var resp CreateAccessorResponse
+	var resp userstore.Accessor
 	if options.ifNotExists {
 		exists, existingID, err := c.client.CreateIfNotExists(ctx, paths.CreateAccessorPath, req, &resp)
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
 		if exists {
-			resp.Accessor = req.Accessor
-			resp.Accessor.ID = existingID
+			resp = req.Accessor
+			resp.ID = existingID
 		}
 	} else {
 		if err := c.client.Post(ctx, paths.CreateAccessorPath, req, &resp); err != nil {
@@ -346,7 +324,7 @@ func (c *Client) CreateAccessor(ctx context.Context, fa userstore.Accessor, opts
 		}
 	}
 
-	return &resp.Accessor, nil
+	return &resp, nil
 }
 
 // DeleteAccessor deletes the accessor specified by the accessor ID for the associated tenant
@@ -374,19 +352,14 @@ func (c *Client) GetAccessorByVersion(ctx context.Context, accessorID uuid.UUID,
 	return &resp, nil
 }
 
-// ListAccessorsResponse is the response body for listing accessors
-type ListAccessorsResponse struct {
-	Accessors []userstore.Accessor `json:"accessors"`
-}
-
 // ListAccessors lists all the available accessors for the associated tenant
 func (c *Client) ListAccessors(ctx context.Context) ([]userstore.Accessor, error) {
-	var res ListAccessorsResponse
+	var res []userstore.Accessor
 	if err := c.client.Get(ctx, paths.ListAccessorsPath, &res); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	return res.Accessors, nil
+	return res, nil
 }
 
 // UpdateAccessorRequest is the request body for updating an accessor
@@ -396,23 +369,18 @@ type UpdateAccessorRequest struct {
 
 //go:generate genvalidate UpdateAccessorRequest
 
-// UpdateAccessorResponse is the response body for updating an accessor
-type UpdateAccessorResponse struct {
-	Accessor userstore.Accessor `json:"accessor"`
-}
-
 // UpdateAccessor updates the accessor specified by the accessor ID with the specified data for the associated tenant
 func (c *Client) UpdateAccessor(ctx context.Context, accessorID uuid.UUID, updatedAccessor userstore.Accessor) (*userstore.Accessor, error) {
 	req := UpdateAccessorRequest{
 		Accessor: updatedAccessor,
 	}
 
-	var resp UpdateAccessorResponse
+	var resp userstore.Accessor
 	if err := c.client.Put(ctx, paths.UpdateAccessorPath(accessorID), req, &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	return &resp.Accessor, nil
+	return &resp, nil
 }
 
 // CreateMutatorRequest is the request body for creating a new mutator
@@ -421,11 +389,6 @@ type CreateMutatorRequest struct {
 }
 
 //go:generate genvalidate CreateMutatorRequest
-
-// CreateMutatorResponse is the response body for creating a new mutator
-type CreateMutatorResponse struct {
-	Mutator userstore.Mutator `json:"mutator"`
-}
 
 // CreateMutator creates a new mutator for the associated tenant
 func (c *Client) CreateMutator(ctx context.Context, fa userstore.Mutator, opts ...Option) (*userstore.Mutator, error) {
@@ -439,15 +402,15 @@ func (c *Client) CreateMutator(ctx context.Context, fa userstore.Mutator, opts .
 		Mutator: fa,
 	}
 
-	var resp CreateMutatorResponse
+	var resp userstore.Mutator
 	if options.ifNotExists {
 		exists, existingID, err := c.client.CreateIfNotExists(ctx, paths.CreateMutatorPath, req, &resp)
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
 		if exists {
-			resp.Mutator = req.Mutator
-			resp.Mutator.ID = existingID
+			resp = req.Mutator
+			resp.ID = existingID
 		}
 	} else {
 		if err := c.client.Post(ctx, paths.CreateMutatorPath, req, &resp); err != nil {
@@ -455,7 +418,7 @@ func (c *Client) CreateMutator(ctx context.Context, fa userstore.Mutator, opts .
 		}
 	}
 
-	return &resp.Mutator, nil
+	return &resp, nil
 }
 
 // DeleteMutator deletes the mutator specified by the mutator ID for the associated tenant
@@ -483,19 +446,14 @@ func (c *Client) GetMutatorByVersion(ctx context.Context, mutatorID uuid.UUID, v
 	return &resp, nil
 }
 
-// ListMutatorsResponse is the response body for listing mutators
-type ListMutatorsResponse struct {
-	Mutators []userstore.Mutator `json:"mutators"`
-}
-
 // ListMutators lists all the available mutators for the associated tenant
 func (c *Client) ListMutators(ctx context.Context) ([]userstore.Mutator, error) {
-	var res ListMutatorsResponse
+	var res []userstore.Mutator
 	if err := c.client.Get(ctx, paths.ListMutatorsPath, &res); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	return res.Mutators, nil
+	return res, nil
 }
 
 // UpdateMutatorRequest is the request body for updating a mutator
@@ -505,23 +463,18 @@ type UpdateMutatorRequest struct {
 
 //go:generate genvalidate UpdateMutatorRequest
 
-// UpdateMutatorResponse is the response body for updating a mutator
-type UpdateMutatorResponse struct {
-	Mutator userstore.Mutator `json:"mutator"`
-}
-
 // UpdateMutator updates the mutator specified by the mutator ID with the specified data for the associated tenant
 func (c *Client) UpdateMutator(ctx context.Context, mutatorID uuid.UUID, updatedMutator userstore.Mutator) (*userstore.Mutator, error) {
 	req := UpdateMutatorRequest{
 		Mutator: updatedMutator,
 	}
 
-	var resp UpdateMutatorResponse
+	var resp userstore.Mutator
 	if err := c.client.Put(ctx, paths.UpdateMutatorPath(mutatorID), req, &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	return &resp.Mutator, nil
+	return &resp, nil
 }
 
 // ExecuteAccessorRequest is the request body for accessing a column
@@ -529,11 +482,6 @@ type ExecuteAccessorRequest struct {
 	AccessorID     uuid.UUID                    `json:"accessor_id"`     // the accessor that specifies what data to access
 	Context        policy.ClientContext         `json:"context"`         // context that is provided to the accessor Access Policy
 	SelectorValues userstore.UserSelectorValues `json:"selector_values"` // the values to use for the selector
-}
-
-// ExecuteAccessorResponse is the response body for accessing a column
-type ExecuteAccessorResponse struct {
-	Value []string `json:"value"`
 }
 
 // ExecuteAccessor accesses a column via an accessor for the associated tenant
@@ -544,9 +492,37 @@ func (c *Client) ExecuteAccessor(ctx context.Context, accessorID uuid.UUID, clie
 		SelectorValues: selectorValues,
 	}
 
-	var res ExecuteAccessorResponse
+	var res []string
 	if err := c.client.Post(ctx, paths.ExecuteAccessorPath, req, &res); err != nil {
 		return nil, ucerr.Wrap(err)
+	}
+
+	return res, nil
+}
+
+// GetUserColumnValueRequest is the request body for getting a user column value (temporary code until tokenizer is merged into userstore)
+type GetUserColumnValueRequest struct {
+	UserID   uuid.UUID              `json:"user_id"`
+	ColumnID uuid.UUID              `json:"column_id"`
+	Purposes []userstore.ResourceID `json:"purposes"`
+}
+
+// GetUserColumnValueResponse is the response body for getting a user column value (temporary code until tokenizer is merged into userstore)
+type GetUserColumnValueResponse struct {
+	Value string `json:"value"`
+}
+
+// GetUserColumnValue gets the value of a user column, subject to purpose checks (temporary code until tokenizer is merged into userstore)
+func (c *Client) GetUserColumnValue(ctx context.Context, userID uuid.UUID, columnID uuid.UUID, purposes []userstore.ResourceID) (string, error) {
+	req := GetUserColumnValueRequest{
+		UserID:   userID,
+		ColumnID: columnID,
+		Purposes: purposes,
+	}
+
+	var res GetUserColumnValueResponse
+	if err := c.client.Post(ctx, paths.GetUserColumnValuePath, req, &res); err != nil {
+		return "", ucerr.Wrap(err)
 	}
 
 	return res.Value, nil
@@ -562,12 +538,19 @@ var MutatorColumnDefaultValue = mutatorSystemValue{SystemValue: "default"}
 // MutatorColumnCurrentValue is a special value that can be used to set a column to its current value
 var MutatorColumnCurrentValue = mutatorSystemValue{SystemValue: "current"}
 
+// ValueAndPurposes is a tuple for specifying the value and the purpose to store for a user column
+type ValueAndPurposes struct {
+	Value            any                    `json:"value"`
+	PurposeAdditions []userstore.ResourceID `json:"purpose_additions"`
+	PurposeDeletions []userstore.ResourceID `json:"purpose_deletions"`
+}
+
 // ExecuteMutatorRequest is the request body for modifying data in the userstore
 type ExecuteMutatorRequest struct {
 	MutatorID      uuid.UUID                    `json:"mutator_id"`      // the mutator that specifies what columns to edit
 	Context        policy.ClientContext         `json:"context"`         // context that is provided to the mutator's Access Policy
 	SelectorValues userstore.UserSelectorValues `json:"selector_values"` // the values to use for the selector
-	RowValues      map[string]interface{}       `json:"row_values"`      // the values to use for the users table row
+	RowData        map[string]ValueAndPurposes  `json:"row_data"`        // the values to use for the users table row
 }
 
 // ExecuteMutatorResponse is the response body for modifying data in the userstore
@@ -576,12 +559,12 @@ type ExecuteMutatorResponse struct {
 }
 
 // ExecuteMutator modifies columns in userstore via a mutator for the associated tenant
-func (c *Client) ExecuteMutator(ctx context.Context, mutatorID uuid.UUID, clientContext policy.ClientContext, selectorValues userstore.UserSelectorValues, rowValues map[string]interface{}) ([]uuid.UUID, error) {
+func (c *Client) ExecuteMutator(ctx context.Context, mutatorID uuid.UUID, clientContext policy.ClientContext, selectorValues userstore.UserSelectorValues, rowData map[string]ValueAndPurposes) (*ExecuteMutatorResponse, error) {
 	req := ExecuteMutatorRequest{
 		MutatorID:      mutatorID,
 		Context:        clientContext,
 		SelectorValues: selectorValues,
-		RowValues:      rowValues,
+		RowData:        rowData,
 	}
 
 	var resp ExecuteMutatorResponse
@@ -589,5 +572,142 @@ func (c *Client) ExecuteMutator(ctx context.Context, mutatorID uuid.UUID, client
 		return nil, ucerr.Wrap(err)
 	}
 
-	return resp.UserIDs, nil
+	return &resp, nil
+}
+
+// CreatePurposeRequest is the request body for creating a new purpose
+type CreatePurposeRequest struct {
+	Purpose userstore.Purpose `json:"purpose"`
+}
+
+//go:generate genvalidate CreatePurposeRequest
+
+// CreatePurpose creates a new purpose for the associated tenant
+func (c *Client) CreatePurpose(ctx context.Context, purpose userstore.Purpose, opts ...Option) (*userstore.Purpose, error) {
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	req := CreatePurposeRequest{
+		Purpose: purpose,
+	}
+
+	var resp userstore.Purpose
+	if options.ifNotExists {
+		exists, existingID, err := c.client.CreateIfNotExists(ctx, paths.CreatePurposePath, req, &resp)
+		if err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+		if exists {
+			resp = req.Purpose
+			resp.ID = existingID
+		}
+	} else {
+		if err := c.client.Post(ctx, paths.CreatePurposePath, req, &resp); err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+	}
+
+	return &resp, nil
+}
+
+// GetPurpose gets a purpose by ID
+func (c *Client) GetPurpose(ctx context.Context, purposeID uuid.UUID) (*userstore.Purpose, error) {
+	var resp userstore.Purpose
+	if err := c.client.Get(ctx, paths.GetPurposePath(purposeID), &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// ListPurposesResponse is the paginated response struct for listing purposes
+type ListPurposesResponse struct {
+	Purposes []userstore.Purpose `json:"data"`
+	pagination.ResponseFields
+}
+
+// ListPurposes lists all purposes for the associated tenant
+func (c *Client) ListPurposes(ctx context.Context, opts ...Option) (*ListPurposesResponse, error) {
+
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	pager, err := pagination.ApplyOptions(options.paginationOptions...)
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+	query := pager.Query()
+
+	var res ListPurposesResponse
+	if err := c.client.Get(ctx, fmt.Sprintf("%s?%s", paths.ListPurposesPath, query.Encode()), &res); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &res, nil
+}
+
+// UpdatePurposeRequest is the request body for updating a purpose
+type UpdatePurposeRequest struct {
+	Purpose userstore.Purpose `json:"purpose"`
+}
+
+//go:generate genvalidate UpdatePurposeRequest
+
+// UpdatePurpose updates a purpose for the associated tenant
+func (c *Client) UpdatePurpose(ctx context.Context, purpose userstore.Purpose) (*userstore.Purpose, error) {
+	req := UpdatePurposeRequest{
+		Purpose: purpose,
+	}
+
+	var resp userstore.Purpose
+	if err := c.client.Put(ctx, paths.UpdatePurposePath(purpose.ID), req, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// DeletePurpose deletes a purpose by ID
+func (c *Client) DeletePurpose(ctx context.Context, purposeID uuid.UUID) error {
+	if err := c.client.Delete(ctx, paths.DeletePurposePath(purposeID), nil); err != nil {
+		return ucerr.Wrap(err)
+	}
+
+	return nil
+}
+
+// GetConsentedPurposesForUserRequest is the request body for getting the purposes that are consented for a user
+type GetConsentedPurposesForUserRequest struct {
+	UserID  uuid.UUID              `json:"user_id"`
+	Columns []userstore.ResourceID `json:"columns"`
+}
+
+// ColumnConsentedPurposes is a tuple for specifying the column and the purposes that are consented for that column
+type ColumnConsentedPurposes struct {
+	Column            userstore.ResourceID   `json:"column"`
+	ConsentedPurposes []userstore.ResourceID `json:"consented_purposes"`
+}
+
+// GetConsentedPurposesForUserResponse is the response body for getting the purposes that are consented for a user
+type GetConsentedPurposesForUserResponse struct {
+	Data []ColumnConsentedPurposes `json:"data"`
+}
+
+// GetConsentedPurposesForUser gets the purposes that are consented for a user
+func (c *Client) GetConsentedPurposesForUser(ctx context.Context, userID uuid.UUID, columns []userstore.ResourceID) (GetConsentedPurposesForUserResponse, error) {
+	req := GetConsentedPurposesForUserRequest{
+		UserID:  userID,
+		Columns: columns,
+	}
+
+	var resp GetConsentedPurposesForUserResponse
+	if err := c.client.Post(ctx, paths.GetConsentedPurposesForUserPath, req, &resp); err != nil {
+		return resp, ucerr.Wrap(err)
+	}
+
+	return resp, nil
 }

@@ -55,6 +55,8 @@ func (c StandardClaims) Valid() error {
 // TokenClaims represents the claims made by a token, and is also used by the UserInfo
 // endpoint to return standard OIDC user claims.
 type TokenClaims struct {
+	StandardClaims
+
 	Name            string   `json:"name,omitempty"`
 	Nickname        string   `json:"nickname,omitempty"`
 	Email           string   `json:"email,omitempty"`
@@ -63,11 +65,9 @@ type TokenClaims struct {
 	Nonce           string   `json:"nonce,omitempty"`
 	UpdatedAt       int64    `json:"updated_at,omitempty"` // NOTE: Auth0 treats this as a string, but OIDC says this is seconds since the Unix Epoch
 	RefreshAudience []string `json:"refresh_aud,omitempty"`
-	StandardClaims
-
-	// TODO: not sure if this is the right place for this, but didn't come up with a clever interface
-	// to use with GeneratePlexUserToken etc yet. With omitempty, it shouldn't affect anything else when unused
-	ImpersonatedBy string `json:"impersonated_by,omitempty"`
+	SubjectType     string   `json:"subject_type,omitempty"`
+	OrganizationID  string   `json:"organization_id,omitempty"`
+	ImpersonatedBy  string   `json:"impersonated_by,omitempty"`
 }
 
 // Valid implements jwt.Claims interface

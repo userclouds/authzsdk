@@ -36,6 +36,7 @@ const (
 
 	defaultCacheTTL time.Duration = 5 * time.Minute
 	gcInterval      time.Duration = 5 * time.Minute
+	skipCacheTTL    time.Duration = time.Nanosecond
 )
 
 type options struct {
@@ -112,6 +113,11 @@ type Client struct {
 	edgeTTL     time.Duration
 
 	keysMutex sync.Mutex
+
+	objTypeLock  sync.RWMutex
+	edgeTypeLock sync.RWMutex
+	objLock      sync.RWMutex
+	edgeLock     sync.RWMutex
 }
 
 // NewClient creates a new authz client
@@ -120,14 +126,23 @@ func NewClient(url string, opts ...Option) (*Client, error) {
 	return NewCustomClient(DefaultObjTypeTTL, DefaultEdgeTypeTTL, DefaultObjTTL, DefaultEdgeTTL, url, opts...)
 }
 
+// Underlying library treats 0 and -1 as no expiration, so we need to set it to minimum value and not look up items from the cache
+func createCache(ttl time.Duration) (*cache.Cache, time.Duration) {
+	if ttl == 0 {
+		ttl = skipCacheTTL
+	}
+	return cache.New(ttl, gcInterval), ttl
+}
+
 // NewCustomClient creates a new authz client with different cache defaults
 // Web API base URL, e.g. "http://localhost:1234".
 func NewCustomClient(objTypeTTL time.Duration, edgeTypeTTL time.Duration, objTTL time.Duration, edgeTTL time.Duration,
 	url string, opts ...Option) (*Client, error) {
-	cacheObjTypes := cache.New(defaultCacheTTL, gcInterval)
-	cacheEdgeTypes := cache.New(defaultCacheTTL, gcInterval)
-	cacheObjects := cache.New(defaultCacheTTL, gcInterval)
-	cacheEdges := cache.New(defaultCacheTTL, gcInterval)
+
+	cacheObjTypes, objTypeTTL := createCache(objTypeTTL)
+	cacheEdgeTypes, edgeTypeTTL := createCache(edgeTypeTTL)
+	cacheObjects, objTTL := createCache(objTTL)
+	cacheEdges, edgeTTL := createCache(edgeTTL)
 
 	var options options
 	for _, opt := range opts {
@@ -341,6 +356,12 @@ func (c *Client) CreateObjectType(ctx context.Context, id uuid.UUID, typeName st
 		req.ID = id
 	}
 
+	// We only take RLock on create because we don't need to protect against cache misses. If a get comes in before the create is complete
+	// it will get a cache miss and will go to the DB and it will get correct state. We only need to get the full Lock when we are removing state
+	// that is no longer valid from the cache ie delete/update operations
+	c.objTypeLock.RLock()
+	defer c.objTypeLock.RUnlock()
+
 	var resp ObjectType
 	if options.ifNotExists && id == uuid.Nil {
 		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/objecttypes", req, &resp)
@@ -363,7 +384,7 @@ func (c *Client) CreateObjectType(ctx context.Context, id uuid.UUID, typeName st
 
 // FindObjectTypeID resolves an object type name to an ID.
 func (c *Client) FindObjectTypeID(ctx context.Context, typeName string) (uuid.UUID, error) {
-	if x, found := c.cacheObjTypes.Get(objectTypeKeyName(typeName)); found {
+	if x, found := c.cacheObjTypes.Get(objectTypeKeyName(typeName)); found && c.objTypeTTL != skipCacheTTL {
 		objType := x.(ObjectType)
 		return objType.ID, nil
 	}
@@ -373,7 +394,7 @@ func (c *Client) FindObjectTypeID(ctx context.Context, typeName string) (uuid.UU
 		return uuid.Nil, ucerr.Wrap(err)
 	}
 
-	if x, found := c.cacheObjTypes.Get(objectTypeKeyName(typeName)); found {
+	if x, found := c.cacheObjTypes.Get(objectTypeKeyName(typeName)); found && c.objTypeTTL != skipCacheTTL {
 		objType := x.(ObjectType)
 		return objType.ID, nil
 	}
@@ -390,10 +411,13 @@ func (c *Client) FindObjectTypeID(ctx context.Context, typeName string) (uuid.UU
 
 // GetObjectType returns an object type by ID.
 func (c *Client) GetObjectType(ctx context.Context, id uuid.UUID) (*ObjectType, error) {
-	if x, found := c.cacheObjTypes.Get(id.String()); found {
+	if x, found := c.cacheObjTypes.Get(id.String()); found && c.objTypeTTL != skipCacheTTL {
 		objType := x.(ObjectType)
 		return &objType, nil
 	}
+
+	c.objTypeLock.RLock()
+	defer c.objTypeLock.RUnlock()
 
 	var resp ObjectType
 	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objecttypes/%v", id), &resp); err != nil {
@@ -423,6 +447,9 @@ func (c *Client) ListObjectTypes(ctx context.Context) ([]ObjectType, error) {
 		return nil, ucerr.Wrap(err)
 	}
 
+	c.objTypeLock.RLock()
+	defer c.objTypeLock.RUnlock()
+
 	for {
 		query := pager.Query()
 
@@ -446,6 +473,9 @@ func (c *Client) ListObjectTypes(ctx context.Context) ([]ObjectType, error) {
 
 // DeleteObjectType deletes an object type by ID.
 func (c *Client) DeleteObjectType(ctx context.Context, objectTypeID uuid.UUID) error {
+	c.objTypeLock.Lock()
+	defer c.objTypeLock.Unlock()
+
 	if err := c.client.Delete(ctx, fmt.Sprintf("/authz/objecttypes/%s", objectTypeID), nil); err != nil {
 		return ucerr.Wrap(err)
 	}
@@ -474,6 +504,9 @@ func (c *Client) CreateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectT
 	if id != uuid.Nil {
 		req.ID = id
 	}
+
+	c.edgeTypeLock.RLock()
+	defer c.edgeTypeLock.RUnlock()
 
 	var resp EdgeType
 	if options.ifNotExists && id == uuid.Nil {
@@ -508,6 +541,9 @@ func (c *Client) UpdateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectT
 		Attributes: attributes,
 	}
 
+	c.edgeTypeLock.Lock()
+	defer c.edgeTypeLock.Unlock()
+
 	var resp EdgeType
 	if err := c.client.Put(ctx, fmt.Sprintf("/authz/edgetypes/%s", id), req, &resp); err != nil {
 		return nil, ucerr.Wrap(err)
@@ -519,10 +555,13 @@ func (c *Client) UpdateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectT
 
 // GetEdgeType gets an edge type (relationship) by its type ID.
 func (c *Client) GetEdgeType(ctx context.Context, edgeTypeID uuid.UUID) (*EdgeType, error) {
-	if x, found := c.cacheEdgeTypes.Get(edgeTypeID.String()); found {
+	if x, found := c.cacheEdgeTypes.Get(edgeTypeID.String()); found && c.edgeTypeTTL != skipCacheTTL {
 		edgeType := x.(EdgeType)
 		return &edgeType, nil
 	}
+
+	c.edgeTypeLock.RLock()
+	defer c.edgeTypeLock.RUnlock()
 
 	var resp EdgeType
 	if err := c.client.Get(ctx, fmt.Sprintf("/authz/edgetypes/%s", edgeTypeID), &resp); err != nil {
@@ -534,7 +573,7 @@ func (c *Client) GetEdgeType(ctx context.Context, edgeTypeID uuid.UUID) (*EdgeTy
 
 // FindEdgeTypeID resolves an edge type name to an ID.
 func (c *Client) FindEdgeTypeID(ctx context.Context, typeName string) (uuid.UUID, error) {
-	if x, found := c.cacheEdgeTypes.Get(edgeTypeKeyName(typeName)); found {
+	if x, found := c.cacheEdgeTypes.Get(edgeTypeKeyName(typeName)); found && c.edgeTypeTTL != skipCacheTTL {
 		edgeType := x.(EdgeType)
 		return edgeType.ID, nil
 	}
@@ -544,7 +583,7 @@ func (c *Client) FindEdgeTypeID(ctx context.Context, typeName string) (uuid.UUID
 		return uuid.Nil, ucerr.Wrap(err)
 	}
 
-	if x, found := c.cacheEdgeTypes.Get(edgeTypeKeyName(typeName)); found {
+	if x, found := c.cacheEdgeTypes.Get(edgeTypeKeyName(typeName)); found && c.edgeTypeTTL != skipCacheTTL {
 		edgeType := x.(EdgeType)
 		return edgeType.ID, nil
 	}
@@ -577,6 +616,9 @@ func (c *Client) ListEdgeTypes(ctx context.Context, opts ...Option) ([]EdgeType,
 	// TODO: we should eventually support pagination arguments to this method, but for now we assume
 	// there aren't that many edge types and just fetch them all.
 
+	c.edgeTypeLock.RLock()
+	defer c.edgeTypeLock.RUnlock()
+
 	pager, err := pagination.ApplyOptions()
 	if err != nil {
 		return nil, ucerr.Wrap(err)
@@ -608,6 +650,9 @@ func (c *Client) ListEdgeTypes(ctx context.Context, opts ...Option) ([]EdgeType,
 
 // DeleteEdgeType deletes an edge type by ID.
 func (c *Client) DeleteEdgeType(ctx context.Context, edgeTypeID uuid.UUID) error {
+	c.edgeTypeLock.Lock()
+	defer c.edgeTypeLock.Unlock()
+
 	if err := c.client.Delete(ctx, fmt.Sprintf("/authz/edgetypes/%s", edgeTypeID), nil); err != nil {
 		return ucerr.Wrap(err)
 	}
@@ -637,6 +682,9 @@ func (c *Client) CreateObject(ctx context.Context, id, typeID uuid.UUID, alias s
 		obj.Alias = nil
 	}
 
+	c.objLock.RLock()
+	defer c.objLock.RUnlock()
+
 	var resp Object
 	if options.ifNotExists && id == uuid.Nil {
 		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/objects", obj, &resp)
@@ -659,10 +707,13 @@ func (c *Client) CreateObject(ctx context.Context, id, typeID uuid.UUID, alias s
 
 // GetObject returns an object by ID.
 func (c *Client) GetObject(ctx context.Context, id uuid.UUID) (*Object, error) {
-	if x, found := c.cacheObjects.Get(id.String()); found {
+	if x, found := c.cacheObjects.Get(id.String()); found && c.objTTL != skipCacheTTL {
 		obj := x.(Object)
 		return &obj, nil
 	}
+
+	c.objLock.RLock()
+	defer c.objLock.RUnlock()
 
 	var resp Object
 	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects/%s", id), &resp); err != nil {
@@ -679,7 +730,7 @@ func (c *Client) GetObjectForName(ctx context.Context, typeID uuid.UUID, name st
 		return nil, ucerr.New("_user objects do not currently support lookup by alias")
 	}
 
-	if x, found := c.cacheObjects.Get(objAliasKeyName(typeID, name)); found {
+	if x, found := c.cacheObjects.Get(objAliasKeyName(typeID, name)); found && c.objTTL != skipCacheTTL {
 		obj := x.(Object)
 		return &obj, nil
 	}
@@ -698,7 +749,6 @@ func (c *Client) GetObjectForName(ctx context.Context, typeID uuid.UUID, name st
 	}
 
 	if len(resp.Data) > 0 {
-		c.saveObject(resp.Data[0])
 		return &resp.Data[0], nil
 	}
 	return nil, ErrObjectNotFound
@@ -706,12 +756,18 @@ func (c *Client) GetObjectForName(ctx context.Context, typeID uuid.UUID, name st
 
 // DeleteObject deletes an object by ID.
 func (c *Client) DeleteObject(ctx context.Context, id uuid.UUID) error {
+	c.objLock.Lock()
+	defer c.objLock.Unlock()
+
 	c.deleteObjectromCache(id)
 	return ucerr.Wrap(c.client.Delete(ctx, fmt.Sprintf("/authz/objects/%s", id), nil))
 }
 
 // DeleteEdgesByObject deletes all edges going in or  out of an object by ID.
 func (c *Client) DeleteEdgesByObject(ctx context.Context, id uuid.UUID) error {
+	c.edgeLock.Lock()
+	defer c.edgeLock.Unlock()
+
 	if _, found := c.cacheEdges.Get(id.String()); found {
 		c.cacheEdges.Delete(id.String())
 		c.deleteKeyArray(id)
@@ -755,6 +811,11 @@ func (c *Client) ListObjectsFromQuery(ctx context.Context, query url.Values, opt
 		query.Add("organization_id", options.organizationID.String())
 	}
 
+	c.objLock.RLock()
+	defer c.objLock.RUnlock()
+
+	// TODO needs to always be paginated get
+
 	var resp ListObjectsResponse
 	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects?%s", query.Encode()), &resp); err != nil {
 		return nil, ucerr.Wrap(err)
@@ -787,7 +848,7 @@ func (c *Client) ListEdges(ctx context.Context, opts ...pagination.Option) (*Lis
 	query := pager.Query()
 
 	var resp ListEdgesResponse
-	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects/edges?%s", query.Encode()), &resp); err != nil {
+	if err := c.client.Get(ctx, fmt.Sprintf("/authz/edges?%s", query.Encode()), &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 	return &resp, nil
@@ -802,7 +863,7 @@ func (c *Client) ListEdgesOnObject(ctx context.Context, objectID uuid.UUID, opts
 
 	query := pager.Query()
 
-	if x, found := c.cacheEdges.Get(objectID.String()); found {
+	if x, found := c.cacheEdges.Get(objectID.String()); found && c.edgeTTL != skipCacheTTL {
 		edges := x.([]Edge)
 		// If the client requests smaller pages than what is stored in the cache - don't use the cache
 		if len(edges) <= pager.GetLimit() {
@@ -810,6 +871,9 @@ func (c *Client) ListEdgesOnObject(ctx context.Context, objectID uuid.UUID, opts
 			return &resp, nil
 		}
 	}
+
+	c.edgeLock.RLock()
+	defer c.edgeLock.RUnlock()
 
 	var resp ListEdgesResponse
 	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects/%s/edges?%s", objectID, query.Encode()), &resp); err != nil {
@@ -826,7 +890,7 @@ func (c *Client) ListEdgesOnObject(ctx context.Context, objectID uuid.UUID, opts
 // ListEdgesBetweenObjects lists all edges (relationships) with a given source & target object.
 func (c *Client) ListEdgesBetweenObjects(ctx context.Context, sourceObjectID, targetObjectID uuid.UUID) ([]Edge, error) {
 	// If edges for source object are in the cache for all edges per object - filter them by target
-	if x, found := c.cacheEdges.Get(sourceObjectID.String()); found {
+	if x, found := c.cacheEdges.Get(sourceObjectID.String()); found && c.edgeTTL != skipCacheTTL {
 		edges := x.([]Edge)
 		filteredEdges := make([]Edge, 0)
 		for _, edge := range edges {
@@ -837,30 +901,43 @@ func (c *Client) ListEdgesBetweenObjects(ctx context.Context, sourceObjectID, ta
 		return filteredEdges, nil
 	}
 	// If the edges are in the cache by source->target - the value can be returned directly
-	if x, found := c.cacheEdges.Get(edgesObjToObj(sourceObjectID, targetObjectID)); found {
+	if x, found := c.cacheEdges.Get(edgesObjToObj(sourceObjectID, targetObjectID)); found && c.edgeTTL != skipCacheTTL {
 		edges := x.([]Edge)
 		return edges, nil
 	}
 
+	c.edgeLock.RLock()
+	defer c.edgeLock.RUnlock()
+
 	// NB: we don't currently offer any cached reads here because it's hard to know when a "list" is current?
-	var resp []Edge
 	query := url.Values{}
-	query.Add("source_object_id", sourceObjectID.String())
 	query.Add("target_object_id", targetObjectID.String())
-	if err := c.client.Get(ctx, fmt.Sprintf("/authz/edges?%s", query.Encode()), &resp); err != nil {
-		return nil, ucerr.Wrap(err)
+	var resp ListEdgesResponse
+	var edges []Edge
+	for {
+		if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects/%s/edges?%s", sourceObjectID, query.Encode()), &resp); err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+		edges = append(edges, resp.Data...)
+		if !resp.HasNext {
+			break
+		}
 	}
 
-	c.saveEdges(resp, sourceObjectID, targetObjectID)
-	return resp, nil
+	c.saveEdges(edges, sourceObjectID, targetObjectID)
+
+	return edges, nil
 }
 
 // GetEdge returns an edge by ID.
 func (c *Client) GetEdge(ctx context.Context, id uuid.UUID) (*Edge, error) {
-	if x, found := c.cacheEdges.Get(id.String()); found {
+	if x, found := c.cacheEdges.Get(id.String()); found && c.edgeTTL != skipCacheTTL {
 		edge := x.(Edge)
 		return &edge, nil
 	}
+
+	c.edgeLock.RLock()
+	defer c.edgeLock.RUnlock()
 
 	var resp Edge
 	if err := c.client.Get(ctx, fmt.Sprintf("/authz/edges/%s", id), &resp); err != nil {
@@ -875,7 +952,7 @@ func (c *Client) GetEdge(ctx context.Context, id uuid.UUID) (*Edge, error) {
 // FindEdge finds an existing edge (relationship) between two objects.
 func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, edgeTypeID uuid.UUID) (*Edge, error) {
 	// If the edges are in the cache by source->target - iterate over that set first
-	if x, found := c.cacheEdges.Get(edgesObjToObj(sourceObjectID, targetObjectID)); found {
+	if x, found := c.cacheEdges.Get(edgesObjToObj(sourceObjectID, targetObjectID)); found && c.edgeTTL != skipCacheTTL {
 		edges := x.([]Edge)
 		for _, edge := range edges {
 			if edge.EdgeTypeID == edgeTypeID {
@@ -885,7 +962,7 @@ func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, e
 		// In theory we could return NotFound here but this is a rare enough case that it makes sense to try the server
 	}
 
-	if x, found := c.cacheEdges.Get(sourceObjectID.String()); found {
+	if x, found := c.cacheEdges.Get(sourceObjectID.String()); found && c.edgeTTL != skipCacheTTL {
 		edges := x.([]Edge)
 		for _, edge := range edges {
 			if edge.TargetObjectID == targetObjectID && edge.EdgeTypeID == edgeTypeID {
@@ -894,10 +971,13 @@ func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, e
 		}
 	}
 
-	if x, found := c.cacheEdges.Get(edgeFullKeyNameFromIDs(sourceObjectID, targetObjectID, edgeTypeID)); found {
+	if x, found := c.cacheEdges.Get(edgeFullKeyNameFromIDs(sourceObjectID, targetObjectID, edgeTypeID)); found && c.edgeTTL != skipCacheTTL {
 		edge := x.(Edge)
 		return &edge, nil
 	}
+
+	c.edgeLock.RLock()
+	defer c.edgeLock.RUnlock()
 
 	var resp []Edge
 	query := url.Values{}
@@ -933,6 +1013,9 @@ func (c *Client) CreateEdge(ctx context.Context, id, sourceObjectID, targetObjec
 		req.ID = id
 	}
 
+	c.edgeLock.RLock()
+	defer c.edgeLock.RUnlock()
+
 	var resp Edge
 	if options.ifNotExists && id == uuid.Nil {
 		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/edges", req, &resp)
@@ -962,6 +1045,9 @@ func (c *Client) CreateEdge(ctx context.Context, id, sourceObjectID, targetObjec
 
 // DeleteEdge deletes an edge by ID.
 func (c *Client) DeleteEdge(ctx context.Context, edgeID uuid.UUID) error {
+	c.edgeLock.Lock()
+	defer c.edgeLock.Unlock()
+
 	if x, found := c.cacheEdges.Get(edgeID.String()); found {
 		edge := x.(Edge)
 		c.deleteEdgeFromCache(edge)

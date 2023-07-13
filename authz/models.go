@@ -16,6 +16,16 @@ type ObjectType struct {
 	TypeName string `db:"type_name" json:"type_name" validate:"notempty"`
 }
 
+// GetPaginationKeys is part of the pagination.PageableType interface
+func (ObjectType) GetPaginationKeys() pagination.KeyTypes {
+	return pagination.KeyTypes{
+		"id":        pagination.UUIDKeyType,
+		"type_name": pagination.StringKeyType,
+		"created":   pagination.TimestampKeyType,
+		"updated":   pagination.TimestampKeyType,
+	}
+}
+
 //go:generate genvalidate ObjectType
 
 // Attribute represents a named attribute on an Edge Type.
@@ -113,6 +123,8 @@ func (EdgeType) GetPaginationKeys() pagination.KeyTypes {
 		"organization_id":       pagination.UUIDKeyType,
 		"source_object_type_id": pagination.UUIDKeyType,
 		"target_object_type_id": pagination.UUIDKeyType,
+		"created":               pagination.TimestampKeyType,
+		"updated":               pagination.TimestampKeyType,
 	}
 }
 
@@ -146,6 +158,8 @@ func (Object) GetPaginationKeys() pagination.KeyTypes {
 		"alias":           pagination.StringKeyType,
 		"organization_id": pagination.UUIDKeyType,
 		"type_id":         pagination.UUIDKeyType,
+		"created":         pagination.TimestampKeyType,
+		"updated":         pagination.TimestampKeyType,
 	}
 }
 
@@ -169,6 +183,8 @@ func (Edge) GetPaginationKeys() pagination.KeyTypes {
 		"id":               pagination.UUIDKeyType,
 		"source_object_id": pagination.UUIDKeyType,
 		"target_object_id": pagination.UUIDKeyType,
+		"created":          pagination.TimestampKeyType,
+		"updated":          pagination.TimestampKeyType,
 	}
 }
 
