@@ -1,8 +1,10 @@
 package idp
 
 import (
-	"userclouds.com/idp/socialprovider"
-	"userclouds.com/infra/emailutil"
+	"time"
+
+	"userclouds.com/infra/messaging/email/emailaddress"
+	"userclouds.com/infra/oidc"
 	"userclouds.com/infra/ucerr"
 )
 
@@ -12,7 +14,7 @@ type AuthnType string
 // AuthnType constants
 const (
 	AuthnTypePassword AuthnType = "password"
-	AuthnTypeSocial   AuthnType = "social"
+	AuthnTypeOIDC     AuthnType = "social"
 
 	// Used for filter queries; not a valid type
 	AuthnTypeAll AuthnType = "all"
@@ -20,7 +22,7 @@ const (
 
 // Validate implements Validateable
 func (a AuthnType) Validate() error {
-	if a == AuthnTypePassword || a == AuthnTypeSocial || a == AuthnTypeAll || a == "" {
+	if a == AuthnTypePassword || a == AuthnTypeOIDC || a == AuthnTypeAll || a == "" {
 		return nil
 	}
 	return ucerr.Errorf("invalid AuthnType: %s", string(a))
@@ -38,8 +40,20 @@ type UserAuthn struct {
 	Password string `json:"password,omitempty"`
 
 	// Fields specified if AuthnType == 'social'
-	SocialProvider socialprovider.SocialProvider `json:"social_provider,omitempty"`
-	OIDCSubject    string                        `json:"oidc_subject,omitempty"`
+	OIDCProvider  oidc.ProviderType `json:"oidc_provider,omitempty"`
+	OIDCIssuerURL string            `json:"oidc_issuer_url,omitempty"`
+	OIDCSubject   string            `json:"oidc_subject,omitempty"`
+}
+
+// UserMFAChannel represents a configured MFA channel for a user. A
+// verified channel may be used for an MFA challenge, and the primary
+// channel, which must be verified, is used by default for an MFA challenge.
+type UserMFAChannel struct {
+	ChannelType        oidc.MFAChannelType `json:"mfa_channel_type"`
+	ChannelDescription string              `json:"mfa_channel_description"`
+	Primary            bool                `json:"primary"`
+	Verified           bool                `json:"verified"`
+	LastVerified       time.Time           `json:"last_verified"`
 }
 
 // UserProfile is a collection of per-user properties stored in the DB as JSON since
@@ -63,7 +77,7 @@ func (up UserProfile) extraValidate() error {
 	if up.Email == "" {
 		return nil
 	}
-	a := emailutil.Address(up.Email)
+	a := emailaddress.Address(up.Email)
 	if err := a.Validate(); err != nil {
 		return ucerr.Wrap(err)
 	}

@@ -15,6 +15,7 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	"userclouds.com/infra/request"
 	"userclouds.com/infra/ucerr"
 	"userclouds.com/infra/ucjwt"
 )
@@ -267,6 +268,13 @@ func (c *Client) makeRequestRetry(ctx context.Context,
 	response interface{},
 	opts []Option,
 	retries int) error {
+	requestID := "N/A"
+	start := time.Now().UTC()
+	defer func() {
+		if logger != nil && !c.options.stopLogging {
+			logger.Debugf(ctx, "jsonclient request %s %s took %s request id: %s", method, path, time.Since(start), requestID)
+		}
+	}()
 
 	// auto-refresh bearer token if needed
 	// do this before cloning (it's threadsafe) so we don't "lose" the refresh
@@ -321,6 +329,9 @@ func (c *Client) makeRequestRetry(ctx context.Context,
 	// it is very useful to override the Host header.
 	if req.Header.Get("Host") != "" {
 		req.Host = req.Header.Get("Host")
+	} else if !options.bypassRouting {
+		// this lets us inject service-dependent intra-datacenter rerouting logic as needed (implemented in internal/apiclient/routing)
+		Router.Reroute(ctx, req)
 	}
 
 	res, err := client.Do(req)
@@ -337,6 +348,7 @@ func (c *Client) makeRequestRetry(ctx context.Context,
 		}
 		return ucerr.Wrap(err)
 	}
+	requestID = request.GetRequestIDFromHeader(res.Header)
 	defer res.Body.Close()
 
 	body := ""
@@ -404,4 +416,16 @@ func GetHTTPStatusCode(err error) int {
 		return oauthe.Code
 	}
 	return -1
+}
+
+// GetDetailedErrorInfo returns detailed information about the error if available and nil otherwise
+func GetDetailedErrorInfo(err error) *SDKStructuredError {
+	var jce Error
+	if errors.As(err, &jce) {
+		var sdkErrorBody sdkStructuredErrorBody
+		if err := json.Unmarshal([]byte(jce.Body), &sdkErrorBody); err == nil {
+			return &sdkErrorBody.Error
+		}
+	}
+	return nil
 }

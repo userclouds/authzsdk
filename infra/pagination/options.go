@@ -27,28 +27,28 @@ func EndingBefore(cursor Cursor) Option {
 //
 // A filter query must either be:
 //
-//   1. A LEAF query, consisting of a key, operator, and value, formatted like:
+//  1. A LEAF query, consisting of a key, operator, and value, formatted like:
 //
-//      ('KEY',OPERATOR,'VALUE')
+//     ('KEY',OPERATOR,'VALUE')
 //
-//   2. A NESTED query, formatted like:
+//  2. A NESTED query, formatted like:
 //
-//      (FILTER_QUERY)
+//     (FILTER_QUERY)
 //
-//   3. A COMPOSITE query, formatted like:
+//  3. A COMPOSITE query, formatted like:
 //
-//      (FILTER_QUERY,OPERATOR,FILTER_QUERY)
+//     (FILTER_QUERY,OPERATOR,FILTER_QUERY)
 //
-//   For NESTED and COMPOSITE queries, FILTER_QUERY can be a LEAF, NESTED, or COMPOSITE query.
+//     For NESTED and COMPOSITE queries, FILTER_QUERY can be a LEAF, NESTED, or COMPOSITE query.
 //
 // For LEAF queries, KEY must be a valid result type key for type of the result being returned. Valid keys are stored
 // in a KeyTypes map in a configured paginator, mapping a key name to a KeyType. Supported KeyTypes include:
 //
-//   BoolKeyType      (value may be specified as any string that can be parsed by https://pkg.go.dev/strconv#example-ParseBool)
-//   StringKeyType    (string value can only have single-quotes or double-quotes in the string that are escaped with a
-//                     back-slash (i.e., \' or \"))
-//   TimestampKeyType (must conform to the format "2006-01-02 15:04:05", as defined in pagination.TimestampKeyLayout)
-//   UUIDKeyType      (must be a valid string representation of a UUID)
+//	BoolKeyType      (value may be specified as any string that can be parsed by https://pkg.go.dev/strconv#example-ParseBool)
+//	StringKeyType    (string value can only have single-quotes or double-quotes in the string that are escaped with a
+//	                  back-slash (i.e., \' or \"))
+//	TimestampKeyType (must conform to the format "2006-01-02 15:04:05", as defined in pagination.TimestampKeyLayout)
+//	UUIDKeyType      (must be a valid string representation of a UUID)
 //
 // By default, all result types support "id" as a valid key of KeyType UUIDKeyType. New supported keys can be added
 // to a result type by defining the GetPaginationKeys() method of the PageableType interface for the result type,
@@ -56,33 +56,32 @@ func EndingBefore(cursor Cursor) Option {
 //
 // For a LEAF query, the OPERATOR must either be a COMPARISON operator or a PATTERN operator.
 //
-//   COMPARISON operators include:
+//	COMPARISON operators include:
 //
-//     EQ  // =
-//     GE  // >=
-//     GT  // >
-//     LE  // <=
-//     LT  // <
-//     NE  // !=
+//	  EQ  // =
+//	  GE  // >=
+//	  GT  // >
+//	  LE  // <=
+//	  LT  // <
+//	  NE  // !=
 //
-//     All supported KeyTypes support COMPARISON operators.
+//	  All supported KeyTypes support COMPARISON operators.
 //
-//   PATTERN operators include:
+//	PATTERN operators include:
 //
-//     LK  // LIKE
-//     NL  // NOT LIKE
+//	  LK  // LIKE
+//	  NL  // NOT LIKE
 //
-//     Only StringKeyType keys support PATTERN operators. For a PATTERN operator, % matches 0 or more characters. _
-//     matches any single character. To match the % or _ characters, the character must be escaped with a \ in the
-//     value (i.e., '\%' matches the '%' character, and '\_' matches '_').
+//	  Only StringKeyType keys support PATTERN operators. For a PATTERN operator, % matches 0 or more characters. _
+//	  matches any single character. To match the % or _ characters, the character must be escaped with a \ in the
+//	  value (i.e., '\%' matches the '%' character, and '\_' matches '_').
 //
 // For a COMPOSITE query, the OPERATOR must be a LOGICAL operator.
 //
-//   LOGICAL operators include:
+//	LOGICAL operators include:
 //
-//     AND // AND
-//     OR  // OR
-//
+//	  AND // AND
+//	  OR  // OR
 func Filter(filter string) Option {
 	return optFunc(
 		func(p *Paginator) {
