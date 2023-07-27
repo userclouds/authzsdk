@@ -2,7 +2,6 @@ package idp
 
 import (
 	"context"
-	"fmt"
 	"net/url"
 	"strconv"
 
@@ -288,7 +287,7 @@ func (c *TokenizerClient) UpdateAccessPolicy(ctx context.Context, ap policy.Acce
 	}
 
 	var resp policy.AccessPolicy
-	if err := c.client.Put(ctx, fmt.Sprintf(paths.UpdateAccessPolicy, ap.ID), req, &resp); err != nil {
+	if err := c.client.Put(ctx, paths.UpdateAccessPolicy(ap.ID), req, &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
@@ -301,7 +300,7 @@ func (c *TokenizerClient) DeleteAccessPolicy(ctx context.Context, id uuid.UUID, 
 		Version: version,
 	}
 
-	if err := c.client.Delete(ctx, fmt.Sprintf(paths.DeleteAccessPolicy, id), req); err != nil {
+	if err := c.client.Delete(ctx, paths.DeleteAccessPolicy(id), req); err != nil {
 		return ucerr.Wrap(err)
 	}
 
@@ -419,7 +418,7 @@ func (c *TokenizerClient) UpdateAccessPolicyTemplate(ctx context.Context, apt po
 	}
 
 	var resp policy.AccessPolicyTemplate
-	if err := c.client.Put(ctx, fmt.Sprintf(paths.UpdateAccessPolicyTemplate, apt.ID), req, &resp); err != nil {
+	if err := c.client.Put(ctx, paths.UpdateAccessPolicyTemplate(apt.ID), req, &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
@@ -428,7 +427,7 @@ func (c *TokenizerClient) UpdateAccessPolicyTemplate(ctx context.Context, apt po
 
 // DeleteAccessPolicyTemplate deletes an access policy
 func (c *TokenizerClient) DeleteAccessPolicyTemplate(ctx context.Context, id uuid.UUID, version int) error {
-	if err := c.client.Delete(ctx, fmt.Sprintf(paths.DeleteAccessPolicyTemplate, id), nil); err != nil {
+	if err := c.client.Delete(ctx, paths.DeleteAccessPolicyTemplate(id), nil); err != nil {
 		return ucerr.Wrap(err)
 	}
 
@@ -518,7 +517,7 @@ func (c *TokenizerClient) GetTransformer(ctx context.Context, transformerRID use
 
 // DeleteTransformer deletes a transformer
 func (c *TokenizerClient) DeleteTransformer(ctx context.Context, id uuid.UUID) error {
-	if err := c.client.Delete(ctx, fmt.Sprintf(paths.DeleteTransformer, id), nil); err != nil {
+	if err := c.client.Delete(ctx, paths.DeleteTransformer(id), nil); err != nil {
 		return ucerr.Wrap(err)
 	}
 

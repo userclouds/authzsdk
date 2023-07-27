@@ -258,14 +258,20 @@ func (c *Client) GetColumn(ctx context.Context, columnID uuid.UUID) (*userstore.
 	return &resp, nil
 }
 
+// ListColumnsResponse is the paginated response struct for listing columns
+type ListColumnsResponse struct {
+	Data []userstore.Column `json:"data"`
+	pagination.ResponseFields
+}
+
 // ListColumns lists all columns for the associated tenant
 func (c *Client) ListColumns(ctx context.Context) ([]userstore.Column, error) {
-	var res []userstore.Column
+	var res ListColumnsResponse
 	if err := c.client.Get(ctx, paths.ListColumnsPath, &res); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	return res, nil
+	return res.Data, nil
 }
 
 // UpdateColumnRequest is the request body for updating a column
@@ -352,14 +358,19 @@ func (c *Client) GetAccessorByVersion(ctx context.Context, accessorID uuid.UUID,
 	return &resp, nil
 }
 
+// ListAccessorsResponse is the response struct for listing accessors
+type ListAccessorsResponse struct {
+	Data []userstore.Accessor `json:"data"`
+}
+
 // ListAccessors lists all the available accessors for the associated tenant
 func (c *Client) ListAccessors(ctx context.Context) ([]userstore.Accessor, error) {
-	var res []userstore.Accessor
+	var res ListAccessorsResponse
 	if err := c.client.Get(ctx, paths.ListAccessorsPath, &res); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	return res, nil
+	return res.Data, nil
 }
 
 // UpdateAccessorRequest is the request body for updating an accessor
@@ -446,14 +457,19 @@ func (c *Client) GetMutatorByVersion(ctx context.Context, mutatorID uuid.UUID, v
 	return &resp, nil
 }
 
+// ListMutatorsResponse is the response struct for listing mutators
+type ListMutatorsResponse struct {
+	Data []userstore.Mutator `json:"data"`
+}
+
 // ListMutators lists all the available mutators for the associated tenant
 func (c *Client) ListMutators(ctx context.Context) ([]userstore.Mutator, error) {
-	var res []userstore.Mutator
+	var res ListMutatorsResponse
 	if err := c.client.Get(ctx, paths.ListMutatorsPath, &res); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	return res, nil
+	return res.Data, nil
 }
 
 // UpdateMutatorRequest is the request body for updating a mutator
@@ -477,55 +493,32 @@ func (c *Client) UpdateMutator(ctx context.Context, mutatorID uuid.UUID, updated
 	return &resp, nil
 }
 
-// ExecuteAccessorRequest is the request body for accessing a column
+// ExecuteAccessorRequest is the request body for accessing user data
 type ExecuteAccessorRequest struct {
 	AccessorID     uuid.UUID                    `json:"accessor_id"`     // the accessor that specifies what data to access
 	Context        policy.ClientContext         `json:"context"`         // context that is provided to the accessor Access Policy
 	SelectorValues userstore.UserSelectorValues `json:"selector_values"` // the values to use for the selector
 }
 
+// ExecuteAccessorResponse is the response body for accessing user data
+type ExecuteAccessorResponse struct {
+	Data []string `json:"data"`
+}
+
 // ExecuteAccessor accesses a column via an accessor for the associated tenant
-func (c *Client) ExecuteAccessor(ctx context.Context, accessorID uuid.UUID, clientContext policy.ClientContext, selectorValues userstore.UserSelectorValues) ([]string, error) {
+func (c *Client) ExecuteAccessor(ctx context.Context, accessorID uuid.UUID, clientContext policy.ClientContext, selectorValues userstore.UserSelectorValues) (*ExecuteAccessorResponse, error) {
 	req := ExecuteAccessorRequest{
 		AccessorID:     accessorID,
 		Context:        clientContext,
 		SelectorValues: selectorValues,
 	}
 
-	var res []string
+	var res ExecuteAccessorResponse
 	if err := c.client.Post(ctx, paths.ExecuteAccessorPath, req, &res); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	return res, nil
-}
-
-// GetUserColumnValueRequest is the request body for getting a user column value (temporary code until tokenizer is merged into userstore)
-type GetUserColumnValueRequest struct {
-	UserID   uuid.UUID              `json:"user_id"`
-	ColumnID uuid.UUID              `json:"column_id"`
-	Purposes []userstore.ResourceID `json:"purposes"`
-}
-
-// GetUserColumnValueResponse is the response body for getting a user column value (temporary code until tokenizer is merged into userstore)
-type GetUserColumnValueResponse struct {
-	Value string `json:"value"`
-}
-
-// GetUserColumnValue gets the value of a user column, subject to purpose checks (temporary code until tokenizer is merged into userstore)
-func (c *Client) GetUserColumnValue(ctx context.Context, userID uuid.UUID, columnID uuid.UUID, purposes []userstore.ResourceID) (string, error) {
-	req := GetUserColumnValueRequest{
-		UserID:   userID,
-		ColumnID: columnID,
-		Purposes: purposes,
-	}
-
-	var res GetUserColumnValueResponse
-	if err := c.client.Post(ctx, paths.GetUserColumnValuePath, req, &res); err != nil {
-		return "", ucerr.Wrap(err)
-	}
-
-	return res.Value, nil
+	return &res, nil
 }
 
 type mutatorSystemValue struct {

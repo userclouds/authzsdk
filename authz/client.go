@@ -979,7 +979,7 @@ func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, e
 	c.edgeLock.RLock()
 	defer c.edgeLock.RUnlock()
 
-	var resp []Edge
+	var resp ListEdgesResponse
 	query := url.Values{}
 	query.Add("source_object_id", sourceObjectID.String())
 	query.Add("target_object_id", targetObjectID.String())
@@ -987,12 +987,12 @@ func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, e
 	if err := c.client.Get(ctx, fmt.Sprintf("/authz/edges?%s", query.Encode()), &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
-	if len(resp) != 1 {
-		return nil, ucerr.Errorf("expected 1 edge from FindEdge, got %d", len(resp))
+	if len(resp.Data) != 1 {
+		return nil, ucerr.Errorf("expected 1 edge from FindEdge, got %d", len(resp.Data))
 	}
 
-	c.saveEdge(resp[0])
-	return &resp[0], nil
+	c.saveEdge(resp.Data[0])
+	return &resp.Data[0], nil
 }
 
 // CreateEdge creates an edge (relationship) between two objects.
@@ -1095,9 +1095,14 @@ func (c *Client) ListAttributes(ctx context.Context, sourceObjectID, targetObjec
 	return resp, nil
 }
 
+// ListObjectsReachableWithAttributeResponse is the response from the ListObjectsReachableWithAttribute endpoint.
+type ListObjectsReachableWithAttributeResponse struct {
+	Data []uuid.UUID `json:"data"`
+}
+
 // ListObjectsReachableWithAttribute returns a list of object IDs of a certain type that are reachable from the source object with the given attribute
 func (c *Client) ListObjectsReachableWithAttribute(ctx context.Context, sourceObjectID uuid.UUID, targetObjectTypeID uuid.UUID, attributeName string) ([]uuid.UUID, error) {
-	var resp []uuid.UUID
+	var resp ListObjectsReachableWithAttributeResponse
 	query := url.Values{}
 	query.Add("source_object_id", sourceObjectID.String())
 	query.Add("target_object_type_id", targetObjectTypeID.String())
@@ -1106,7 +1111,7 @@ func (c *Client) ListObjectsReachableWithAttribute(ctx context.Context, sourceOb
 		return nil, ucerr.Wrap(err)
 	}
 
-	return resp, nil
+	return resp.Data, nil
 }
 
 // ListOrganizationsResponse is the response from the ListOrganizations endpoint.

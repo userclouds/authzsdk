@@ -76,8 +76,6 @@ var (
 
 	GetConsentedPurposesForUserPath = fmt.Sprintf("%s/consentedpurposes", UserStoreBasePath)
 
-	GetUserColumnValuePath = fmt.Sprintf("%s/getusercolumnvalue", UserStoreBasePath)
-
 	BaseAPIPath = fmt.Sprintf("%s/api", UserStoreBasePath)
 
 	TokenizerBasePath = "/tokenizer"
@@ -106,8 +104,8 @@ var (
 		return fmt.Sprintf("%s?name=%s&version=%d", BaseAccessPolicyPath, name, version)
 	}
 	CreateAccessPolicy  = BaseAccessPolicyPath
-	UpdateAccessPolicy  = fmt.Sprintf("%s/%%s", BaseAccessPolicyPath)
-	DeleteAccessPolicy  = fmt.Sprintf("%s/%%s", BaseAccessPolicyPath)
+	UpdateAccessPolicy  = func(id uuid.UUID) string { return fmt.Sprintf("%s/%s", BaseAccessPolicyPath, id) }
+	DeleteAccessPolicy  = func(id uuid.UUID) string { return fmt.Sprintf("%s/%s", BaseAccessPolicyPath, id) }
 	TestAccessPolicy    = fmt.Sprintf("%s/actions/test", BaseAccessPolicyPath)
 	ExecuteAccessPolicy = fmt.Sprintf("%s/actions/execute", BaseAccessPolicyPath)
 
@@ -126,8 +124,8 @@ var (
 		return fmt.Sprintf("%s?name=%s&version=%d", BaseAccessPolicyTemplatePath, name, version)
 	}
 	CreateAccessPolicyTemplate = BaseAccessPolicyTemplatePath
-	UpdateAccessPolicyTemplate = fmt.Sprintf("%s/%%s", BaseAccessPolicyTemplatePath)
-	DeleteAccessPolicyTemplate = fmt.Sprintf("%s/%%s", BaseAccessPolicyTemplatePath)
+	UpdateAccessPolicyTemplate = func(id uuid.UUID) string { return fmt.Sprintf("%s/%s", BaseAccessPolicyTemplatePath, id) }
+	DeleteAccessPolicyTemplate = func(id uuid.UUID) string { return fmt.Sprintf("%s/%s", BaseAccessPolicyTemplatePath, id) }
 
 	BaseTransformerPath = fmt.Sprintf("%s/transformation", BasePolicyPath)
 	ListTransformers    = BaseTransformerPath
@@ -138,7 +136,7 @@ var (
 		return fmt.Sprintf("%s?name=%s", BaseTransformerPath, name)
 	}
 	CreateTransformer  = BaseTransformerPath
-	DeleteTransformer  = fmt.Sprintf("%s/%%s", BaseTransformerPath)
+	DeleteTransformer  = func(id uuid.UUID) string { return fmt.Sprintf("%s/%s", BaseTransformerPath, id) }
 	TestTransformer    = fmt.Sprintf("%s/actions/test", BaseTransformerPath)
 	ExecuteTransformer = fmt.Sprintf("%s/actions/execute", BaseTransformerPath)
 )

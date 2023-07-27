@@ -82,6 +82,11 @@ func PassthroughAuthorization(r *http.Request) Option {
 	return Header("Authorization", r.Header.Get("Authorization"))
 }
 
+// PassthroughAuthorizationString does the same as PassthroughAuthorization but takes the Authorization string
+func PassthroughAuthorizationString(authHeader string) Option {
+	return Header("Authorization", authHeader)
+}
+
 // Cookie allows you to add cookies to jsonclient requests
 func Cookie(cookie http.Cookie) Option {
 	return optFunc(func(opts *options) {

@@ -1,6 +1,7 @@
 package region
 
 import (
+	"fmt"
 	"os"
 	"strings"
 )
@@ -16,6 +17,11 @@ var Regions = []Region{"aws-us-west-2", "aws-us-east-1"}
 // TODO: error check against known list?
 func Current() Region {
 	return Region(os.Getenv("REGION"))
+}
+
+// FromAWSRegion returns a region from a aws region string. e.g. us-east-1, us-west-2
+func FromAWSRegion(awsRegion string) Region {
+	return Region(fmt.Sprintf("aws-%s", awsRegion))
 }
 
 // GetAWSRegion returns the AWS name of the region and blank if region is not in AWS
