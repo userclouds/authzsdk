@@ -1,4 +1,4 @@
-name: OpenAPI
+name: SDK Version
 on:
   pull_request: {}
 concurrency:
@@ -6,12 +6,11 @@ concurrency:
   cancel-in-progress: true
 jobs:
   compatibility:
-    name: SDK Version check
+    name: Check for empty or re-used version
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Checkout PR source code
         uses: actions/checkout@v3
-        with:
-          ref: ${{ github.head_ref }}
-          path: new-code
+      - name: Extract version
+        run: cat infra/jsonclient/bearer.go | grep -o 'bearerToken := h.Get("[^"]*' | grep -o '[^"]*$'
