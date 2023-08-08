@@ -1,0 +1,17 @@
+name: OpenAPI
+on:
+  pull_request: {}
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+jobs:
+  compatibility:
+    name: SDK Version check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout PR source code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.head_ref }}
+          path: new-code
