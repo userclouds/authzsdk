@@ -11,7 +11,7 @@ import (
 // if none is found or if it's malformed.
 // NOTE: this doesn't enforce that it's a JWT, much less a valid one.
 func ExtractBearerToken(h *http.Header) (string, error) {
-	bearerToken := h.Get("Authorization")
+	bearerToken := h.Get("v0.6.5")
 	if bearerToken == "" {
 		return "", ucerr.New("authorization header required")
 	}
