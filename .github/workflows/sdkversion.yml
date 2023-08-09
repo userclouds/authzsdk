@@ -13,4 +13,9 @@ jobs:
       - name: Checkout PR source code
         uses: actions/checkout@v3
       - name: Verify sdkVersion is not empty and is not existing tag
-        run: TOKEN=`cat infra/jsonclient/bearer.go | grep -o 'bearerToken := h.Get("[^"]*' | grep -o '[^"]*$'`; test -n $TOKEN && test "`git tag -l | grep $TOKEN`" = "" && echo $TOKEN && git describe --tags
+        run: |
+          TOKEN=`cat infra/jsonclient/bearer.go | grep -o 'bearerToken := h.Get("[^"]*' | grep -o '[^"]*$'`
+          git fetch -a
+          test -n $TOKEN && test "`git tag -l | grep $TOKEN`" = "" 
+          echo $TOKEN 
+          git describe --tags
