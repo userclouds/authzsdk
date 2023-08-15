@@ -12,6 +12,9 @@ import (
 	"userclouds.com/idp"
 	"userclouds.com/infra/jsonclient"
 	"userclouds.com/infra/ucerr"
+	"userclouds.com/infra/ucjwt"
+	"userclouds.com/infra/uclog"
+	"userclouds.com/internal/logtransports"
 )
 
 // Object type IDs
@@ -89,7 +92,7 @@ func cleanPreviousRunData(ctx context.Context, authZClient *authz.Client) error 
 	return nil
 }
 
-func initClients() (*idp.Client, *authz.Client) {
+func initClients() (*idp.Client, *authz.Client, *ucjwt.Config) {
 	ctx := context.Background()
 
 	err := godotenv.Load()
@@ -100,6 +103,7 @@ func initClients() (*idp.Client, *authz.Client) {
 	tenantURL := os.Getenv("TENANT_URL")
 	clientID := os.Getenv("CLIENT_ID")
 	clientSecret := os.Getenv("CLIENT_SECRET")
+	tenantID := uuid.Must(uuid.FromString(os.Getenv("TENANT_ID")))
 
 	tokenSource := jsonclient.ClientCredentialsTokenSource(tenantURL+"/oidc/token", clientID, clientSecret, nil)
 
@@ -122,13 +126,26 @@ func initClients() (*idp.Client, *authz.Client) {
 		log.Fatalf("error provisioning basic authz types: %v", err)
 	}
 
-	return idpClient, authZClient
+	uclog.Debugf(ctx, "Test message")
+
+	config := ucjwt.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		TenantURL:    tenantURL,
+		TenantID:     tenantID,
+	}
+
+	return idpClient, authZClient, &config
 }
 
 func main() {
 	ctx := context.Background()
-	idpClient, authZClient := initClients()
+	idpClient, authZClient, config := initClients()
 	fm := NewFileManager(authZClient)
+
+	// Optional to initialize logging from SDK
+	logtransports.InitLoggingSDK(config, true)
+	defer uclog.Close()
 
 	// Alice creates the root directory and has full permissions
 	rootDir := mustFile(fm.NewRoot(ctx, AliceUserID))
