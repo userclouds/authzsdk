@@ -29,6 +29,14 @@ func SetRequestID(ctx context.Context, requestID uuid.UUID) context.Context {
 	return context.WithValue(ctx, ctxRequestID, requestID)
 }
 
+// SetRequestIDIfNotSet sets the Request ID for this request if it is not already set
+func SetRequestIDIfNotSet(ctx context.Context, requestID uuid.UUID) context.Context {
+	if GetRequestID(ctx) == uuid.Nil {
+		return SetRequestID(ctx, requestID)
+	}
+	return ctx
+}
+
 // GetHostname returns the hostname used for this particular request
 func GetHostname(ctx context.Context) string {
 	val := ctx.Value(ctxHost)

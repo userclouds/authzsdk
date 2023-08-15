@@ -1,0 +1,514 @@
+package client
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+
+	"userclouds.com/infra/cache/shared"
+	"userclouds.com/infra/ucerr"
+	"userclouds.com/infra/uclog"
+)
+
+const rdSentinelTTL = 60 * time.Second
+const maxRdConflictRetries = 15 // If the cache is accessed by a number of clients (across all machines) above this value performing create/update/delete operations on same
+// keys, the operation may fail for some of them due to optimistic locking not retrying enough times.
+
+// RedisClientCacheProvider is the base implementation of the CacheProvider interface
+type RedisClientCacheProvider struct {
+	rc *redis.Client
+	sm *shared.WriteThroughCacheSentinelManager
+}
+
+// NewRedisClientCacheProvider creates a new RedisClientCacheProvider
+func NewRedisClientCacheProvider(rc *redis.Client) *RedisClientCacheProvider {
+	return &RedisClientCacheProvider{rc: rc, sm: shared.NewWriteThroughCacheSentinelManager()}
+}
+
+// WriteSentinel writes the sentinel value into the given keys
+func (c *RedisClientCacheProvider) WriteSentinel(ctx context.Context, stype shared.SentinelType, keysIn []CacheKey) (shared.CacheSentinel, error) {
+	sentinel := c.sm.GenerateSentinel(stype)
+	keys := getStringsFromCacheKeys(keysIn)
+	// There must be at least one key to lock
+	if len(keys) == 0 {
+		return shared.NoLockSentinel, ucerr.New("WriteSentinel was passed no keys to set")
+	}
+
+	lockValue := shared.NoLockSentinel
+	// Transactional function to read current value of the key and try to take the lock for this operation depending on the key value
+	txf := func(tx *redis.Tx) error {
+		// Operation is committed only if the watched keys remain unchanged.
+		_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+			lockValue = shared.NoLockSentinel
+			if !c.sm.IsDeleteSentinelPrefix(sentinel) {
+				// Check if the primary key for the operation is already locked
+				value, err := c.rc.Get(ctx, keys[0]).Result()
+				if err != nil && err != redis.Nil {
+					// If we can't read the key, we can't take a lock
+					return ucerr.Wrap(err)
+				}
+				// If the key is already locked and see if we have precedence
+				if err == nil && c.sm.IsSentinelValue(value) {
+					if !c.sm.CanSetSentinel(shared.CacheSentinel(value), sentinel) {
+						return nil
+					}
+				}
+				// Proceed to take the lock if key is empty (err == redis.Nil) or it doesn't contain sentinel value
+			}
+
+			if err := multiSetWithPipe(ctx, pipe, keys, string(sentinel), rdSentinelTTL); err != nil {
+				return ucerr.Wrap(err)
+			}
+			lockValue = sentinel
+			return nil
+		})
+		return ucerr.Wrap(err)
+	}
+
+	// Retry if the key has been changed.
+	for i := 0; i < maxRdConflictRetries; i++ {
+		err := c.rc.Watch(ctx, txf, keys[0])
+		if err == nil {
+			// Success.
+			return lockValue, nil
+		}
+		if errors.Is(err, redis.TxFailedErr) {
+			// Optimistic lock lost. Retry.
+			continue
+		}
+		// Return any other error.
+		return shared.NoLockSentinel, ucerr.Wrap(err)
+	}
+
+	uclog.Debugf(ctx, fmt.Sprintf("WriteSentinel - reached maximum number of retries on keys %v skipping cache", keys))
+	return shared.NoLockSentinel, ucerr.New("WriteSentinel reached maximum number of retries")
+}
+
+// getStringsFromCacheKeys filters out any empty keys and does the type conversion
+func getStringsFromCacheKeys(keys []CacheKey) []string {
+	strKeys := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if k != "" {
+			strKeys = append(strKeys, string(k))
+		}
+	}
+	return strKeys
+}
+
+// ReleaseSentinel clears the sentinel value from the given keys
+func (c *RedisClientCacheProvider) ReleaseSentinel(ctx context.Context, keysIn []CacheKey, s shared.CacheSentinel) {
+	// Filter out any empty keys
+	keys := getStringsFromCacheKeys(keysIn)
+	// If there are no keys to potentially clear, return
+	if len(keys) == 0 {
+		return
+	}
+
+	// Using optimistic concurrency control to clear the sentinels set by our operation. We need to make sure that no ones else
+	// writes to the keys between the read and the delete so that we don't accidentally clear another operations sentinel
+
+	// Transactional function to read current value of keys and delete them only if they contain the sentinel value
+	txf := func(tx *redis.Tx) error {
+		values, err := c.rc.MGet(ctx, keys...).Result()
+		keysToClear := []string{}
+		if err == nil {
+			keysToClear = make([]string, 0, len(keys))
+			for i, v := range values {
+				vS, ok := v.(string)
+				if ok && vS == string(s) {
+					keysToClear = append(keysToClear, keys[i])
+				}
+			}
+
+		}
+
+		if len(keysToClear) == 0 {
+			return nil
+		}
+
+		// Operation is committed only if the watched keys remain unchanged.
+		_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+			if len(keysToClear) > 0 {
+				if err := pipe.Del(ctx, keysToClear...).Err(); err != nil && err != redis.Nil {
+					uclog.Errorf(ctx, "Error clearing key(s) %v sentinel  %v", keysToClear, err)
+				}
+				uclog.Verbosef(ctx, "Cleared key(s) %v sentinel %v", keysToClear, s)
+			}
+			return nil
+		})
+		return ucerr.Wrap(err)
+	}
+
+	// Retry if the key has been changed.
+	for i := 0; i < maxRdConflictRetries; i++ {
+		err := c.rc.Watch(ctx, txf, keys...)
+		if err == nil {
+			// Success.
+			return
+		}
+		if errors.Is(err, redis.TxFailedErr) {
+			// Optimistic lock lost. Retry.
+			continue
+		}
+		// Return any other error.
+		uclog.Debugf(ctx, fmt.Sprintf("ReleaseSentinel - failed on keys %v with %v skipping cache. Keys maybe locked until sentinel expires", keys, err))
+		return
+	}
+}
+
+// multiSetWithPipe add commands to set the keys and expiration to given pipe
+func multiSetWithPipe(ctx context.Context, pipe redis.Pipeliner, keys []string, value string, ttl time.Duration) error {
+	var ifaces = make([]interface{}, 0, len(keys)*2)
+	for i := range keys {
+		ifaces = append(ifaces, keys[i], value)
+	}
+	if err := pipe.MSet(ctx, ifaces...).Err(); err != nil {
+		return ucerr.Wrap(err)
+	}
+	for i := range keys {
+		pipe.Expire(ctx, keys[i], ttl)
+	}
+	return nil
+}
+
+// SetValue sets the value in cache key(s) to val with given expiration time if the sentinel matches and returns true if the value was set
+func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn CacheKey, keysToSet []CacheKey, val string, sentinel shared.CacheSentinel, ttl time.Duration) (bool, bool, error) {
+	keys := getStringsFromCacheKeys(keysToSet)
+	// There needs to be at least a single key to check for sentinel/set to value
+	if len(keys) == 0 {
+		return false, false, ucerr.New("No keys provided to SetValue")
+	}
+
+	lkey := string(lkeyIn)
+	conflictDetected := false
+	valueSet := false
+
+	// Transactional function to read value of pkey and perform the corresponding update depending on its value atomically
+	txf := func(tx *redis.Tx) error {
+
+		// Operation is committed only if the watched keys remain unchanged.
+		_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+			conflictDetected = false
+			valueSet = false
+
+			cV, err := c.rc.Get(ctx, lkey).Result()
+			// Either key is empty or we couldn't get it
+			if err != nil {
+				return nil
+			}
+
+			set, clear, conflict := c.sm.CanSetValue(cV, val, sentinel)
+
+			if set { // Value can be set
+				uclog.Verbosef(ctx, "Cache set key %v", keys)
+				if err := multiSetWithPipe(ctx, pipe, keys, val, ttl); err != nil {
+					return ucerr.Wrap(err)
+				}
+				valueSet = true
+				return nil
+			} else if clear { // Intermediate state detected so clear the cache
+				uclog.Verbosef(ctx, "Cache cleared on value mismatch or conflict sentinel key %v curr var %v would store %v", keys, cV, val)
+				if err := pipe.Del(ctx, keys...).Err(); err != nil && err != redis.Nil {
+					uclog.Errorf(ctx, "Error clearing key(s) %v mismatch -  %v", keys, err)
+				}
+				return nil
+			} else if conflict { // Conflict detected so upgrade the lock to conflict
+				if err := multiSetWithPipe(ctx, pipe, keys, cV+string(sentinel), rdSentinelTTL); err != nil {
+					return ucerr.Wrap(err)
+				}
+				uclog.Verbosef(ctx, "Lock upgraded to conflict on write collision %v got %v added %v", lkey, cV, sentinel)
+				conflictDetected = true
+				return nil
+			}
+
+			uclog.Verbosef(ctx, "Cache not set key %v on sentinel mismatch got %v expect %v", lkey, cV, sentinel)
+			conflictDetected = true
+			return nil
+		})
+		return ucerr.Wrap(err)
+	}
+
+	// Retry if the key has been changed.
+	for i := 0; i < maxRdConflictRetries; i++ {
+		err := c.rc.Watch(ctx, txf, lkey)
+		if err == nil {
+			// Success.
+			return valueSet, conflictDetected, nil
+		}
+		if errors.Is(err, redis.TxFailedErr) {
+			// Optimistic lock lost. Retry.
+			continue
+		}
+		// Return any other error.
+		return false, false, ucerr.Wrap(err)
+	}
+	uclog.Debugf(ctx, fmt.Sprintf("SetValue - hit too many retries %v skipping cache.", keys))
+	return false, false, ucerr.New("SetValue hit too many retries")
+}
+
+// GetValue gets the value in CacheKey (if any) and tries to lock the key for Read is lockOnMiss = true
+func (c *RedisClientCacheProvider) GetValue(ctx context.Context, keyIn CacheKey, lockOnMiss bool) (*string, shared.CacheSentinel, error) {
+	key := string(keyIn)
+	if key == "" {
+		return nil, "", ucerr.New("Empty key provided to GetValue")
+	}
+
+	value, err := c.rc.Get(ctx, key).Result()
+	if err == redis.Nil {
+		if lockOnMiss {
+			sentinel := c.sm.GenerateSentinel(shared.Read)
+			// Since SetNX is atomic we don't need to worry about the other operation on key between the Get and SetNX
+			r, err := c.rc.SetNX(ctx, key, string(sentinel), rdSentinelTTL).Result()
+			if err != nil {
+				uclog.Verbosef(ctx, "Cache miss key %v lock fail %v", key, err)
+				return nil, "", ucerr.Wrap(err)
+			}
+			if r {
+				uclog.Verbosef(ctx, "Cache miss key %v sentinel set %v", key, sentinel)
+				return nil, shared.CacheSentinel(sentinel), nil
+			}
+		}
+		uclog.Verbosef(ctx, "Cache miss key %v no lock requested", key)
+		return nil, shared.NoLockSentinel, nil
+	}
+	if err != nil {
+		return nil, shared.NoLockSentinel, ucerr.Wrap(err)
+	}
+	if c.sm.IsSentinelValue(value) {
+		uclog.Verbosef(ctx, "Cache key %v is locked for in progress op %v", key, value)
+		return nil, shared.NoLockSentinel, nil
+	}
+
+	uclog.Verbosef(ctx, "Cache hit key %v", key)
+	return &value, shared.NoLockSentinel, nil
+}
+
+// DeleteValue deletes the value(s) in passed in keys
+func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []CacheKey, force bool) error {
+	keysAll := getStringsFromCacheKeys(keysIn)
+	if len(keysAll) != 0 {
+		if force {
+			return c.rc.Del(ctx, keysAll...).Err()
+		}
+		batchSize := 2
+		var end int
+		for start := 0; start < len(keysAll); start += batchSize {
+			end += batchSize
+			if end > len(keysAll) {
+				end = len(keysAll)
+			}
+
+			keys := keysAll[start:end]
+
+			// Transactional function to only clear keys if they don't contain sentinel or tombstone
+			txf := func(tx *redis.Tx) error {
+				// Operation is commited only if the watched keys remain unchanged.
+				_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+					values, err := c.rc.MGet(ctx, keys...).Result()
+					if err != nil && err != redis.Nil {
+						return ucerr.Wrap(err)
+					}
+
+					keysToDelete := []string{}
+					for i, v := range values {
+						if vS, ok := v.(string); ok && !c.sm.IsSentinelValue(vS) && vS != string(shared.TombstoneSentinel) {
+							keysToDelete = append(keysToDelete, keys[i])
+						}
+					}
+
+					if len(keysToDelete) > 0 {
+						if err := pipe.Del(ctx, keysToDelete...).Err(); err != nil {
+							return ucerr.Wrap(err)
+						}
+					}
+
+					return nil
+				})
+				return ucerr.Wrap(err)
+			}
+
+			// Retry if the key has been changed.
+			success := false
+			for i := 0; i < maxRdConflictRetries; i++ {
+				err := c.rc.Watch(ctx, txf, keys...)
+				if err == nil {
+					// Success.
+					success = true
+					break
+				}
+				if errors.Is(err, redis.TxFailedErr) {
+					// Optimistic lock lost. Retry.
+					continue
+				}
+				// Return any other error.
+				return ucerr.Wrap(err)
+			}
+			if !success {
+				uclog.Warningf(ctx, fmt.Sprintf("Failed delete values - reached maximum number of retries on keys %v", keys))
+				return ucerr.New("Failed to DeleteValue reached maximum number of retries")
+			}
+		}
+	}
+	return nil
+}
+
+// AddDependency adds the given cache key(s) as dependencies of an item represented by by key
+func (c *RedisClientCacheProvider) AddDependency(ctx context.Context, keysIn []CacheKey, values []CacheKey, ttl time.Duration) error {
+	keysAll := getStringsFromCacheKeys(keysIn)
+
+	i := make([]interface{}, 0, len(values))
+	for _, v := range values {
+		if v != "" { // Skip empty values
+			i = append(i, string(v))
+		}
+	}
+
+	if len(keysAll) == 0 {
+		return ucerr.New("No key provided to AddDependency")
+	}
+
+	if len(keysAll) > 100 {
+		return ucerr.New(fmt.Sprintf("Too many keys %v provided to to AddDependency", len(keysAll)))
+	}
+
+	if len(i) == 0 {
+		return ucerr.New("No non blank values provided to AddDependency")
+	}
+	// Using optimistic concurrency control to ensure we only add a new dependency if the key is not tombstoned.
+
+	// There is a tradeoff between the number of calls we make to the cache and the probability of collision.
+	// The collision is least likely if we update a single dependency least at a time but that would require
+	// sequential N calls to the cache. The probability of collision is highest if we update all dependencies at once, but that
+	// may lead to a lot of retries and possibly failure under high contention.
+
+	batchSize := 2
+	var end int
+	for start := 0; start < len(keysAll); start += batchSize {
+		end += batchSize
+		if end > len(keysAll) {
+			end = len(keysAll)
+		}
+
+		keys := keysAll[start:end]
+
+		// Transactional function to check if key is not tombstoned and add the dependency.
+		txf := func(tx *redis.Tx) error {
+			// Operation is committed only if the watched keys remain unchanged.
+			_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+				values, err := c.rc.MGet(ctx, keys...).Result()
+				if err != nil && err != redis.Nil {
+					return ucerr.Wrap(err)
+				}
+
+				for _, v := range values {
+					vS, ok := v.(string)
+					if ok && vS == string(shared.TombstoneSentinel) {
+						return ucerr.New("Can't add dependency: key is tombstoned")
+					}
+				}
+
+				for _, key := range keys {
+					if err := pipe.SAdd(ctx, key, i...).Err(); err != nil {
+						return ucerr.Wrap(err)
+					}
+					// Bump expiration which mean that the expired member accumulate in the set and we need to clean them up. Using ZSET sorted by timestamps may be a better option
+					if err := pipe.Expire(ctx, key, ttl).Err(); err != nil {
+						return ucerr.Wrap(err)
+					}
+				}
+				return nil
+			})
+			return ucerr.Wrap(err)
+		}
+
+		// Retry if the key has been changed.
+		success := false
+		for i := 0; i < maxRdConflictRetries; i++ {
+			err := c.rc.Watch(ctx, txf, keys...)
+			if err == nil {
+				// Success.
+				success = true
+				break
+			}
+			if errors.Is(err, redis.TxFailedErr) {
+				// Optimistic lock lost. Retry.
+				continue
+			}
+			// Return any other error.
+			return ucerr.Wrap(err)
+		}
+		if !success {
+			uclog.Warningf(ctx, fmt.Sprintf("Failed to add dependencies - reached maximum number of retries on keys %v", keys))
+			return ucerr.New("Add dependencies reached maximum number of retries")
+		}
+	}
+
+	return nil
+}
+
+// ClearDependencies clears the dependencies of an item represented by key and removes all dependent keys from the cache
+func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn CacheKey, setTombstone bool) error {
+	key := string(keyIn)
+
+	// Using optimistic concurrency control to clear the dependent keys for each value in key. This may cause us to flush more keys than needed but
+	// never miss one. We tombstone the key to prevent new dependencies from being added from reads that might have been in flight during deletion.
+
+	// Transactional function to read list of dependent keys and delete them
+	txf := func(tx *redis.Tx) error {
+		// Operation is committed only if the watched keys remain unchanged.
+		_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+			keys := []string{}
+			m, err := tx.SMembersMap(ctx, string(key)).Result()
+			if err == nil {
+				keys = make([]string, 0, len(m))
+				for k := range m {
+					keys = append(keys, k)
+				}
+			}
+
+			if len(keys) != 0 {
+				if err := pipe.Del(ctx, keys...).Err(); err != nil && err != redis.Nil {
+					return ucerr.Wrap(err)
+				}
+				uclog.Verbosef(ctx, "Cleared dependencies %v keys", keys)
+			}
+			if setTombstone {
+				if err := pipe.Set(ctx, key, string(shared.TombstoneSentinel), rdSentinelTTL).Err(); err != nil {
+					return ucerr.Wrap(err)
+				}
+				uclog.Verbosef(ctx, "Set tombstone for %v", key)
+			} else {
+				if err := pipe.Del(ctx, key).Err(); err != nil && err != redis.Nil {
+					return ucerr.Wrap(err)
+				}
+			}
+			return nil
+		})
+		return ucerr.Wrap(err)
+	}
+
+	// Retry if the key has been changed.
+	for i := 0; i < maxRdConflictRetries; i++ {
+		err := c.rc.Watch(ctx, txf, key)
+		if err == nil {
+			// Success.
+			return nil
+		}
+		if errors.Is(err, redis.TxFailedErr) {
+			// Optimistic lock lost. Retry.
+			continue
+		}
+		// Return any other error.
+		return ucerr.Wrap(err)
+	}
+	uclog.Warningf(ctx, fmt.Sprintf("Failed to clear dependencies - reached maximum number of retries on keys %v", key))
+	return ucerr.New("Clear dependencies reached maximum number of retries")
+}
+
+// Flush flushes the cache (applies only to the tenant for which the client was created)
+func (c *RedisClientCacheProvider) Flush(ctx context.Context) {
+	c.rc.FlushAll(ctx)
+}

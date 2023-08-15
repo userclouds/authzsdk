@@ -34,7 +34,7 @@ var (
 		return fmt.Sprintf("%s/%s", BaseConfigAccessorPath, id)
 	}
 	versionedSingleConfigAccessorPath = func(id uuid.UUID, version int) string {
-		return fmt.Sprintf("%s/%s?version=%d", BaseConfigAccessorPath, id, version)
+		return fmt.Sprintf("%s/%s?accessor_version=%d", BaseConfigAccessorPath, id, version)
 	}
 	CreateAccessorPath       = BaseConfigAccessorPath
 	DeleteAccessorPath       = singleConfigAccessorPath
@@ -51,7 +51,7 @@ var (
 		return fmt.Sprintf("%s/%s", BaseConfigMutatorPath, id)
 	}
 	versionedSingleConfigMutatorPath = func(id uuid.UUID, version int) string {
-		return fmt.Sprintf("%s/%s?version=%d", BaseConfigMutatorPath, id, version)
+		return fmt.Sprintf("%s/%s?mutator_version=%d", BaseConfigMutatorPath, id, version)
 	}
 	CreateMutatorPath       = BaseConfigMutatorPath
 	DeleteMutatorPath       = singleConfigMutatorPath
@@ -98,14 +98,16 @@ var (
 		return fmt.Sprintf("%s?name=%s", BaseAccessPolicyPath, name)
 	}
 	GetAccessPolicyByVersion = func(id uuid.UUID, version int) string {
-		return fmt.Sprintf("%s/%s?version=%d", BaseAccessPolicyPath, id, version)
+		return fmt.Sprintf("%s/%s?policy_version=%d", BaseAccessPolicyPath, id, version)
 	}
 	GetAccessPolicyByNameAndVersion = func(name string, version int) string {
-		return fmt.Sprintf("%s?name=%s&version=%d", BaseAccessPolicyPath, name, version)
+		return fmt.Sprintf("%s?name=%s&policy_version=%d", BaseAccessPolicyPath, name, version)
 	}
-	CreateAccessPolicy  = BaseAccessPolicyPath
-	UpdateAccessPolicy  = func(id uuid.UUID) string { return fmt.Sprintf("%s/%s", BaseAccessPolicyPath, id) }
-	DeleteAccessPolicy  = func(id uuid.UUID) string { return fmt.Sprintf("%s/%s", BaseAccessPolicyPath, id) }
+	CreateAccessPolicy = BaseAccessPolicyPath
+	UpdateAccessPolicy = func(id uuid.UUID) string { return fmt.Sprintf("%s/%s", BaseAccessPolicyPath, id) }
+	DeleteAccessPolicy = func(id uuid.UUID, version int) string {
+		return fmt.Sprintf("%s/%s?policy_version=%d", BaseAccessPolicyPath, id, version)
+	}
 	TestAccessPolicy    = fmt.Sprintf("%s/actions/test", BaseAccessPolicyPath)
 	ExecuteAccessPolicy = fmt.Sprintf("%s/actions/execute", BaseAccessPolicyPath)
 
@@ -118,14 +120,16 @@ var (
 		return fmt.Sprintf("%s?name=%s", BaseAccessPolicyTemplatePath, name)
 	}
 	GetAccessPolicyTemplateByVersion = func(id uuid.UUID, version int) string {
-		return fmt.Sprintf("%s/%s?version=%d", BaseAccessPolicyTemplatePath, id, version)
+		return fmt.Sprintf("%s/%s?template_version=%d", BaseAccessPolicyTemplatePath, id, version)
 	}
 	GetAccessPolicyTemplateByNameAndVersion = func(name string, version int) string {
-		return fmt.Sprintf("%s?name=%s&version=%d", BaseAccessPolicyTemplatePath, name, version)
+		return fmt.Sprintf("%s?name=%s&template_version=%d", BaseAccessPolicyTemplatePath, name, version)
 	}
 	CreateAccessPolicyTemplate = BaseAccessPolicyTemplatePath
 	UpdateAccessPolicyTemplate = func(id uuid.UUID) string { return fmt.Sprintf("%s/%s", BaseAccessPolicyTemplatePath, id) }
-	DeleteAccessPolicyTemplate = func(id uuid.UUID) string { return fmt.Sprintf("%s/%s", BaseAccessPolicyTemplatePath, id) }
+	DeleteAccessPolicyTemplate = func(id uuid.UUID, version int) string {
+		return fmt.Sprintf("%s/%s?template_version=%d", BaseAccessPolicyTemplatePath, id, version)
+	}
 
 	BaseTransformerPath = fmt.Sprintf("%s/transformation", BasePolicyPath)
 	ListTransformers    = BaseTransformerPath
@@ -169,4 +173,15 @@ func GetReferenceURLForAccessPolicy(id uuid.UUID, v int) string {
 // GetReferenceURLForTransformer return URL pointing at a particular transformer object
 func GetReferenceURLForTransformer(id uuid.UUID, v int) string {
 	return fmt.Sprintf("%s/%s/%d", BaseTransformerPath, id.String(), v)
+}
+
+// GetColumnRetentionDurationURL returns a retention duration URL for the specified column ID and duration type
+func GetColumnRetentionDurationURL(columnID uuid.UUID, isPreDelete bool) string {
+	path := fmt.Sprintf("%s/%v", BaseConfigColumnsPath, columnID)
+	if isPreDelete {
+		path += "/predeleteretentiondurations"
+	} else {
+		path += "/postdeleteretentiondurations"
+	}
+	return path
 }

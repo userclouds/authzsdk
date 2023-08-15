@@ -19,13 +19,6 @@ type UpdateAccessPolicyRequest struct {
 
 //go:generate genvalidate UpdateAccessPolicyRequest
 
-// DeleteAccessPolicyRequest is to delete an AP
-// The ID is passed in the URL but we need a specific version, and our handler
-// infrastructure doesn't currently support arbitrary non-UUID path components
-type DeleteAccessPolicyRequest struct {
-	Version int `json:"version"`
-}
-
 // CreateAccessPolicyTemplateRequest creates a new AP Template
 type CreateAccessPolicyTemplateRequest struct {
 	AccessPolicyTemplate policy.AccessPolicyTemplate `json:"access_policy_template"`
@@ -39,13 +32,6 @@ type UpdateAccessPolicyTemplateRequest struct {
 }
 
 //go:generate genvalidate UpdateAccessPolicyTemplateRequest
-
-// DeleteAccessPolicyTemplateRequest is to delete an AP Template
-// The ID is passed in the URL but we need a specific version, and our handler
-// infrastructure doesn't currently support arbitrary non-UUID path components
-type DeleteAccessPolicyTemplateRequest struct {
-	Version int `json:"version"`
-}
 
 // CreateTransformerRequest creates a new GP
 type CreateTransformerRequest struct {

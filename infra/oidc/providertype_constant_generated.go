@@ -66,6 +66,18 @@ func (t *ProviderType) Validate() error {
 	}
 }
 
+// Enum implements Enum
+func (t ProviderType) Enum() []interface{} {
+	return []interface{}{
+		"custom",
+		"facebook",
+		"google",
+		"linkedin",
+		"none",
+		"unsupported",
+	}
+}
+
 // AllProviderTypes is a slice of all ProviderType values
 var AllProviderTypes = []ProviderType{
 	ProviderTypeCustom,

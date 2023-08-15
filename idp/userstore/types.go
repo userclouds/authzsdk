@@ -10,27 +10,18 @@ import (
 )
 
 // DataType is an enum for supported data types
-type DataType int
+type DataType string
 
 // DataType constants (leaving gaps intentionally to allow future related types to be grouped)
 // NOTE: keep in sync with mapDataType defined in TenantUserStoreConfig.tsx
 const (
-	DataTypeInvalid DataType = 0
-	DataTypeBoolean DataType = 1
-	DataTypeInteger DataType = 2
-
-	DataTypeString DataType = 100
-
-	DataTypeTimestamp DataType = 200
-	//DataTypeBirthdate DataType = 201
-
-	DataTypeUUID DataType = 300
-	//DataTypeSSN DataType = 301
-	//DataTypeCreditCardNumber DataType = 302
-
-	//DataTypeJSONB   DataType = 400
-	DataTypeAddress DataType = 401
-	//DataTypePhoneNumber DataType = 402
+	DataTypeInvalid   DataType = ""
+	DataTypeBoolean   DataType = "boolean"
+	DataTypeInteger   DataType = "integer"
+	DataTypeString    DataType = "string"
+	DataTypeTimestamp DataType = "timestamp"
+	DataTypeUUID      DataType = "uuid"
+	DataTypeAddress   DataType = "address"
 )
 
 //go:generate genconstant DataType
@@ -52,17 +43,17 @@ type Address struct {
 //go:generate gendbjson Address
 
 // ColumnIndexType is an enum for supported column index types
-type ColumnIndexType int
+type ColumnIndexType string
 
 const (
 	// ColumnIndexTypeNone is the default value
-	ColumnIndexTypeNone ColumnIndexType = iota
+	ColumnIndexTypeNone ColumnIndexType = "none"
 
 	// ColumnIndexTypeIndexed indicates that the column should be indexed
-	ColumnIndexTypeIndexed
+	ColumnIndexTypeIndexed ColumnIndexType = "indexed"
 
 	// ColumnIndexTypeUnique indicates that the column should be indexed and unique
-	ColumnIndexTypeUnique
+	ColumnIndexTypeUnique ColumnIndexType = "unique"
 )
 
 //go:generate genconstant ColumnIndexType
@@ -72,11 +63,11 @@ const (
 type Column struct {
 	// Columns may be renamed, but their ID cannot be changed.
 	ID           uuid.UUID       `json:"id"`
-	Name         string          `json:"name" validate:"length:1,128"`
-	Type         DataType        `json:"type"`
-	IsArray      bool            `json:"is_array"`
+	Name         string          `json:"name" validate:"length:1,128" required:"true"`
+	Type         DataType        `json:"type" required:"true"`
+	IsArray      bool            `json:"is_array" required:"true"`
 	DefaultValue string          `json:"default_value"`
-	IndexType    ColumnIndexType `json:"index_type"`
+	IndexType    ColumnIndexType `json:"index_type" required:"true"`
 }
 
 var validIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_-]*$`)
@@ -162,7 +153,7 @@ type Accessor struct {
 	ID uuid.UUID `json:"id"`
 
 	// Name of accessor, must be unique
-	Name string `json:"name" validate:"length:1,128"`
+	Name string `json:"name" validate:"length:1,128" required:"true"`
 
 	// Description of the accessor
 	Description string `json:"description"`
@@ -171,16 +162,16 @@ type Accessor struct {
 	Version int `json:"version"`
 
 	// Configuration for which user records to return
-	SelectorConfig UserSelectorConfig `json:"selector_config"`
+	SelectorConfig UserSelectorConfig `json:"selector_config" required:"true"`
 
 	// Purposes for which this accessor is used
-	Purposes []ResourceID `json:"purposes" validate:"skip"`
+	Purposes []ResourceID `json:"purposes" validate:"skip" required:"true"`
 
 	// List of userstore columns being accessed and the transformers to apply to each column
-	Columns []ColumnOutputConfig `json:"columns" validate:"skip"`
+	Columns []ColumnOutputConfig `json:"columns" validate:"skip" required:"true"`
 
 	// Policy for what data is returned by this accessor, based on properties of the caller and the user records
-	AccessPolicy ResourceID `json:"access_policy" validate:"skip"`
+	AccessPolicy ResourceID `json:"access_policy" validate:"skip" required:"true"`
 
 	// Policy for token resolution in the case of transformers that tokenize data
 	TokenAccessPolicy ResourceID `json:"token_access_policy,omitempty" validate:"skip"`
@@ -230,7 +221,7 @@ type Mutator struct {
 	ID uuid.UUID `json:"id"`
 
 	// Name of mutator, must be unique
-	Name string `json:"name" validate:"length:1,128"`
+	Name string `json:"name" validate:"length:1,128" required:"true"`
 
 	// Description of the mutator
 	Description string `json:"description"`
@@ -239,13 +230,13 @@ type Mutator struct {
 	Version int `json:"version"`
 
 	// Configuration for which user records to modify
-	SelectorConfig UserSelectorConfig `json:"selector_config"`
+	SelectorConfig UserSelectorConfig `json:"selector_config" required:"true"`
 
 	// The set of userstore columns to modify for each user record
-	Columns []ColumnInputConfig `json:"columns" validate:"skip"`
+	Columns []ColumnInputConfig `json:"columns" validate:"skip" required:"true"`
 
 	// Policy for whether the data for each user record can be updated
-	AccessPolicy ResourceID `json:"access_policy" validate:"skip"`
+	AccessPolicy ResourceID `json:"access_policy" validate:"skip" required:"true"`
 }
 
 func (o *Mutator) extraValidate() error {
@@ -282,19 +273,34 @@ type UserSelectorValues []interface{}
 
 // UserSelectorConfig is the configuration for a UserSelector
 type UserSelectorConfig struct {
-	WhereClause string `json:"where_clause" validate:"notempty"`
+	WhereClause string `json:"where_clause" validate:"notempty" example:"{id} = ANY (?)"`
 }
 
 func (u UserSelectorConfig) extraValidate() error {
 	// make sure the where clause only contains tokens for clauses of the form "{column_id} operator ? [conjunction {column_id} operator ?]*"
 	// e.g. "{id} = ANY (?) OR {phone_number} LIKE ?"
 	columnsRE := regexp.MustCompile(`{[a-zA-Z0-9_-]+}(->>'[a-zA-Z0-9_-]+')?`)
-	operatorRE := regexp.MustCompile(`(?i) (=|<|>|<=|>=|!=|LIKE|ANY)`)
+	operatorRE := regexp.MustCompile(`(?i) (=|<=|>=|<|>|!=|LIKE|ILIKE|ANY)`)
 	valuesRE := regexp.MustCompile(`\?|\(\?\)`)
 	conjunctionRE := regexp.MustCompile(`(?i) (OR|AND) `)
-	if s := strings.TrimSpace(conjunctionRE.ReplaceAllString(operatorRE.ReplaceAllString(valuesRE.ReplaceAllString(columnsRE.ReplaceAllString(u.WhereClause, ""), ""), ""), "")); s != "" {
-		return ucerr.Friendlyf(nil, `invalid or unsupported SQL in UserSelectorConfig.WhereClause: "%s", near "%s"`, u.WhereClause, strings.Split(s, " ")[0])
+
+	if s := strings.TrimSpace(
+		conjunctionRE.ReplaceAllString(
+			operatorRE.ReplaceAllString(
+				valuesRE.ReplaceAllString(
+					columnsRE.ReplaceAllString(u.WhereClause, ""),
+					""),
+				""),
+			""),
+	); s != "" {
+		return ucerr.Friendlyf(
+			nil,
+			`invalid or unsupported SQL in UserSelectorConfig.WhereClause: "%s", near "%s"`,
+			u.WhereClause,
+			strings.Split(s, " ")[0],
+		)
 	}
+
 	return nil
 }
 
@@ -305,7 +311,7 @@ func (u UserSelectorConfig) extraValidate() error {
 // Purpose represents a customer-defined purpose for userstore columns
 type Purpose struct {
 	ID          uuid.UUID `json:"id"`
-	Name        string    `json:"name" validate:"length:1,128"`
+	Name        string    `json:"name" validate:"length:1,128" required:"true"`
 	Description string    `json:"description"`
 }
 

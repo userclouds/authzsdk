@@ -16,38 +16,34 @@ import (
 var validIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_-]*$`)
 
 // TransformType describes the type of transform to be performed
-type TransformType int
+type TransformType string
 
 const (
-	// TransformTypeUnknown is an unknown transformation type
-	TransformTypeUnknown TransformType = 0
-
 	// TransformTypePassThrough is a no-op transformation
-	TransformTypePassThrough TransformType = 1
+	TransformTypePassThrough TransformType = "passthrough"
 
 	// TransformTypeTransform is a transformation that doesn't tokenize
-	TransformTypeTransform TransformType = 2
+	TransformTypeTransform TransformType = "transform"
 
 	// TransformTypeTokenizeByValue is a transformation that tokenizes the value passed in
-	TransformTypeTokenizeByValue TransformType = 3
+	TransformTypeTokenizeByValue TransformType = "tokenizebyvalue"
 
 	// TransformTypeTokenizeByReference is a transformation that tokenizes the userstore reference to the value passed in
-	TransformTypeTokenizeByReference TransformType = 4
+	TransformTypeTokenizeByReference TransformType = "tokenizebyreference"
 )
 
 //go:generate genconstant TransformType
 
 // Transformer describes a token transformer
 type Transformer struct {
-	ucdb.BaseModel `validate:"skip"`
-	Name           string              `db:"name" json:"name" validate:"length:1,128"`
-	Description    string              `db:"description" json:"description"`
-	InputType      userstore.DataType  `db:"input_type" json:"input_type"`
-	TransformType  TransformType       `db:"transform_type" json:"transform_type"`
-	TagIDs         uuidarray.UUIDArray `db:"tag_ids" json:"tag_ids" validate:"skip"`
-
-	Function   string `db:"function" json:"function"`
-	Parameters string `db:"parameters" json:"parameters"`
+	ID            uuid.UUID           `json:"id"`
+	Name          string              `json:"name" validate:"length:1,128" required:"true"`
+	Description   string              `json:"description"`
+	InputType     userstore.DataType  `json:"input_type" required:"true"`
+	TransformType TransformType       `json:"transform_type" required:"true"`
+	TagIDs        uuidarray.UUIDArray `json:"tag_ids" validate:"skip"`
+	Function      string              `json:"function" required:"true"`
+	Parameters    string              `json:"parameters"`
 }
 
 //go:generate genvalidate Transformer
@@ -61,10 +57,6 @@ func (g Transformer) extraValidate() error {
 
 	if !validIdentifier.MatchString(string(g.Name)) {
 		return ucerr.Friendlyf(nil, `Transformer name "%s" has invalid characters`, g.Name)
-	}
-
-	if g.TransformType == TransformTypeUnknown {
-		return ucerr.New("TransformationPolicy.TransformType must be set")
 	}
 
 	params := map[string]interface{}{}
@@ -101,17 +93,17 @@ type UserstoreDataProvenance struct {
 type Validator Transformer // TODO: define separate Validator, just piggybacking on Transformer for now
 
 // PolicyType describes the type of an access policy
-type PolicyType int //revive:disable-line:exported
+type PolicyType string //revive:disable-line:exported
 
 const (
 	// PolicyTypeInvalid is an invalid policy type
-	PolicyTypeInvalid PolicyType = 0
+	PolicyTypeInvalid PolicyType = "invalid"
 
 	// PolicyTypeCompositeIntersection is the type for composite policies in which all components must be satisfied to grant access
-	PolicyTypeCompositeIntersection = 1
+	PolicyTypeCompositeIntersection = "compositeintersection"
 
 	// PolicyTypeCompositeUnion is the type for composite policies in which any component must be satisfied to grant access
-	PolicyTypeCompositeUnion = 2
+	PolicyTypeCompositeUnion = "compositeunion"
 )
 
 //go:generate genconstant PolicyType
@@ -119,9 +111,9 @@ const (
 // AccessPolicyTemplate describes a template for an access policy
 type AccessPolicyTemplate struct {
 	ucdb.BaseModel `validate:"skip"`
-	Name           string `db:"name" json:"name" validate:"length:1,128"`
+	Name           string `db:"name" json:"name" validate:"length:1,128" required:"true"`
 	Description    string `db:"description" json:"description"`
-	Function       string `db:"function" json:"function"`
+	Function       string `db:"function" json:"function" required:"true"`
 	Version        int    `db:"version" json:"version"`
 }
 
@@ -174,9 +166,9 @@ func (a AccessPolicyComponent) Validate() error {
 // AccessPolicy describes an access policy
 type AccessPolicy struct {
 	ID          uuid.UUID           `json:"id" validate:"skip"`
-	Name        string              `json:"name" validate:"length:1,128"`
+	Name        string              `json:"name" validate:"length:1,128" required:"true"`
 	Description string              `json:"description"`
-	PolicyType  PolicyType          `json:"policy_type"`
+	PolicyType  PolicyType          `json:"policy_type" required:"true"`
 	TagIDs      uuidarray.UUIDArray `json:"tag_ids" validate:"skip"`
 	Version     int                 `json:"version"`
 

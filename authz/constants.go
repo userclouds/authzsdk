@@ -47,3 +47,10 @@ var DefaultAuthZEdgeTypes = []EdgeType{
 	},
 }
 
+// TODO: Remove these and the code in authz/internal/storage.go once Union migration is completed
+
+// UnionUserObjectTypeIDProd is the ID of Union's "user" object in production
+var UnionUserObjectTypeIDProd = uuid.Must(uuid.FromString("ee731c0c-3274-4ec0-b300-4f54c0f26d31"))
+
+// UnionUserObjectTypeIDStaging is the ID of Union's "user" object in staging
+var UnionUserObjectTypeIDStaging = uuid.Must(uuid.FromString("13b60fbc-449a-474b-8581-f41b09d869b0"))
