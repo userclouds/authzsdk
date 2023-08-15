@@ -60,13 +60,13 @@ type Query interface {
 // QueryParams is a struct that implements PaginationQuery, which can be incorporated in other request structs
 // for handlers that need to take pagination query parameters
 type QueryParams struct {
-	StartingAfter *string `query:"starting_after"`
-	EndingBefore  *string `query:"ending_before"`
-	Limit         *string `query:"limit"`
-	Filter        *string `query:"filter"`
-	SortKey       *string `query:"sort_key"`
-	SortOrder     *string `query:"sort_order"`
-	Version       *string `query:"version"`
+	StartingAfter *string `description:"A cursor value after which the returned list will start" query:"starting_after"`
+	EndingBefore  *string `description:"A cursor value before which the returned list will end" query:"ending_before"`
+	Limit         *string `description:"The maximum number of results to be returned per page" query:"limit"`
+	Filter        *string `description:"A filter clause to use in the pagination query" query:"filter"`
+	SortKey       *string `description:"The field(s) used to sort the results" query:"sort_key"`
+	SortOrder     *string `description:"The sort order for each field (ascending or descending)" query:"sort_order"`
+	Version       *string `description:"The version of the API to be called" query:"version"`
 }
 
 func (p QueryParams) getStartingAfter() *string {

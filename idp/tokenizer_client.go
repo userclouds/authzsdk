@@ -11,14 +11,14 @@ import (
 	"userclouds.com/idp/policy"
 	"userclouds.com/idp/tokenizer"
 	"userclouds.com/idp/userstore"
-	"userclouds.com/infra/jsonclient"
 	"userclouds.com/infra/pagination"
+	"userclouds.com/infra/sdkclient"
 	"userclouds.com/infra/ucerr"
 )
 
 // TokenizerClient defines a tokenizer client
 type TokenizerClient struct {
-	client  *jsonclient.Client
+	client  *sdkclient.Client
 	options options
 }
 
@@ -29,7 +29,7 @@ func NewTokenizerClient(url string, opts ...Option) *TokenizerClient {
 		opt.apply(&options)
 	}
 
-	return &TokenizerClient{client: jsonclient.New(url, options.jsonclientOptions...), options: options}
+	return &TokenizerClient{client: sdkclient.New(url, options.jsonclientOptions...), options: options}
 }
 
 // CreateToken creates a token
@@ -296,11 +296,8 @@ func (c *TokenizerClient) UpdateAccessPolicy(ctx context.Context, ap policy.Acce
 
 // DeleteAccessPolicy deletes an access policy
 func (c *TokenizerClient) DeleteAccessPolicy(ctx context.Context, id uuid.UUID, version int) error {
-	req := tokenizer.DeleteAccessPolicyRequest{
-		Version: version,
-	}
 
-	if err := c.client.Delete(ctx, paths.DeleteAccessPolicy(id), req); err != nil {
+	if err := c.client.Delete(ctx, paths.DeleteAccessPolicy(id, version), nil); err != nil {
 		return ucerr.Wrap(err)
 	}
 
@@ -427,7 +424,7 @@ func (c *TokenizerClient) UpdateAccessPolicyTemplate(ctx context.Context, apt po
 
 // DeleteAccessPolicyTemplate deletes an access policy
 func (c *TokenizerClient) DeleteAccessPolicyTemplate(ctx context.Context, id uuid.UUID, version int) error {
-	if err := c.client.Delete(ctx, paths.DeleteAccessPolicyTemplate(id), nil); err != nil {
+	if err := c.client.Delete(ctx, paths.DeleteAccessPolicyTemplate(id, version), nil); err != nil {
 		return ucerr.Wrap(err)
 	}
 

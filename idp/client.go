@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gofrs/uuid"
 
@@ -13,6 +14,7 @@ import (
 	"userclouds.com/idp/userstore"
 	"userclouds.com/infra/jsonclient"
 	"userclouds.com/infra/pagination"
+	"userclouds.com/infra/sdkclient"
 	"userclouds.com/infra/ucerr"
 )
 
@@ -72,7 +74,7 @@ func JSONClient(opt ...jsonclient.Option) Option {
 
 // Client represents a client to talk to the Userclouds IDP
 type Client struct {
-	client          *jsonclient.Client
+	client          *sdkclient.Client
 	options         options
 	TokenizerClient *TokenizerClient
 }
@@ -86,7 +88,7 @@ func NewClient(url string, opts ...Option) (*Client, error) {
 	}
 
 	c := &Client{
-		client:  jsonclient.New(strings.TrimSuffix(url, "/"), options.jsonclientOptions...),
+		client:  sdkclient.New(strings.TrimSuffix(url, "/"), options.jsonclientOptions...),
 		options: options,
 	}
 	c.TokenizerClient = &TokenizerClient{client: c.client, options: options}
@@ -265,13 +267,24 @@ type ListColumnsResponse struct {
 }
 
 // ListColumns lists all columns for the associated tenant
-func (c *Client) ListColumns(ctx context.Context) ([]userstore.Column, error) {
-	var res ListColumnsResponse
-	if err := c.client.Get(ctx, paths.ListColumnsPath, &res); err != nil {
+func (c *Client) ListColumns(ctx context.Context, opts ...Option) (*ListColumnsResponse, error) {
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+	pager, err := pagination.ApplyOptions(options.paginationOptions...)
+	if err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	return res.Data, nil
+	query := pager.Query()
+
+	var res ListColumnsResponse
+	if err := c.client.Get(ctx, fmt.Sprintf("%s?%s", paths.ListColumnsPath, query.Encode()), &res); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &res, nil
 }
 
 // UpdateColumnRequest is the request body for updating a column
@@ -289,6 +302,220 @@ func (c *Client) UpdateColumn(ctx context.Context, columnID uuid.UUID, updatedCo
 
 	var resp userstore.Column
 	if err := c.client.Put(ctx, paths.UpdateColumnPath(columnID), req, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// DurationType identifies whether a duration is for a pre-deleted
+// (i.e., "live") value or a post-deleted value
+type DurationType int
+
+// Supported duration types
+const (
+	DurationTypePreDelete  DurationType = 1
+	DurationTypePostDelete DurationType = 2
+)
+
+//go:generate genconstant DurationType
+
+// DurationUnit identifies the unit of measurement for a duration
+type DurationUnit int
+
+// Supported duration units
+const (
+	DurationUnitIndefinite DurationUnit = 1
+	DurationUnitYear       DurationUnit = 2
+	DurationUnitMonth      DurationUnit = 3
+	DurationUnitWeek       DurationUnit = 4
+	DurationUnitDay        DurationUnit = 5
+	DurationUnitHour       DurationUnit = 6
+)
+
+//go:generate genconstant DurationUnit
+
+// RetentionDuration represents a duration with a specific duration unit
+type RetentionDuration struct {
+	Unit     DurationUnit `json:"unit"`
+	Duration int          `json:"duration"`
+}
+
+func (d *RetentionDuration) extraValidate() error {
+	if d.Duration < 0 {
+		return ucerr.New("Duration must be non-negative")
+	}
+
+	if d.Unit == DurationUnitIndefinite && d.Duration != 0 {
+		return ucerr.New("Duration must be 0 if Unit is DurationUnitIndefinite")
+	}
+
+	return nil
+}
+
+//go:generate genvalidate RetentionDuration
+
+// AddToTime will add the retention duration to a passed in time
+func (d RetentionDuration) AddToTime(t time.Time) time.Time {
+	switch d.Unit {
+	case DurationUnitIndefinite:
+		return time.Time{}
+	case DurationUnitYear:
+		return t.AddDate(d.Duration, 0, 0)
+	case DurationUnitMonth:
+		return t.AddDate(0, d.Duration, 0)
+	case DurationUnitWeek:
+		return t.AddDate(0, 0, 7*d.Duration)
+	case DurationUnitDay:
+		return t.AddDate(0, 0, d.Duration)
+	case DurationUnitHour:
+		return t.Add(time.Duration(d.Duration) * time.Hour)
+	}
+
+	return t
+}
+
+// LessThan returns true if the duration is strictly smaller than other
+func (d RetentionDuration) LessThan(other RetentionDuration) bool {
+	var t time.Time
+	return d.AddToTime(t).Before(other.AddToTime(t))
+}
+
+// ColumnRetentionDurationType identifies the type of the retention duration
+type ColumnRetentionDurationType int
+
+// Supported column retention duration types
+const (
+	ColumnRetentionDurationTypeTenant   ColumnRetentionDurationType = 1
+	ColumnRetentionDurationTypeColumn   ColumnRetentionDurationType = 2
+	ColumnRetentionDurationTypePurpose  ColumnRetentionDurationType = 3
+	ColumnRetentionDurationTypeSpecific ColumnRetentionDurationType = 4
+)
+
+//go:generate genconstant ColumnRetentionDurationType
+
+// ColumnRetentionDuration represents an identified retention duration. If ID is nil, it
+// represents an inherited or new value. UseDefault set to true means that the duration is
+// inherited from a less specific default value. DefaultDuration represents the duration
+// that would be inherited if a specific value is not set for the retention duration identifier.
+type ColumnRetentionDuration struct {
+	Type            ColumnRetentionDurationType `json:"type"`
+	ID              uuid.UUID                   `json:"id" validate:"skip"`
+	Version         int                         `json:"version"`
+	ColumnID        uuid.UUID                   `json:"column_id" validate:"skip"`
+	PurposeID       uuid.UUID                   `json:"purpose_id" validate:"skip"`
+	DurationType    DurationType                `json:"duration_type"`
+	PurposeName     string                      `json:"purpose_name"`
+	Duration        RetentionDuration           `json:"duration"`
+	UseDefault      bool                        `json:"use_default"`
+	DefaultDuration RetentionDuration           `json:"default_duration"`
+}
+
+func (d *ColumnRetentionDuration) extraValidate() error {
+	switch d.Type {
+	case ColumnRetentionDurationTypeTenant:
+		if d.ColumnID != uuid.Nil || d.PurposeID != uuid.Nil {
+			return ucerr.New("ColumnID and PurposeID must be nil for tenant type")
+		}
+	case ColumnRetentionDurationTypeColumn:
+		if d.ColumnID == uuid.Nil || d.PurposeID == uuid.Nil {
+			return ucerr.New("ColumnID and PurposeID must be non-nil for column type")
+		}
+	case ColumnRetentionDurationTypePurpose:
+		if d.ColumnID != uuid.Nil || d.PurposeID == uuid.Nil {
+			return ucerr.New("PurposeID must be non-nil and ColumnID must be nil for purpose type")
+		}
+	case ColumnRetentionDurationTypeSpecific:
+		if d.ID == uuid.Nil {
+			return ucerr.New("ID must be non-nil for specific type")
+		}
+	}
+
+	if d.PurposeID != uuid.Nil && d.PurposeName == "" {
+		return ucerr.New("PurposeName must be specified if PurposeID is non-nil")
+	}
+
+	if d.PurposeID == uuid.Nil && d.PurposeName != "" {
+		return ucerr.New("PurposeName must be empty if PurposeID is nil")
+	}
+
+	if d.UseDefault && d.Duration != d.DefaultDuration {
+		return ucerr.New("Duration must equal DefaultDuration if UseDefault is true")
+	}
+
+	if d.DurationType == DurationTypePreDelete {
+		if d.Duration.Unit != DurationUnitIndefinite && d.Duration.Duration == 0 {
+			return ucerr.New("DurationTypePreDelete cannot have a duration of 0")
+		}
+	} else if d.Duration.Unit == DurationUnitIndefinite {
+		return ucerr.New("DurationTypePostDelete cannot have an indefinite duration")
+	}
+
+	return nil
+}
+
+//go:generate genvalidate ColumnRetentionDuration
+
+// ColumnRetentionDurationsResponse is the response to a get or update request for retention
+// durations. The set of retention durations that apply for the request will be returned,
+// along with a max allowed retention duration appropriate for the request parameters. Each
+// of the retention durations will have a non-nil ID if they are saved values, or a nil ID
+// if they represent an inherited value.
+type ColumnRetentionDurationsResponse struct {
+	MaxDuration        RetentionDuration         `json:"max_duration"`
+	RetentionDurations []ColumnRetentionDuration `json:"retention_durations"`
+}
+
+//go:generate genvalidate ColumnRetentionDurationsResponse
+
+// GetColumnRetentionDurations returns the retention durations for the specified column
+// and duration type
+func (c *Client) GetColumnRetentionDurations(
+	ctx context.Context,
+	columnID uuid.UUID,
+	dt DurationType,
+) (*ColumnRetentionDurationsResponse, error) {
+	path := paths.GetColumnRetentionDurationURL(columnID, dt == DurationTypePreDelete)
+
+	var resp ColumnRetentionDurationsResponse
+	if err := c.client.Get(ctx, path, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// UpdateColumnRetentionDurationsRequest is used to update the specified set of retention durations
+// for a column. If ID for a retention duration is non-nil, that retention duration will be updated
+// if UseDefault is set to false, or deleted if UseDefault is set to true. If ID is nil, the
+// associated retention duration will be inserted.
+type UpdateColumnRetentionDurationsRequest struct {
+	RetentionDurations []ColumnRetentionDuration `json:"retention_durations"`
+}
+
+func (r UpdateColumnRetentionDurationsRequest) extraValidate() error {
+	if len(r.RetentionDurations) == 0 {
+		return ucerr.New("no retentions to update")
+	}
+
+	return nil
+}
+
+//go:generate genvalidate UpdateColumnRetentionDurationsRequest
+
+// UpdateColumnRetentionDurations updates the column retention durations
+// for the specified column and duration type, returning the updated set
+// of retention durations for the column and duration type.
+func (c *Client) UpdateColumnRetentionDurations(
+	ctx context.Context,
+	columnID uuid.UUID,
+	dt DurationType,
+	req UpdateColumnRetentionDurationsRequest,
+) (*ColumnRetentionDurationsResponse, error) {
+	path := paths.GetColumnRetentionDurationURL(columnID, dt == DurationTypePreDelete)
+
+	var resp ColumnRetentionDurationsResponse
+	if err := c.client.Post(ctx, path, req, &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
@@ -358,19 +585,31 @@ func (c *Client) GetAccessorByVersion(ctx context.Context, accessorID uuid.UUID,
 	return &resp, nil
 }
 
-// ListAccessorsResponse is the response struct for listing accessors
+// ListAccessorsResponse is the paginated response from listing accessors.
 type ListAccessorsResponse struct {
 	Data []userstore.Accessor `json:"data"`
+	pagination.ResponseFields
 }
 
 // ListAccessors lists all the available accessors for the associated tenant
-func (c *Client) ListAccessors(ctx context.Context) ([]userstore.Accessor, error) {
-	var res ListAccessorsResponse
-	if err := c.client.Get(ctx, paths.ListAccessorsPath, &res); err != nil {
+func (c *Client) ListAccessors(ctx context.Context, opts ...Option) (*ListAccessorsResponse, error) {
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+	pager, err := pagination.ApplyOptions(options.paginationOptions...)
+	if err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	return res.Data, nil
+	query := pager.Query()
+
+	var res ListAccessorsResponse
+	if err := c.client.Get(ctx, fmt.Sprintf("%s?%s", paths.ListAccessorsPath, query.Encode()), &res); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &res, nil
 }
 
 // UpdateAccessorRequest is the request body for updating an accessor
@@ -457,19 +696,31 @@ func (c *Client) GetMutatorByVersion(ctx context.Context, mutatorID uuid.UUID, v
 	return &resp, nil
 }
 
-// ListMutatorsResponse is the response struct for listing mutators
+// ListMutatorsResponse is the paginated response from listing mutators.
 type ListMutatorsResponse struct {
 	Data []userstore.Mutator `json:"data"`
+	pagination.ResponseFields
 }
 
 // ListMutators lists all the available mutators for the associated tenant
-func (c *Client) ListMutators(ctx context.Context) ([]userstore.Mutator, error) {
-	var res ListMutatorsResponse
-	if err := c.client.Get(ctx, paths.ListMutatorsPath, &res); err != nil {
+func (c *Client) ListMutators(ctx context.Context, opts ...Option) (*ListMutatorsResponse, error) {
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+	pager, err := pagination.ApplyOptions(options.paginationOptions...)
+	if err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
-	return res.Data, nil
+	query := pager.Query()
+
+	var res ListMutatorsResponse
+	if err := c.client.Get(ctx, fmt.Sprintf("%s?%s", paths.ListMutatorsPath, query.Encode()), &res); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &res, nil
 }
 
 // UpdateMutatorRequest is the request body for updating a mutator

@@ -13,7 +13,7 @@ import (
 type ObjectType struct {
 	ucdb.BaseModel
 
-	TypeName string `db:"type_name" json:"type_name" validate:"notempty"`
+	TypeName string `db:"type_name" json:"type_name" validate:"notempty" required:"true"`
 }
 
 // GetPaginationKeys is part of the pagination.PageableType interface
@@ -30,7 +30,7 @@ func (ObjectType) GetPaginationKeys() pagination.KeyTypes {
 
 // Attribute represents a named attribute on an Edge Type.
 type Attribute struct {
-	Name string `db:"name" json:"name" validate:"notempty"`
+	Name string `db:"name" json:"name" validate:"notempty" required:"true"`
 
 	// Direct = true means that this attribute applies directly from the source to the target, or
 	// alternately stated that "the source object 'has' the attribute on the target".
@@ -88,9 +88,9 @@ type Attributes []Attribute
 type EdgeType struct {
 	ucdb.BaseModel
 
-	TypeName           string     `db:"type_name" json:"type_name"  validate:"notempty"`
-	SourceObjectTypeID uuid.UUID  `db:"source_object_type_id,immutable" json:"source_object_type_id"  validate:"notnil"`
-	TargetObjectTypeID uuid.UUID  `db:"target_object_type_id,immutable" json:"target_object_type_id"  validate:"notnil"`
+	TypeName           string     `db:"type_name" json:"type_name"  validate:"notempty" required:"true"`
+	SourceObjectTypeID uuid.UUID  `db:"source_object_type_id,immutable" json:"source_object_type_id"  validate:"notnil" required:"true"`
+	TargetObjectTypeID uuid.UUID  `db:"target_object_type_id,immutable" json:"target_object_type_id"  validate:"notnil" required:"true"`
 	Attributes         Attributes `db:"attributes" json:"attributes"`
 
 	OrganizationID uuid.UUID `db:"organization_id" json:"organization_id"`
@@ -133,7 +133,7 @@ type Object struct {
 	ucdb.BaseModel
 
 	Alias  *string   `db:"alias" json:"alias,omitempty" validate:"allownil"`
-	TypeID uuid.UUID `db:"type_id,immutable" json:"type_id" validate:"notnil"`
+	TypeID uuid.UUID `db:"type_id,immutable" json:"type_id" validate:"notnil" required:"true"`
 
 	OrganizationID uuid.UUID `db:"organization_id" json:"organization_id"`
 }
@@ -169,10 +169,10 @@ type Edge struct {
 	ucdb.BaseModel
 
 	// This must be a valid EdgeType.ID value
-	EdgeTypeID uuid.UUID `db:"edge_type_id" json:"edge_type_id" validate:"notnil"`
+	EdgeTypeID uuid.UUID `db:"edge_type_id" json:"edge_type_id" validate:"notnil" required:"true"`
 	// These must be valid ObjectType.ID values
-	SourceObjectID uuid.UUID `db:"source_object_id" json:"source_object_id" validate:"notnil"`
-	TargetObjectID uuid.UUID `db:"target_object_id" json:"target_object_id" validate:"notnil"`
+	SourceObjectID uuid.UUID `db:"source_object_id" json:"source_object_id" validate:"notnil" required:"true"`
+	TargetObjectID uuid.UUID `db:"target_object_id" json:"target_object_id" validate:"notnil" required:"true"`
 }
 
 //go:generate genvalidate Edge
@@ -193,7 +193,7 @@ func (Edge) GetPaginationKeys() pagination.KeyTypes {
 type Organization struct {
 	ucdb.BaseModel
 
-	Name   string        `db:"name" json:"name" validate:"notempty"`
+	Name   string        `db:"name" json:"name" validate:"notempty" required:"true"`
 	Region region.Region `db:"region" json:"region"`
 }
 

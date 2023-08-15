@@ -30,6 +30,7 @@ type KeyType string
 // Valid KeyTypes
 const (
 	BoolKeyType      KeyType = "Boolean"
+	IntKeyType       KeyType = "Int"
 	StringKeyType    KeyType = "String"
 	TimestampKeyType KeyType = "Timestamp"
 	UUIDKeyType      KeyType = "UUID"
@@ -42,6 +43,7 @@ const TimestampKeyTypeLayout = "2006-01-02 15:04:05"
 func (kt KeyType) Validate() error {
 	switch kt {
 	case BoolKeyType:
+	case IntKeyType:
 	case StringKeyType:
 	case TimestampKeyType:
 	case UUIDKeyType:

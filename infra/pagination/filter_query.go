@@ -23,6 +23,7 @@ const (
 	ge  operator = "GE"
 	gt  operator = "GT"
 	le  operator = "LE"
+	il  operator = "IL"
 	lk  operator = "LK"
 	lt  operator = "LT"
 	ne  operator = "NE"
@@ -47,6 +48,7 @@ func (o operator) isComparisonOperator() bool {
 
 func (o operator) isPatternOperator() bool {
 	switch o {
+	case il:
 	case lk:
 	case nl:
 	default:
@@ -85,6 +87,8 @@ func (o operator) queryString() string {
 		return "<="
 	case ne:
 		return "!="
+	case il:
+		return "ILIKE"
 	case lk:
 		return "LIKE"
 	case nl:
