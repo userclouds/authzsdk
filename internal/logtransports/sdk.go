@@ -28,8 +28,3 @@ func InitLoggingSDK(auth *ucjwt.Config, rawLogs bool) {
 
 	uclog.InitForService(service.SDK, transports, nil)
 }
-
-// Close is only a wrapper around uclog.Close in the SDK
-func Close() {
-	uclog.Close()
-}
