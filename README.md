@@ -1,9 +1,9 @@
-# AuthZ SDK - Golang
+# SDK - Golang
 
 This repo contains the client SDK for UserClouds AuthZ & IDP services as well as a sample app to demonstrate use of the AuthZ service.
 
 
-## AuthZ Sample
+## Golang Sample
 
 To run the sample from the root of the repo:
 1. `cd samples/basic`
