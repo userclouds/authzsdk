@@ -868,7 +868,7 @@ func (c *Client) GetPurpose(ctx context.Context, purposeID uuid.UUID) (*userstor
 
 // ListPurposesResponse is the paginated response struct for listing purposes
 type ListPurposesResponse struct {
-	Purposes []userstore.Purpose `json:"data"`
+	Data []userstore.Purpose `json:"data"`
 	pagination.ResponseFields
 }
 

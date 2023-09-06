@@ -11,10 +11,10 @@ import (
 	"userclouds.com/authz"
 	"userclouds.com/idp"
 	"userclouds.com/infra/jsonclient"
+	"userclouds.com/infra/logtransports"
 	"userclouds.com/infra/ucerr"
 	"userclouds.com/infra/ucjwt"
 	"userclouds.com/infra/uclog"
-	"userclouds.com/internal/logtransports"
 )
 
 // Object type IDs

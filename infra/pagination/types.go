@@ -36,9 +36,6 @@ const (
 	UUIDKeyType      KeyType = "UUID"
 )
 
-// TimestampKeyTypeLayout represents the supported format for TimestampKeyType
-const TimestampKeyTypeLayout = "2006-01-02 15:04:05"
-
 // Validate implements the Validatable interface
 func (kt KeyType) Validate() error {
 	switch kt {

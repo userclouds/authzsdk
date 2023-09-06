@@ -32,12 +32,13 @@ const (
 )
 
 type options struct {
-	ifNotExists       bool
-	bypassCache       bool
-	organizationID    uuid.UUID
-	cacheProvider     clientcache.CacheProvider
-	paginationOptions []pagination.Option
-	jsonclientOptions []jsonclient.Option
+	ifNotExists           bool
+	bypassCache           bool
+	organizationID        uuid.UUID
+	cacheProvider         clientcache.CacheProvider
+	paginationOptions     []pagination.Option
+	jsonclientOptions     []jsonclient.Option
+	bypassAuthHeaderCheck bool // if we're using per-request header forwarding via PassthroughAuthorization, don't check for auth header
 }
 
 // Option makes authz.Client extensible
@@ -90,6 +91,16 @@ func JSONClient(opt ...jsonclient.Option) Option {
 func CacheProvider(cp clientcache.CacheProvider) Option {
 	return optFunc(func(opts *options) {
 		opts.cacheProvider = cp
+	})
+}
+
+// PassthroughAuthorization returns an Option that will cause the client to use the auth header from the request context
+func PassthroughAuthorization() Option {
+	return optFunc(func(opts *options) {
+		opts.jsonclientOptions = append(opts.jsonclientOptions, jsonclient.PerRequestHeader(func(ctx context.Context) (string, string) {
+			return "Authorization", request.GetAuthHeader(ctx)
+		}))
+		opts.bypassAuthHeaderCheck = true
 	})
 }
 
@@ -157,8 +168,10 @@ func NewCustomClient(objTypeTTL time.Duration, edgeTypeTTL time.Duration, objTTL
 		basePrefixWithOrg: basePrefixWihOrg,
 	}
 
-	if err := c.client.ValidateBearerTokenHeader(); err != nil {
-		return nil, ucerr.Wrap(err)
+	if !options.bypassAuthHeaderCheck {
+		if err := c.client.ValidateBearerTokenHeader(); err != nil {
+			return nil, ucerr.Wrap(err)
+		}
 	}
 
 	return c, nil
@@ -845,7 +858,7 @@ func (c *Client) ListObjectsFromQuery(ctx context.Context, query url.Values, opt
 			return nil, ucerr.Wrap(err)
 		}
 		// Release the lock after the request is done since we are not writing to globabal collection
-		defer clientcache.ReleasePerItemCollectionLock[Object](ctx, cm, []clientcache.CacheKey{ckey}, Object{}, s)
+		defer clientcache.ReleasePerItemCollectionLock[Object](ctx, cm, []cache.CacheKey{ckey}, Object{}, s)
 	}
 
 	// TODO needs to always be paginated get
@@ -977,7 +990,7 @@ func (c *Client) ListEdgesBetweenObjects(ctx context.Context, sourceObjectID, ta
 		}
 
 		// Clear the lock in case of an error
-		defer clientcache.ReleasePerItemCollectionLock(ctx, cm, []clientcache.CacheKey{ckey}, obj, s)
+		defer clientcache.ReleasePerItemCollectionLock(ctx, cm, []cache.CacheKey{ckey}, obj, s)
 	}
 	query := url.Values{}
 	query.Add("target_object_id", targetObjectID.String())
@@ -1147,7 +1160,7 @@ func (c *Client) CreateEdge(ctx context.Context, id, sourceObjectID, targetObjec
 
 	clientcache.SaveItemToCache(ctx, cm, resp, s, true,
 		// Clear additional collections that may be invalidated by this write
-		[]clientcache.CacheKey{cm.N.GetKeyName(edgesObjToObjID, []string{resp.SourceObjectID.String(), resp.TargetObjectID.String()}), // Source -> Target edges collection
+		[]cache.CacheKey{cm.N.GetKeyName(edgesObjToObjID, []string{resp.SourceObjectID.String(), resp.TargetObjectID.String()}), // Source -> Target edges collection
 			cm.N.GetKeyNameWithID(objEdgesKeyID, resp.SourceObjectID),                                              // Source all in/out edges collection
 			cm.N.GetKeyName(edgesObjToObjID, []string{resp.TargetObjectID.String(), resp.SourceObjectID.String()}), // Target -> Source edges collection
 			cm.N.GetKeyNameWithID(objEdgesKeyID, resp.TargetObjectID),                                              // Target all in/out edges collection
@@ -1225,7 +1238,7 @@ func (c *Client) CheckAttribute(ctx context.Context, sourceObjectID, targetObjec
 	obj := Object{BaseModel: ucdb.NewBaseWithID(sourceObjectID)}
 
 	// Release the lock in case of error
-	defer clientcache.ReleasePerItemCollectionLock(ctx, cm, []clientcache.CacheKey{ckey}, obj, s)
+	defer clientcache.ReleasePerItemCollectionLock(ctx, cm, []cache.CacheKey{ckey}, obj, s)
 
 	var resp CheckAttributeResponse
 	query := url.Values{}

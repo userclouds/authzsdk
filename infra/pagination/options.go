@@ -47,7 +47,7 @@ func EndingBefore(cursor Cursor) Option {
 //	BoolKeyType      (value may be specified as any string that can be parsed by https://pkg.go.dev/strconv#example-ParseBool)
 //	StringKeyType    (string value can only have single-quotes or double-quotes in the string that are escaped with a
 //	                  back-slash (i.e., \' or \"))
-//	TimestampKeyType (must conform to the format "2006-01-02 15:04:05", as defined in pagination.TimestampKeyLayout)
+//	TimestampKeyType (the number of microseconds since January 1, 1970 UTC)
 //	UUIDKeyType      (must be a valid string representation of a UUID)
 //
 // By default, all result types support "id" as a valid key of KeyType UUIDKeyType. New supported keys can be added

@@ -92,3 +92,25 @@ type LookupTokensRequest struct {
 type LookupTokensResponse struct {
 	Tokens []string `json:"tokens"` // note that a single piece of data could tokenize many ways
 }
+
+// LookupOrCreateTokensRequest contains the data required to lookup or create tokens in bulk
+type LookupOrCreateTokensRequest struct {
+	Data []string `json:"data" validate:"skip"`
+
+	TransformerRIDs  []userstore.ResourceID `json:"transformer_rids"`
+	AccessPolicyRIDs []userstore.ResourceID `json:"access_policy_rids"`
+}
+
+func (l *LookupOrCreateTokensRequest) extraValidate() error {
+	if len(l.Data) != len(l.TransformerRIDs) || len(l.Data) != len(l.AccessPolicyRIDs) {
+		return ucerr.New("data, transformer_rid, and access_policy_rid must be the same length")
+	}
+	return nil
+}
+
+//go:generate genvalidate LookupOrCreateTokensRequest
+
+// LookupOrCreateTokensResponse contains the data returned by a LookupOrCreateTokens call
+type LookupOrCreateTokensResponse struct {
+	Tokens []string `json:"tokens"`
+}

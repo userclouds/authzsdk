@@ -77,7 +77,7 @@ func (c *InMemoryClientCacheProvider) inMemMultiDelete(keys []string) {
 }
 
 // WriteSentinel writes the sentinel value into the given keys
-func (c *InMemoryClientCacheProvider) WriteSentinel(ctx context.Context, stype shared.SentinelType, keysIn []CacheKey) (shared.CacheSentinel, error) {
+func (c *InMemoryClientCacheProvider) WriteSentinel(ctx context.Context, stype shared.SentinelType, keysIn []shared.CacheKey) (shared.CacheSentinel, error) {
 	sentinel := c.sm.GenerateSentinel(stype)
 	keys := make([]string, len(keysIn))
 	for i, k := range keysIn {
@@ -115,7 +115,7 @@ func (c *InMemoryClientCacheProvider) WriteSentinel(ctx context.Context, stype s
 }
 
 // ReleaseSentinel clears the sentinel value from the given keys
-func (c *InMemoryClientCacheProvider) ReleaseSentinel(ctx context.Context, keysIn []CacheKey, s shared.CacheSentinel) {
+func (c *InMemoryClientCacheProvider) ReleaseSentinel(ctx context.Context, keysIn []shared.CacheKey, s shared.CacheSentinel) {
 	keys := make([]string, len(keysIn))
 	for i, k := range keysIn {
 		if k == "" {
@@ -146,7 +146,7 @@ func (c *InMemoryClientCacheProvider) ReleaseSentinel(ctx context.Context, keysI
 }
 
 // SetValue sets the value in cache key(s) to val with given expiration time if the sentinel matches and returns true if the value was set
-func (c *InMemoryClientCacheProvider) SetValue(ctx context.Context, lkeyIn CacheKey, keysToSet []CacheKey, val string, sentinel shared.CacheSentinel, ttl time.Duration) (bool, bool, error) {
+func (c *InMemoryClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.CacheKey, keysToSet []shared.CacheKey, val string, sentinel shared.CacheSentinel, ttl time.Duration) (bool, bool, error) {
 	keys := make([]string, len(keysToSet))
 	for i, k := range keysToSet {
 		if k == "" {
@@ -189,7 +189,7 @@ func (c *InMemoryClientCacheProvider) SetValue(ctx context.Context, lkeyIn Cache
 }
 
 // GetValue gets the value in CacheKey (if any) and tries to lock the key for Read is lockOnMiss = true
-func (c *InMemoryClientCacheProvider) GetValue(ctx context.Context, keyIn CacheKey, lockOnMiss bool) (*string, shared.CacheSentinel, error) {
+func (c *InMemoryClientCacheProvider) GetValue(ctx context.Context, keyIn shared.CacheKey, lockOnMiss bool) (*string, shared.CacheSentinel, error) {
 	key := string(keyIn)
 
 	c.keysMutex.Lock()
@@ -223,7 +223,7 @@ func (c *InMemoryClientCacheProvider) GetValue(ctx context.Context, keyIn CacheK
 }
 
 // DeleteValue deletes the value(s) in passed in keys
-func (c *InMemoryClientCacheProvider) DeleteValue(ctx context.Context, keysIn []CacheKey, force bool) error {
+func (c *InMemoryClientCacheProvider) DeleteValue(ctx context.Context, keysIn []shared.CacheKey, force bool) error {
 	keys := make([]string, len(keysIn))
 	for i, k := range keysIn {
 		if k == "" {
@@ -303,7 +303,7 @@ func (c *InMemoryClientCacheProvider) deleteKeyArray(dkey string, setTombstone b
 }
 
 // AddDependency adds the given cache key(s) as dependencies of an item represented by by key
-func (c *InMemoryClientCacheProvider) AddDependency(ctx context.Context, keysIn []CacheKey, values []CacheKey, ttl time.Duration) error {
+func (c *InMemoryClientCacheProvider) AddDependency(ctx context.Context, keysIn []shared.CacheKey, values []shared.CacheKey, ttl time.Duration) error {
 	keys := getStringsFromCacheKeys(keysIn)
 	i := make([]string, 0, len(values))
 	for _, v := range values {
@@ -320,7 +320,7 @@ func (c *InMemoryClientCacheProvider) AddDependency(ctx context.Context, keysIn 
 }
 
 // ClearDependencies clears the dependencies of an item represented by key and removes all dependent keys from the cache
-func (c *InMemoryClientCacheProvider) ClearDependencies(ctx context.Context, key CacheKey, setTombstone bool) error {
+func (c *InMemoryClientCacheProvider) ClearDependencies(ctx context.Context, key shared.CacheKey, setTombstone bool) error {
 	c.keysMutex.Lock()
 	defer c.keysMutex.Unlock()
 
