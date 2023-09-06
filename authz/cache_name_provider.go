@@ -7,6 +7,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	clientcache "userclouds.com/infra/cache/client"
+	cache "userclouds.com/infra/cache/shared"
 )
 
 const (
@@ -58,22 +59,22 @@ const (
 )
 
 // GetKeyNameForWithID is a shortcut for GetKeyName with a single uuid ID component
-func (c *authzCacheNameProvider) GetKeyNameStatic(id clientcache.CacheKeyNameID) clientcache.CacheKey {
+func (c *authzCacheNameProvider) GetKeyNameStatic(id clientcache.CacheKeyNameID) cache.CacheKey {
 	return c.GetKeyName(id, []string{})
 }
 
 // GetKeyNameForWithID is a shortcut for GetKeyName with a single uuid ID component
-func (c *authzCacheNameProvider) GetKeyNameWithID(id clientcache.CacheKeyNameID, itemID uuid.UUID) clientcache.CacheKey {
+func (c *authzCacheNameProvider) GetKeyNameWithID(id clientcache.CacheKeyNameID, itemID uuid.UUID) cache.CacheKey {
 	return c.GetKeyName(id, []string{itemID.String()})
 }
 
 // GetKeyNameForWithID is a shortcut for GetKeyName with a single uuid ID component
-func (c *authzCacheNameProvider) GetKeyNameWithString(id clientcache.CacheKeyNameID, itemName string) clientcache.CacheKey {
+func (c *authzCacheNameProvider) GetKeyNameWithString(id clientcache.CacheKeyNameID, itemName string) cache.CacheKey {
 	return c.GetKeyName(id, []string{itemName})
 }
 
 // GetKeyName gets the key name for the given key name ID and components
-func (c *authzCacheNameProvider) GetKeyName(id clientcache.CacheKeyNameID, components []string) clientcache.CacheKey {
+func (c *authzCacheNameProvider) GetKeyName(id clientcache.CacheKeyNameID, components []string) cache.CacheKey {
 	switch id {
 	case objTypeKeyID:
 		return c.objectTypeKey(components[0])
@@ -117,123 +118,123 @@ func (c *authzCacheNameProvider) GetKeyName(id clientcache.CacheKeyNameID, compo
 }
 
 // objectTypeKey primary key for object type
-func (c *authzCacheNameProvider) objectTypeKey(id string) clientcache.CacheKey {
-	return clientcache.CacheKey(fmt.Sprintf("%v_%v_%v", c.basePrefix, objTypePrefix, id))
+func (c *authzCacheNameProvider) objectTypeKey(id string) cache.CacheKey {
+	return cache.CacheKey(fmt.Sprintf("%v_%v_%v", c.basePrefix, objTypePrefix, id))
 }
 
 // edgeTypeKey primary key for edge type
-func (c *authzCacheNameProvider) edgeTypeKey(id string) clientcache.CacheKey {
-	return clientcache.CacheKey(fmt.Sprintf("%v_%v_%v", c.basePrefix, edgeTypePrefix, id))
+func (c *authzCacheNameProvider) edgeTypeKey(id string) cache.CacheKey {
+	return cache.CacheKey(fmt.Sprintf("%v_%v_%v", c.basePrefix, edgeTypePrefix, id))
 }
 
 // objectKey primary key for object
-func (c *authzCacheNameProvider) objectKey(id string) clientcache.CacheKey {
-	return clientcache.CacheKey(fmt.Sprintf("%v_%v_%v", c.basePrefix, objPrefix, id))
+func (c *authzCacheNameProvider) objectKey(id string) cache.CacheKey {
+	return cache.CacheKey(fmt.Sprintf("%v_%v_%v", c.basePrefix, objPrefix, id))
 }
 
 // edgeKey primary key for edge
-func (c *authzCacheNameProvider) edgeKey(id string) clientcache.CacheKey {
-	return clientcache.CacheKey(fmt.Sprintf("%v_%v_%v", c.basePrefix, edgePrefix, id))
+func (c *authzCacheNameProvider) edgeKey(id string) cache.CacheKey {
+	return cache.CacheKey(fmt.Sprintf("%v_%v_%v", c.basePrefix, edgePrefix, id))
 }
 
 // orgKey primary key for edge
-func (c *authzCacheNameProvider) orgKey(id string) clientcache.CacheKey {
-	return clientcache.CacheKey(fmt.Sprintf("%v_%v_%v", c.basePrefix, orgPrefix, id))
+func (c *authzCacheNameProvider) orgKey(id string) cache.CacheKey {
+	return cache.CacheKey(fmt.Sprintf("%v_%v_%v", c.basePrefix, orgPrefix, id))
 }
 
 // objectTypeKeyName returns secondary key name for [objTypePrefix + TypeName] -> [ObjType] mapping
-func (c *authzCacheNameProvider) objectTypeKeyName(typeName string) clientcache.CacheKey {
-	return clientcache.CacheKey(fmt.Sprintf("%v_%v_%v", c.basePrefix, objTypePrefix, typeName))
+func (c *authzCacheNameProvider) objectTypeKeyName(typeName string) cache.CacheKey {
+	return cache.CacheKey(fmt.Sprintf("%v_%v_%v", c.basePrefix, objTypePrefix, typeName))
 }
 
 // objectEdgesKey returns key name for per object edges collection
-func (c *authzCacheNameProvider) objectEdgesKey(id string) clientcache.CacheKey {
-	return clientcache.CacheKey(fmt.Sprintf("%v_%v_%v", c.basePrefix, objEdgeCollection, id))
+func (c *authzCacheNameProvider) objectEdgesKey(id string) cache.CacheKey {
+	return cache.CacheKey(fmt.Sprintf("%v_%v_%v", c.basePrefix, objEdgeCollection, id))
 }
 
 // edgeTypeKeyName returns secondary key name for [edgeTypePrefix + TypeName] -> [EdgeType] mapping
-func (c *authzCacheNameProvider) edgeTypeKeyName(typeName string) clientcache.CacheKey {
-	return clientcache.CacheKey(fmt.Sprintf("%v_%v_%v", c.basePrefix, edgeTypePrefix, typeName))
+func (c *authzCacheNameProvider) edgeTypeKeyName(typeName string) cache.CacheKey {
+	return cache.CacheKey(fmt.Sprintf("%v_%v_%v", c.basePrefix, edgeTypePrefix, typeName))
 }
 
 // objAliasKeyName returns key name for [TypeID + Alias] -> [Object] mapping
-func (c *authzCacheNameProvider) objAliasKeyName(typeID string, alias string) clientcache.CacheKey {
-	return clientcache.CacheKey(fmt.Sprintf("%v_%v_%v_%v", c.basePrefix, objPrefix, typeID, alias))
+func (c *authzCacheNameProvider) objAliasKeyName(typeID string, alias string) cache.CacheKey {
+	return cache.CacheKey(fmt.Sprintf("%v_%v_%v_%v", c.basePrefix, objPrefix, typeID, alias))
 }
 
 // edgesObjToObj returns key name for [SourceObjID _ TargetObjID] -> [Edge [] ] mapping
-func (c *authzCacheNameProvider) edgesObjToObj(sourceObjID string, targetObjID string) clientcache.CacheKey {
-	return clientcache.CacheKey(fmt.Sprintf("%v_%v_%v_%v_%v", c.basePrefix, objPrefix, sourceObjID, perObjectEdgesPrefix, targetObjID))
+func (c *authzCacheNameProvider) edgesObjToObj(sourceObjID string, targetObjID string) cache.CacheKey {
+	return cache.CacheKey(fmt.Sprintf("%v_%v_%v_%v_%v", c.basePrefix, objPrefix, sourceObjID, perObjectEdgesPrefix, targetObjID))
 }
 
 // edgeFullKeyNameFromIDs returns key name for [SourceObjID _ TargetObjID _ EdgeTypeID] -> [Edge] mapping
-func (c *authzCacheNameProvider) edgeFullKeyNameFromIDs(sourceID string, targetID string, typeID string) clientcache.CacheKey {
-	return clientcache.CacheKey(fmt.Sprintf("%v_%v_%v_%v_%v", c.basePrefix, edgePrefix, sourceID, targetID, typeID))
+func (c *authzCacheNameProvider) edgeFullKeyNameFromIDs(sourceID string, targetID string, typeID string) cache.CacheKey {
+	return cache.CacheKey(fmt.Sprintf("%v_%v_%v_%v_%v", c.basePrefix, edgePrefix, sourceID, targetID, typeID))
 }
 
 // dependencyKey returns key name for dependency keys
-func (c *authzCacheNameProvider) dependencyKey(id string) clientcache.CacheKey {
-	return clientcache.CacheKey(fmt.Sprintf("%v_%v_%v", c.basePrefix, dependencylPrefix, id))
+func (c *authzCacheNameProvider) dependencyKey(id string) cache.CacheKey {
+	return cache.CacheKey(fmt.Sprintf("%v_%v_%v", c.basePrefix, dependencylPrefix, id))
 }
 
 // objTypeCollectionKey returns key name for object type collection
-func (c *authzCacheNameProvider) objTypeCollectionKey() clientcache.CacheKey {
-	return clientcache.CacheKey(fmt.Sprintf("%v_%v", c.basePrefix, objTypeCollectionKeyString))
+func (c *authzCacheNameProvider) objTypeCollectionKey() cache.CacheKey {
+	return cache.CacheKey(fmt.Sprintf("%v_%v", c.basePrefix, objTypeCollectionKeyString))
 }
 
 // edgeTypeCollectionKey returns key name for edge type collection
-func (c *authzCacheNameProvider) edgeTypeCollectionKey() clientcache.CacheKey {
-	return clientcache.CacheKey(fmt.Sprintf("%v_%v", c.basePrefix, edgeTypeCollectionKeyString))
+func (c *authzCacheNameProvider) edgeTypeCollectionKey() cache.CacheKey {
+	return cache.CacheKey(fmt.Sprintf("%v_%v", c.basePrefix, edgeTypeCollectionKeyString))
 }
 
 // objCollectionKey returns key name for object collection
-func (c *authzCacheNameProvider) objCollectionKey() clientcache.CacheKey {
-	return clientcache.CacheKey(fmt.Sprintf("%v_%v", c.basePrefix, objCollectionKeyString))
+func (c *authzCacheNameProvider) objCollectionKey() cache.CacheKey {
+	return cache.CacheKey(fmt.Sprintf("%v_%v", c.basePrefix, objCollectionKeyString))
 }
 
 // edgeCollectionKey returns key name for edge collection
-func (c *authzCacheNameProvider) edgeCollectionKey() clientcache.CacheKey {
-	return clientcache.CacheKey(c.basePrefix + edgeCollectionKeyString)
+func (c *authzCacheNameProvider) edgeCollectionKey() cache.CacheKey {
+	return cache.CacheKey(c.basePrefix + edgeCollectionKeyString)
 }
 
 // orgCollectionKey returns key name for edge collection
-func (c *authzCacheNameProvider) orgCollectionKey() clientcache.CacheKey {
-	return clientcache.CacheKey(c.basePrefix + orgCollectionKeyString)
+func (c *authzCacheNameProvider) orgCollectionKey() cache.CacheKey {
+	return cache.CacheKey(c.basePrefix + orgCollectionKeyString)
 }
 
 // attributePathObjToObj returns key name for attribute path
-func (c *authzCacheNameProvider) attributePathObjToObj(sourceID string, targetID string, atributeName string) clientcache.CacheKey {
-	return clientcache.CacheKey(fmt.Sprintf("%v_%v_%v_%v_%v_%v", c.basePrefix, objPrefix, sourceID, perObjectPathPrefix, targetID, atributeName))
+func (c *authzCacheNameProvider) attributePathObjToObj(sourceID string, targetID string, atributeName string) cache.CacheKey {
+	return cache.CacheKey(fmt.Sprintf("%v_%v_%v_%v_%v_%v", c.basePrefix, objPrefix, sourceID, perObjectPathPrefix, targetID, atributeName))
 }
 
 // GetPrimaryKey returns the primary cache key name for object type
-func (ot ObjectType) GetPrimaryKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (ot ObjectType) GetPrimaryKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return c.GetKeyNameWithID(objTypeKeyID, ot.ID)
 }
 
 // GetGlobalCollectionKey returns the global collection key name for object type
-func (ot ObjectType) GetGlobalCollectionKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (ot ObjectType) GetGlobalCollectionKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return c.GetKeyNameStatic(objTypeCollectionKeyID)
 }
 
 // GetSecondaryKeys returns the secondary cache key names for object type
-func (ot ObjectType) GetSecondaryKeys(c clientcache.CacheKeyNameProvider) []clientcache.CacheKey {
-	return []clientcache.CacheKey{c.GetKeyNameWithString(objTypeNameKeyID, ot.TypeName)}
+func (ot ObjectType) GetSecondaryKeys(c clientcache.CacheKeyNameProvider) []cache.CacheKey {
+	return []cache.CacheKey{c.GetKeyNameWithString(objTypeNameKeyID, ot.TypeName)}
 }
 
 // GetPerItemCollectionKey returns the per item collection key name for object type
-func (ot ObjectType) GetPerItemCollectionKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (ot ObjectType) GetPerItemCollectionKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return "" // Unused since there nothing stored per object type, could store objects of this type in the future
 }
 
 // GetDependenciesKey returns the dependencies key name for object type
-func (ot ObjectType) GetDependenciesKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (ot ObjectType) GetDependenciesKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return "" // Unused since the whole cache is flushed on delete
 }
 
 // GetDependencyKeys returns the list of keys for object type dependencies
-func (ot ObjectType) GetDependencyKeys(c clientcache.CacheKeyNameProvider) []clientcache.CacheKey {
-	return []clientcache.CacheKey{} // ObjectTypes don't depend on anything
+func (ot ObjectType) GetDependencyKeys(c clientcache.CacheKeyNameProvider) []cache.CacheKey {
+	return []cache.CacheKey{} // ObjectTypes don't depend on anything
 }
 
 // TTL returns the TTL for object type
@@ -242,34 +243,34 @@ func (ot ObjectType) TTL(c clientcache.CacheTTLProvider) time.Duration {
 }
 
 // GetPrimaryKey returns the primary cache key name for edge type
-func (et EdgeType) GetPrimaryKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (et EdgeType) GetPrimaryKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return c.GetKeyNameWithID(edgeTypeKeyID, et.ID)
 }
 
 // GetGlobalCollectionKey returns the global collection key name for edge type
-func (et EdgeType) GetGlobalCollectionKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (et EdgeType) GetGlobalCollectionKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return c.GetKeyNameStatic(edgeTypeCollectionKeyID)
 }
 
 // GetPerItemCollectionKey returns the per item collection key name for edge type
-func (et EdgeType) GetPerItemCollectionKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (et EdgeType) GetPerItemCollectionKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return "" // Unused since there nothing stored per edge type, could store edges of this type in the future
 }
 
 // GetSecondaryKeys returns the secondary cache key names for edge type
-func (et EdgeType) GetSecondaryKeys(c clientcache.CacheKeyNameProvider) []clientcache.CacheKey {
-	return []clientcache.CacheKey{c.GetKeyNameWithString(edgeTypeNameKeyID, et.TypeName)}
+func (et EdgeType) GetSecondaryKeys(c clientcache.CacheKeyNameProvider) []cache.CacheKey {
+	return []cache.CacheKey{c.GetKeyNameWithString(edgeTypeNameKeyID, et.TypeName)}
 }
 
 // GetDependenciesKey returns the dependencies key name for edge type
-func (et EdgeType) GetDependenciesKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (et EdgeType) GetDependenciesKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return "" // Unused since the whole cache is flushed on delete
 }
 
 // GetDependencyKeys returns the list of keys for edge type dependencies
-func (et EdgeType) GetDependencyKeys(c clientcache.CacheKeyNameProvider) []clientcache.CacheKey {
+func (et EdgeType) GetDependencyKeys(c clientcache.CacheKeyNameProvider) []cache.CacheKey {
 	// EdgeTypes depend on source/target object types but we don't store that dependency because we currently flush the whole cache on object type delete
-	return []clientcache.CacheKey{}
+	return []cache.CacheKey{}
 }
 
 // TTL returns the TTL for edge type
@@ -278,37 +279,37 @@ func (et EdgeType) TTL(c clientcache.CacheTTLProvider) time.Duration {
 }
 
 // GetPrimaryKey returns the primary cache key name for object
-func (o Object) GetPrimaryKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (o Object) GetPrimaryKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return c.GetKeyNameWithID(objectKeyID, o.ID)
 }
 
 // GetSecondaryKeys returns the secondary cache key names for object
-func (o Object) GetSecondaryKeys(c clientcache.CacheKeyNameProvider) []clientcache.CacheKey {
+func (o Object) GetSecondaryKeys(c clientcache.CacheKeyNameProvider) []cache.CacheKey {
 	if o.Alias != nil {
-		return []clientcache.CacheKey{c.GetKeyName(objAliasNameKeyID, []string{o.TypeID.String(), *o.Alias})}
+		return []cache.CacheKey{c.GetKeyName(objAliasNameKeyID, []string{o.TypeID.String(), *o.Alias})}
 	}
-	return []clientcache.CacheKey{}
+	return []cache.CacheKey{}
 }
 
 // GetGlobalCollectionKey returns the global collection key name for object
-func (o Object) GetGlobalCollectionKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (o Object) GetGlobalCollectionKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return c.GetKeyNameStatic(objCollectionKeyID)
 }
 
 // GetPerItemCollectionKey returns the per item collection key name for object
-func (o Object) GetPerItemCollectionKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (o Object) GetPerItemCollectionKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return c.GetKeyNameWithID(objEdgesKeyID, o.ID)
 }
 
 // GetDependenciesKey return dependencies cache key name for object
-func (o Object) GetDependenciesKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (o Object) GetDependenciesKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return c.GetKeyNameWithID(dependencyKeyID, o.ID)
 }
 
 // GetDependencyKeys returns the list of keys for object dependencies
-func (o Object) GetDependencyKeys(c clientcache.CacheKeyNameProvider) []clientcache.CacheKey {
+func (o Object) GetDependencyKeys(c clientcache.CacheKeyNameProvider) []cache.CacheKey {
 	// Objects depend on object types but we don't store that dependency because we currently flush the whole cache on object type delete
-	return []clientcache.CacheKey{}
+	return []cache.CacheKey{}
 }
 
 // TTL returns the TTL for object
@@ -317,34 +318,34 @@ func (o Object) TTL(c clientcache.CacheTTLProvider) time.Duration {
 }
 
 // GetPrimaryKey returns the primary cache key name for edge
-func (e Edge) GetPrimaryKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (e Edge) GetPrimaryKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return c.GetKeyNameWithID(edgeKeyID, e.ID)
 }
 
 // GetGlobalCollectionKey returns the global collection cache key names for edge
-func (e Edge) GetGlobalCollectionKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (e Edge) GetGlobalCollectionKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return c.GetKeyNameStatic(edgeCollectionKeyID)
 }
 
 // GetPerItemCollectionKey returns the per item collection key name for edge
-func (e Edge) GetPerItemCollectionKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (e Edge) GetPerItemCollectionKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return ""
 }
 
 // GetDependenciesKey return  dependencies cache key name for edge
-func (e Edge) GetDependenciesKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (e Edge) GetDependenciesKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return c.GetKeyNameWithID(dependencyKeyID, e.ID)
 }
 
 // GetDependencyKeys returns the list of keys for edge dependencies
-func (e Edge) GetDependencyKeys(c clientcache.CacheKeyNameProvider) []clientcache.CacheKey {
+func (e Edge) GetDependencyKeys(c clientcache.CacheKeyNameProvider) []cache.CacheKey {
 	// Edges depend on objects and edge types. We don't store edgetype dependency because we currently flush the whole cache on edge type delete
-	return []clientcache.CacheKey{c.GetKeyNameWithID(dependencyKeyID, e.SourceObjectID), c.GetKeyNameWithID(dependencyKeyID, e.TargetObjectID)}
+	return []cache.CacheKey{c.GetKeyNameWithID(dependencyKeyID, e.SourceObjectID), c.GetKeyNameWithID(dependencyKeyID, e.TargetObjectID)}
 }
 
 // GetSecondaryKeys returns the secondary cache key names for edge
-func (e Edge) GetSecondaryKeys(c clientcache.CacheKeyNameProvider) []clientcache.CacheKey {
-	return []clientcache.CacheKey{c.GetKeyName(edgeFullKeyID, []string{e.SourceObjectID.String(), e.TargetObjectID.String(), e.EdgeTypeID.String()})}
+func (e Edge) GetSecondaryKeys(c clientcache.CacheKeyNameProvider) []cache.CacheKey {
+	return []cache.CacheKey{c.GetKeyName(edgeFullKeyID, []string{e.SourceObjectID.String(), e.TargetObjectID.String(), e.EdgeTypeID.String()})}
 }
 
 // TTL returns the TTL for edge
@@ -353,37 +354,37 @@ func (e Edge) TTL(c clientcache.CacheTTLProvider) time.Duration {
 }
 
 // GetPrimaryKey returns the primary cache key name for edge
-func (e AttributePathNode) GetPrimaryKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (e AttributePathNode) GetPrimaryKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return "" // Unused since  AttributePathNode is not stored in cache directly
 }
 
 // GetGlobalCollectionKey returns the global collection cache key names for  path node
-func (e AttributePathNode) GetGlobalCollectionKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (e AttributePathNode) GetGlobalCollectionKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return ""
 }
 
 // GetPerItemCollectionKey returns the per item collection key name for  path node
-func (e AttributePathNode) GetPerItemCollectionKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (e AttributePathNode) GetPerItemCollectionKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return ""
 }
 
 // GetDependenciesKey return  dependencies cache key name for  path node
-func (e AttributePathNode) GetDependenciesKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (e AttributePathNode) GetDependenciesKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return ""
 }
 
 // GetDependencyKeys returns the list of keys for path node dependencies
-func (e AttributePathNode) GetDependencyKeys(c clientcache.CacheKeyNameProvider) []clientcache.CacheKey {
+func (e AttributePathNode) GetDependencyKeys(c clientcache.CacheKeyNameProvider) []cache.CacheKey {
 	//  Path node depend on objects and edges.
 	if e.EdgeID != uuid.Nil {
-		return []clientcache.CacheKey{c.GetKeyNameWithID(dependencyKeyID, e.EdgeID), c.GetKeyNameWithID(dependencyKeyID, e.ObjectID)}
+		return []cache.CacheKey{c.GetKeyNameWithID(dependencyKeyID, e.EdgeID), c.GetKeyNameWithID(dependencyKeyID, e.ObjectID)}
 	}
-	return []clientcache.CacheKey{c.GetKeyNameWithID(dependencyKeyID, e.ObjectID)}
+	return []cache.CacheKey{c.GetKeyNameWithID(dependencyKeyID, e.ObjectID)}
 }
 
 // GetSecondaryKeys returns the secondary cache key names for path node
-func (e AttributePathNode) GetSecondaryKeys(c clientcache.CacheKeyNameProvider) []clientcache.CacheKey {
-	return []clientcache.CacheKey{}
+func (e AttributePathNode) GetSecondaryKeys(c clientcache.CacheKeyNameProvider) []cache.CacheKey {
+	return []cache.CacheKey{}
 }
 
 // TTL returns the TTL for  path node
@@ -392,33 +393,33 @@ func (e AttributePathNode) TTL(c clientcache.CacheTTLProvider) time.Duration {
 }
 
 // GetPrimaryKey returns the primary cache key name for organization
-func (o Organization) GetPrimaryKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (o Organization) GetPrimaryKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return c.GetKeyNameWithID(orgKeyID, o.ID)
 }
 
 // GetGlobalCollectionKey returns the global collection cache key names for organization
-func (o Organization) GetGlobalCollectionKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (o Organization) GetGlobalCollectionKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return c.GetKeyNameStatic(orgCollectionKeyID)
 }
 
 // GetPerItemCollectionKey returns the per item collection key name for organization (none)
-func (o Organization) GetPerItemCollectionKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (o Organization) GetPerItemCollectionKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return ""
 }
 
 // GetDependenciesKey return  dependencies cache key name for organization
-func (o Organization) GetDependenciesKey(c clientcache.CacheKeyNameProvider) clientcache.CacheKey {
+func (o Organization) GetDependenciesKey(c clientcache.CacheKeyNameProvider) cache.CacheKey {
 	return c.GetKeyNameWithID(dependencyKeyID, o.ID)
 }
 
 // GetDependencyKeys returns the list of keys for organization dependencies
-func (o Organization) GetDependencyKeys(c clientcache.CacheKeyNameProvider) []clientcache.CacheKey {
-	return []clientcache.CacheKey{}
+func (o Organization) GetDependencyKeys(c clientcache.CacheKeyNameProvider) []cache.CacheKey {
+	return []cache.CacheKey{}
 }
 
 // GetSecondaryKeys returns the secondary cache key names for organization (none)
-func (o Organization) GetSecondaryKeys(c clientcache.CacheKeyNameProvider) []clientcache.CacheKey {
-	return []clientcache.CacheKey{}
+func (o Organization) GetSecondaryKeys(c clientcache.CacheKeyNameProvider) []cache.CacheKey {
+	return []cache.CacheKey{}
 }
 
 // TTL returns the TTL for edge

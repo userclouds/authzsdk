@@ -12,3 +12,17 @@ require (
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/redis/go-redis/v9 v9.0.5 // indirect
 )
+
+retract (
+  v0.1.0
+  v0.2.0
+  v0.3.0
+  v0.4.0
+  v0.5.0
+  v0.6.0
+  v0.6.1
+  v0.6.2
+  v0.6.6
+  v0.6.7
+  v0.7.0
+)

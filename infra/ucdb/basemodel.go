@@ -68,7 +68,7 @@ func (b BaseModel) Alive() bool {
 
 // NewBase initializes a new UCBase
 func NewBase() BaseModel {
-	// note that we don't propogate NewV4() errors because at that point the world has ended.
+	// note that we don't propagate NewV4() errors because at that point the world has ended.
 	return BaseModel{ID: uuid.Must(uuid.NewV4()), Deleted: time.Time{}} // lint: basemodel-safe
 }
 

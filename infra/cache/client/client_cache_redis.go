@@ -29,7 +29,7 @@ func NewRedisClientCacheProvider(rc *redis.Client) *RedisClientCacheProvider {
 }
 
 // WriteSentinel writes the sentinel value into the given keys
-func (c *RedisClientCacheProvider) WriteSentinel(ctx context.Context, stype shared.SentinelType, keysIn []CacheKey) (shared.CacheSentinel, error) {
+func (c *RedisClientCacheProvider) WriteSentinel(ctx context.Context, stype shared.SentinelType, keysIn []shared.CacheKey) (shared.CacheSentinel, error) {
 	sentinel := c.sm.GenerateSentinel(stype)
 	keys := getStringsFromCacheKeys(keysIn)
 	// There must be at least one key to lock
@@ -88,7 +88,7 @@ func (c *RedisClientCacheProvider) WriteSentinel(ctx context.Context, stype shar
 }
 
 // getStringsFromCacheKeys filters out any empty keys and does the type conversion
-func getStringsFromCacheKeys(keys []CacheKey) []string {
+func getStringsFromCacheKeys(keys []shared.CacheKey) []string {
 	strKeys := make([]string, 0, len(keys))
 	for _, k := range keys {
 		if k != "" {
@@ -99,7 +99,7 @@ func getStringsFromCacheKeys(keys []CacheKey) []string {
 }
 
 // ReleaseSentinel clears the sentinel value from the given keys
-func (c *RedisClientCacheProvider) ReleaseSentinel(ctx context.Context, keysIn []CacheKey, s shared.CacheSentinel) {
+func (c *RedisClientCacheProvider) ReleaseSentinel(ctx context.Context, keysIn []shared.CacheKey, s shared.CacheSentinel) {
 	// Filter out any empty keys
 	keys := getStringsFromCacheKeys(keysIn)
 	// If there are no keys to potentially clear, return
@@ -175,7 +175,7 @@ func multiSetWithPipe(ctx context.Context, pipe redis.Pipeliner, keys []string, 
 }
 
 // SetValue sets the value in cache key(s) to val with given expiration time if the sentinel matches and returns true if the value was set
-func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn CacheKey, keysToSet []CacheKey, val string, sentinel shared.CacheSentinel, ttl time.Duration) (bool, bool, error) {
+func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.CacheKey, keysToSet []shared.CacheKey, val string, sentinel shared.CacheSentinel, ttl time.Duration) (bool, bool, error) {
 	keys := getStringsFromCacheKeys(keysToSet)
 	// There needs to be at least a single key to check for sentinel/set to value
 	if len(keys) == 0 {
@@ -250,7 +250,7 @@ func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn CacheKey
 }
 
 // GetValue gets the value in CacheKey (if any) and tries to lock the key for Read is lockOnMiss = true
-func (c *RedisClientCacheProvider) GetValue(ctx context.Context, keyIn CacheKey, lockOnMiss bool) (*string, shared.CacheSentinel, error) {
+func (c *RedisClientCacheProvider) GetValue(ctx context.Context, keyIn shared.CacheKey, lockOnMiss bool) (*string, shared.CacheSentinel, error) {
 	key := string(keyIn)
 	if key == "" {
 		return nil, "", ucerr.New("Empty key provided to GetValue")
@@ -287,7 +287,7 @@ func (c *RedisClientCacheProvider) GetValue(ctx context.Context, keyIn CacheKey,
 }
 
 // DeleteValue deletes the value(s) in passed in keys
-func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []CacheKey, force bool) error {
+func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []shared.CacheKey, force bool) error {
 	keysAll := getStringsFromCacheKeys(keysIn)
 	if len(keysAll) != 0 {
 		if force {
@@ -356,7 +356,7 @@ func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []Cac
 }
 
 // AddDependency adds the given cache key(s) as dependencies of an item represented by by key
-func (c *RedisClientCacheProvider) AddDependency(ctx context.Context, keysIn []CacheKey, values []CacheKey, ttl time.Duration) error {
+func (c *RedisClientCacheProvider) AddDependency(ctx context.Context, keysIn []shared.CacheKey, values []shared.CacheKey, ttl time.Duration) error {
 	keysAll := getStringsFromCacheKeys(keysIn)
 
 	i := make([]interface{}, 0, len(values))
@@ -450,7 +450,7 @@ func (c *RedisClientCacheProvider) AddDependency(ctx context.Context, keysIn []C
 }
 
 // ClearDependencies clears the dependencies of an item represented by key and removes all dependent keys from the cache
-func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn CacheKey, setTombstone bool) error {
+func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn shared.CacheKey, setTombstone bool) error {
 	key := string(keyIn)
 
 	// Using optimistic concurrency control to clear the dependent keys for each value in key. This may cause us to flush more keys than needed but

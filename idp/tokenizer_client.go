@@ -124,6 +124,25 @@ func (c *TokenizerClient) LookupTokens(ctx context.Context, data string, transfo
 	return res.Tokens, nil
 }
 
+// LookupOrCreateTokens checks to see if a token exists already for given data, and if not, creates them, returning one token for each input tuple (data, transformer, access policy)
+func (c *TokenizerClient) LookupOrCreateTokens(ctx context.Context, data []string, transformerRIDs, accessPolicyRIDs []userstore.ResourceID) ([]string, error) {
+	req := tokenizer.LookupOrCreateTokensRequest{
+		Data:             data,
+		TransformerRIDs:  transformerRIDs,
+		AccessPolicyRIDs: accessPolicyRIDs,
+	}
+	if err := req.Validate(); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	var res tokenizer.LookupOrCreateTokensResponse
+	if err := c.client.Post(ctx, paths.LookupOrCreateTokens, req, &res); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return res.Tokens, nil
+}
+
 // DeleteToken deletes a token
 func (c *TokenizerClient) DeleteToken(ctx context.Context, token string) error {
 
