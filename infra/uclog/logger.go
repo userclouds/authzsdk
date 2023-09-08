@@ -237,9 +237,11 @@ func Log(ctx context.Context, event LogEvent) {
 		return
 	}
 
-	// If the event metadata is not in the map - reset the type as it will be sent as unknown event
+	// If the event metadata is not in the map - reset the type as it will be sent as unknown event otherwise set the code correctly
 	if event.Code != EventCodeNone && eventInfo.Code == EventCodeUnknown {
 		event.Code = EventCodeUnknown
+	} else if eventInfo.Code != EventCodeUnknown {
+		event.Code = eventInfo.Code
 	}
 
 	if event.Message != "" && !loggerInst.noRequestIDs {

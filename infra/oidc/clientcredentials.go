@@ -2,6 +2,7 @@ package oidc
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -44,11 +45,21 @@ func (ccts ClientCredentialsTokenSource) GetToken() (string, error) {
 	}
 	if resp.StatusCode >= http.StatusBadRequest {
 		var oauthe ucerr.OAuthError
-		if err := json.NewDecoder(resp.Body).Decode(&oauthe); err != nil {
-			return "", ucerr.Wrap(err)
+		if resp.Header.Get("Content-Type") == "application/json" {
+			if err := json.NewDecoder(resp.Body).Decode(&oauthe); err != nil {
+				return "", ucerr.Wrap(err)
+			}
+
+			oauthe.Code = resp.StatusCode
+			return "", ucerr.Wrap(oauthe)
 		}
-		oauthe.Code = resp.StatusCode
-		return "", ucerr.Wrap(oauthe)
+		// Handle non-json response
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return "", ucerr.Errorf("unexpected response from token endpoint %v: %v. Failed to read response body: %v", req.URL, resp.Status, err)
+		}
+		return "", ucerr.Errorf("unexpected response from token endpoint %v: %v: %v", req.URL, resp.Status, string(body))
+
 	}
 	var tresp TokenResponse
 	if err := json.NewDecoder(resp.Body).Decode(&tresp); err != nil {

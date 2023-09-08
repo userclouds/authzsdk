@@ -44,24 +44,21 @@ import (
 
 // The cache supports any number of per item collection (ie. []Edges on Object). We use that functionality to store paths between two objects as well as edges.
 
-// CacheKey is the type storing the cache key name. It is a string but is a separate type to avoid bugs related to mixing up strings.
-type CacheKey string
-
 // CacheSingleItem is an interface for any single non array item that can be stored in the cache
 // This interface also links the type (ObjectType, EdgeType, Object, Edge) with the cache key names for each type of use
 type CacheSingleItem interface {
 	// GetPrimaryKey returns the primary cache key where the item is stored and which is used to lock the item
-	GetPrimaryKey(c CacheKeyNameProvider) CacheKey
+	GetPrimaryKey(c CacheKeyNameProvider) shared.CacheKey
 	// GetSecondaryKeys returns any secondary keys which also contain the item for lookup by another dimension (ie TypeName, Alias, etc)
-	GetSecondaryKeys(c CacheKeyNameProvider) []CacheKey
+	GetSecondaryKeys(c CacheKeyNameProvider) []shared.CacheKey
 	// GetGlobalCollectionKey returns the key for the collection of all items of this type (ie all ObjectTypes, all EdgeTypes, etc)
-	GetGlobalCollectionKey(c CacheKeyNameProvider) CacheKey
+	GetGlobalCollectionKey(c CacheKeyNameProvider) shared.CacheKey
 	// GetPerItemCollectionKey returns the key for the collection of per item items of another type (ie Edges in/out of a specific Object)
-	GetPerItemCollectionKey(c CacheKeyNameProvider) CacheKey
+	GetPerItemCollectionKey(c CacheKeyNameProvider) shared.CacheKey
 	// GetDependenciesKey returns the key containing dependent keys that should invalidated if the item is invalidated
-	GetDependenciesKey(c CacheKeyNameProvider) CacheKey
+	GetDependenciesKey(c CacheKeyNameProvider) shared.CacheKey
 	// GetDependencyKeys returns the list of keys for items this item depends on (ie Edge depends on both source and target objects)
-	GetDependencyKeys(c CacheKeyNameProvider) []CacheKey
+	GetDependencyKeys(c CacheKeyNameProvider) []shared.CacheKey
 	// TTL returns the TTL for the item
 	TTL(c CacheTTLProvider) time.Duration
 }
@@ -69,19 +66,19 @@ type CacheSingleItem interface {
 // CacheProvider is the interface for the cache backend for a given tenant which can be implemented by in-memory, redis, memcache, etc
 type CacheProvider interface {
 	// GetValue gets the value in cache key (if any) and tries to lock the key for Read is lockOnMiss = true
-	GetValue(ctx context.Context, key CacheKey, lockOnMiss bool) (*string, shared.CacheSentinel, error)
+	GetValue(ctx context.Context, key shared.CacheKey, lockOnMiss bool) (*string, shared.CacheSentinel, error)
 	// SetValue sets the value in cache key(s) to val with given expiration time if the sentinel matches lkey and returns true if the value was set
-	SetValue(ctx context.Context, lkey CacheKey, keysToSet []CacheKey, val string, sentinel shared.CacheSentinel, ttl time.Duration) (bool, bool, error)
+	SetValue(ctx context.Context, lkey shared.CacheKey, keysToSet []shared.CacheKey, val string, sentinel shared.CacheSentinel, ttl time.Duration) (bool, bool, error)
 	// DeleteValue deletes the value(s) in passed in keys, force is true also deletes keys with sentinel or tombstone values
-	DeleteValue(ctx context.Context, key []CacheKey, force bool) error
+	DeleteValue(ctx context.Context, key []shared.CacheKey, force bool) error
 	// WriteSentinel writes the sentinel value into the given keys, returns NoLockSentinel if it couldn't acquire the lock
-	WriteSentinel(ctx context.Context, stype shared.SentinelType, keys []CacheKey) (shared.CacheSentinel, error)
+	WriteSentinel(ctx context.Context, stype shared.SentinelType, keys []shared.CacheKey) (shared.CacheSentinel, error)
 	// ReleaseSentinel clears the sentinel value from the given keys
-	ReleaseSentinel(ctx context.Context, keys []CacheKey, s shared.CacheSentinel)
+	ReleaseSentinel(ctx context.Context, keys []shared.CacheKey, s shared.CacheSentinel)
 	// AddDependency adds the given cache key(s) as dependencies of an item represented by by key. Fails if any of the dependency keys passed in contain tombstone
-	AddDependency(ctx context.Context, keysIn []CacheKey, dependentKey []CacheKey, ttl time.Duration) error
+	AddDependency(ctx context.Context, keysIn []shared.CacheKey, dependentKey []shared.CacheKey, ttl time.Duration) error
 	// ClearDependencies clears the dependencies of an item represented by key and removes all dependent keys from the cache
-	ClearDependencies(ctx context.Context, key CacheKey, setTombstone bool) error
+	ClearDependencies(ctx context.Context, key shared.CacheKey, setTombstone bool) error
 	// Flush flushes the cache
 	Flush(ctx context.Context)
 }
@@ -115,18 +112,18 @@ type CacheKeyNameID string
 // CacheKeyNameProvider is the interface for the container that can provide cache names for cache keys that
 // can be shared across different cache providers
 type CacheKeyNameProvider interface {
-	GetKeyName(id CacheKeyNameID, components []string) CacheKey
+	GetKeyName(id CacheKeyNameID, components []string) shared.CacheKey
 	// GetKeyNameWithID is a wrapper around GetKeyName that converts the itemID to []string
-	GetKeyNameWithID(id CacheKeyNameID, itemID uuid.UUID) CacheKey
+	GetKeyNameWithID(id CacheKeyNameID, itemID uuid.UUID) shared.CacheKey
 	// GetKeyNameWithString is a wrapper around GetKeyName that converts the itemName to []string
-	GetKeyNameWithString(id CacheKeyNameID, itemName string) CacheKey
+	GetKeyNameWithString(id CacheKeyNameID, itemName string) shared.CacheKey
 	// GetKeyNameStatic is a wrapper around GetKeyName that passing in empty []string
-	GetKeyNameStatic(id CacheKeyNameID) CacheKey
+	GetKeyNameStatic(id CacheKeyNameID) shared.CacheKey
 }
 
 // getItemLockKeys returns the keys to lock for the given item
-func getItemLockKeys[item CacheSingleItem](ctx context.Context, lockType shared.SentinelType, c CacheKeyNameProvider, i item) []CacheKey {
-	keys := []CacheKey{i.GetPrimaryKey(c)} // primary key is always first
+func getItemLockKeys[item CacheSingleItem](ctx context.Context, lockType shared.SentinelType, c CacheKeyNameProvider, i item) []shared.CacheKey {
+	keys := []shared.CacheKey{i.GetPrimaryKey(c)} // primary key is always first
 	switch lockType {
 	case shared.Create:
 		// Takes a lock if item does not exist, if read lock is in place
@@ -164,19 +161,19 @@ func TakeItemLock[item CacheSingleItem](ctx context.Context, lockType shared.Sen
 }
 
 // TakePerItemCollectionLock takes a lock for the collection associated with a given item
-func TakePerItemCollectionLock[item CacheSingleItem](ctx context.Context, lockType shared.SentinelType, c CacheManager, additionalColKeys []CacheKey, i item) (shared.CacheSentinel, error) {
+func TakePerItemCollectionLock[item CacheSingleItem](ctx context.Context, lockType shared.SentinelType, c CacheManager, additionalColKeys []shared.CacheKey, i item) (shared.CacheSentinel, error) {
 	if lockType != shared.Delete && lockType != shared.Read {
 		return shared.NoLockSentinel, ucerr.New("Unexpected lock type for collection lock")
 	}
 
 	// Lock the primary per item collection and any sub collections that are passed in
-	keys := []CacheKey{i.GetPerItemCollectionKey(c.N)}
+	keys := []shared.CacheKey{i.GetPerItemCollectionKey(c.N)}
 	keys = append(keys, additionalColKeys...)
 
 	return takeLockWorker(ctx, c, lockType, i, keys)
 }
 
-func takeLockWorker[item CacheSingleItem](ctx context.Context, c CacheManager, lockType shared.SentinelType, i item, keys []CacheKey) (shared.CacheSentinel, error) {
+func takeLockWorker[item CacheSingleItem](ctx context.Context, c CacheManager, lockType shared.SentinelType, i item, keys []shared.CacheKey) (shared.CacheSentinel, error) {
 	s := shared.NoLockSentinel
 
 	var err error
@@ -219,20 +216,20 @@ func ReleaseItemLock[item CacheSingleItem](ctx context.Context, c CacheManager, 
 }
 
 // ReleasePerItemCollectionLock releases the lock for the collection associated with a given item
-func ReleasePerItemCollectionLock[item CacheSingleItem](ctx context.Context, c CacheManager, additionalColKeys []CacheKey, i item, sentinel shared.CacheSentinel) {
+func ReleasePerItemCollectionLock[item CacheSingleItem](ctx context.Context, c CacheManager, additionalColKeys []shared.CacheKey, i item, sentinel shared.CacheSentinel) {
 	if sentinel == shared.NoLockSentinel {
 		return // nothing to clear if the lock wasn't acquired
 	}
 
 	// Unlock the primary per item collection and any sub collections that are passed in
-	keys := []CacheKey{i.GetPerItemCollectionKey(c.N)}
+	keys := []shared.CacheKey{i.GetPerItemCollectionKey(c.N)}
 	keys = append(keys, additionalColKeys...)
 
 	c.P.ReleaseSentinel(ctx, keys, sentinel)
 }
 
 // GetItemFromCache gets the the value stored in key from the cache. The value could a single item or an array of items
-func GetItemFromCache[item any](ctx context.Context, c CacheManager, key CacheKey, lockOnMiss bool, ttl time.Duration) (*item, shared.CacheSentinel, error) {
+func GetItemFromCache[item any](ctx context.Context, c CacheManager, key shared.CacheKey, lockOnMiss bool, ttl time.Duration) (*item, shared.CacheSentinel, error) {
 	if ttl == SkipCacheTTL {
 		return nil, "", nil
 	}
@@ -256,7 +253,7 @@ func GetItemFromCache[item any](ctx context.Context, c CacheManager, key CacheKe
 
 // SaveItemToCache saves the given item to the cache
 func SaveItemToCache[item CacheSingleItem](ctx context.Context, c CacheManager, i item, sentinel shared.CacheSentinel,
-	clearCollection bool, additionalColKeys []CacheKey) {
+	clearCollection bool, additionalColKeys []shared.CacheKey) {
 	saveItemToCacheWorker(ctx, c, i, i.GetPrimaryKey(c.N), sentinel, clearCollection, additionalColKeys)
 }
 
@@ -267,8 +264,8 @@ func SaveItemsFromCollectionToCache[item CacheSingleItem](ctx context.Context, c
 	}
 }
 
-func saveItemToCacheWorker[item CacheSingleItem](ctx context.Context, c CacheManager, i item, lkey CacheKey, sentinel shared.CacheSentinel,
-	clearCollection bool, additionalColKeys []CacheKey) {
+func saveItemToCacheWorker[item CacheSingleItem](ctx context.Context, c CacheManager, i item, lkey shared.CacheKey, sentinel shared.CacheSentinel,
+	clearCollection bool, additionalColKeys []shared.CacheKey) {
 	if i.TTL(c.T) == SkipCacheTTL {
 		return
 	}
@@ -278,7 +275,7 @@ func saveItemToCacheWorker[item CacheSingleItem](ctx context.Context, c CacheMan
 	}
 
 	if b, err := json.Marshal(i); err == nil {
-		keyNames := []CacheKey{}
+		keyNames := []shared.CacheKey{}
 		keyNames = append(keyNames, i.GetSecondaryKeys(c.N)...)
 		keyNames = append(keyNames, i.GetPrimaryKey(c.N))
 		keyset, conflict, err := c.P.SetValue(ctx, lkey, keyNames, string(b), sentinel, i.TTL(c.T))
@@ -286,7 +283,7 @@ func saveItemToCacheWorker[item CacheSingleItem](ctx context.Context, c CacheMan
 			uclog.Errorf(ctx, "Error saving item to cache: %v", err)
 		}
 		// Cleart all the collections that this item might appear in. This is needed for create/update operations that might change the collection
-		ckeys := []CacheKey{}
+		ckeys := []shared.CacheKey{}
 		clearKeysOnError := false
 		if clearCollection && !conflict {
 			// Check if there is a default global collection for all items of this type
@@ -325,7 +322,7 @@ func saveItemToCacheWorker[item CacheSingleItem](ctx context.Context, c CacheMan
 
 		}
 		if selfDepKey := i.GetDependenciesKey(c.N); selfDepKey != "" && keyset && len(i.GetSecondaryKeys(c.N)) != 0 {
-			if err := c.P.AddDependency(ctx, []CacheKey{selfDepKey}, i.GetSecondaryKeys(c.N), i.TTL(c.T)); err != nil {
+			if err := c.P.AddDependency(ctx, []shared.CacheKey{selfDepKey}, i.GetSecondaryKeys(c.N), i.TTL(c.T)); err != nil {
 				// This may fail if the item was deleted between where we stored it in the primary/secondary keys and here
 				uclog.Debugf(ctx, "Failed to add secondary key dependency %v to key %v: %v", i.GetSecondaryKeys(c.N), selfDepKey, err)
 				clearKeysOnError = true
@@ -344,7 +341,7 @@ func saveItemToCacheWorker[item CacheSingleItem](ctx context.Context, c CacheMan
 // If this is a per item collection than "item" argument is the item with with the collection is associated and "cItems" is the collection
 // to be stored.
 func SaveItemsToCollection[item CacheSingleItem, cItem CacheSingleItem](ctx context.Context, c CacheManager,
-	i item, colItems []cItem, lockKey CacheKey, colKey CacheKey, sentinel shared.CacheSentinel, isGlobal bool, ttl time.Duration) {
+	i item, colItems []cItem, lockKey shared.CacheKey, colKey shared.CacheKey, sentinel shared.CacheSentinel, isGlobal bool, ttl time.Duration) {
 	if ttl == SkipCacheTTL {
 		return
 	}
@@ -359,8 +356,8 @@ func SaveItemsToCollection[item CacheSingleItem, cItem CacheSingleItem](ctx cont
 
 	if b, err := json.Marshal(colItems); err == nil {
 		// Get a list of items this collection depends on so that can add our collection key to their dependencies list
-		dependentItems := map[CacheKey]bool{}
-		dependentKeys := make([]CacheKey, 0, len(colItems))
+		dependentItems := map[shared.CacheKey]bool{}
+		dependentKeys := make([]shared.CacheKey, 0, len(colItems))
 		for _, ci := range colItems {
 			depKeys := ci.GetDependencyKeys(c.N)
 			for _, depKey := range depKeys {
@@ -387,14 +384,14 @@ func SaveItemsToCollection[item CacheSingleItem, cItem CacheSingleItem](ctx cont
 		// We write the collection key into the dependency lists of items it depends on before saving it/
 		// That way we save the collection if and only if all the lists are updated successfully.
 		if len(dependentKeys) > 0 {
-			if err := c.P.AddDependency(ctx, dependentKeys, []CacheKey{colKey}, i.TTL(c.T)); err != nil {
+			if err := c.P.AddDependency(ctx, dependentKeys, []shared.CacheKey{colKey}, i.TTL(c.T)); err != nil {
 				uclog.Warningf(ctx, "Didn't cache collection failed to add dependency %v to key %v: %v", dependentKeys, colKey, err)
 				saveCollection = false
 			}
 		}
 		// If we don't save the collection the cache is still in a consistent state - we just didn't cache the collection
 		if saveCollection {
-			if r, _, err := c.P.SetValue(ctx, lockKey, []CacheKey{colKey}, string(b), sentinel, ttl); err == nil && r {
+			if r, _, err := c.P.SetValue(ctx, lockKey, []shared.CacheKey{colKey}, string(b), sentinel, ttl); err == nil && r {
 				uclog.Verbosef(ctx, "Saved collection %v to cache", colKey)
 			}
 		}

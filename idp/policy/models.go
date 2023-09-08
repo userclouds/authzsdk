@@ -8,6 +8,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"userclouds.com/idp/userstore"
+	"userclouds.com/infra/pagination"
 	"userclouds.com/infra/ucdb"
 	"userclouds.com/infra/ucerr"
 	"userclouds.com/infra/uuidarray"
@@ -44,6 +45,19 @@ type Transformer struct {
 	TagIDs        uuidarray.UUIDArray `json:"tag_ids" validate:"skip"`
 	Function      string              `json:"function" required:"true"`
 	Parameters    string              `json:"parameters"`
+}
+
+// GetPaginationKeys is part of the pagination.PageableType interface
+func (Transformer) GetPaginationKeys() pagination.KeyTypes {
+	return pagination.KeyTypes{
+		"id":             pagination.UUIDKeyType,
+		"name":           pagination.StringKeyType,
+		"description":    pagination.StringKeyType,
+		"input_type":     pagination.StringKeyType,
+		"transform_type": pagination.StringKeyType,
+		"created":        pagination.TimestampKeyType,
+		"updated":        pagination.TimestampKeyType,
+	}
 }
 
 //go:generate genvalidate Transformer
@@ -117,6 +131,17 @@ type AccessPolicyTemplate struct {
 	Version        int    `db:"version" json:"version"`
 }
 
+// GetPaginationKeys is part of the pagination.PageableType interface
+func (AccessPolicyTemplate) GetPaginationKeys() pagination.KeyTypes {
+	return pagination.KeyTypes{
+		"id":          pagination.UUIDKeyType,
+		"name":        pagination.StringKeyType,
+		"description": pagination.StringKeyType,
+		"created":     pagination.TimestampKeyType,
+		"updated":     pagination.TimestampKeyType,
+	}
+}
+
 //go:generate genvalidate AccessPolicyTemplate
 
 func (a AccessPolicyTemplate) extraValidate() error {
@@ -173,6 +198,18 @@ type AccessPolicy struct {
 	Version     int                 `json:"version"`
 
 	Components []AccessPolicyComponent `json:"components" validate:"skip"`
+}
+
+// GetPaginationKeys is part of the pagination.PageableType interface
+func (AccessPolicy) GetPaginationKeys() pagination.KeyTypes {
+	return pagination.KeyTypes{
+		"id":          pagination.UUIDKeyType,
+		"name":        pagination.StringKeyType,
+		"description": pagination.StringKeyType,
+		"policy_type": pagination.StringKeyType,
+		"created":     pagination.TimestampKeyType,
+		"updated":     pagination.TimestampKeyType,
+	}
 }
 
 //go:generate genvalidate AccessPolicy

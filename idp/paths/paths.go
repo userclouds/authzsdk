@@ -80,12 +80,13 @@ var (
 
 	TokenizerBasePath = "/tokenizer"
 
-	BaseTokenPath = fmt.Sprintf("%s/tokens", TokenizerBasePath)
-	CreateToken   = BaseTokenPath
-	ResolveToken  = fmt.Sprintf("%s/actions/resolve", BaseTokenPath)
-	InspectToken  = fmt.Sprintf("%s/actions/inspect", BaseTokenPath)
-	LookupToken   = fmt.Sprintf("%s/actions/lookup", BaseTokenPath)
-	DeleteToken   = BaseTokenPath
+	BaseTokenPath        = fmt.Sprintf("%s/tokens", TokenizerBasePath)
+	CreateToken          = BaseTokenPath
+	DeleteToken          = BaseTokenPath
+	ResolveToken         = fmt.Sprintf("%s/actions/resolve", BaseTokenPath)
+	InspectToken         = fmt.Sprintf("%s/actions/inspect", BaseTokenPath)
+	LookupToken          = fmt.Sprintf("%s/actions/lookup", BaseTokenPath)
+	LookupOrCreateTokens = fmt.Sprintf("%s/actions/lookuporcreate", BaseTokenPath)
 
 	BasePolicyPath = fmt.Sprintf("%s/policies", TokenizerBasePath)
 

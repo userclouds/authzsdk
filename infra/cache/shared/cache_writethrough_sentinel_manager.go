@@ -6,14 +6,8 @@ import (
 	"github.com/gofrs/uuid"
 )
 
-// CacheSentinel is the type storing in the cache marker for inprogress operation
-type CacheSentinel string
-
 // NoLockSentinel represents the sentinel value for no lock
 const NoLockSentinel CacheSentinel = ""
-
-// SentinelType captures the type of the sentinel for different operations
-type SentinelType string
 
 // SentinelType names
 const (

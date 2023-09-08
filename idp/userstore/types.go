@@ -68,6 +68,7 @@ type Column struct {
 	IsArray      bool            `json:"is_array" required:"true"`
 	DefaultValue string          `json:"default_value"`
 	IndexType    ColumnIndexType `json:"index_type" required:"true"`
+	IsSystem     bool            `json:"is_system" description:"Whether this column is a system column. System columns cannot be deleted or modified. This property cannot be changed."`
 }
 
 var validIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_-]*$`)
