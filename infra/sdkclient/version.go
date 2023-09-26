@@ -1,6 +1,6 @@
 package sdkclient
 
-var sdkVersion = "0.7.1"
+var sdkVersion = "0.7.2"
 
 func getSDKVersion() string {
 	return sdkVersion
