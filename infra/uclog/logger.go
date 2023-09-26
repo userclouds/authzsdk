@@ -21,7 +21,7 @@ type loggerStatus int
 // Possible states of the logger interface
 const (
 	loggerNotInitialized   loggerStatus = iota // no initialization has been performed
-	loggerPreInitialized                       // no initialization has been performed but logging messages have been recieved
+	loggerPreInitialized                       // no initialization has been performed but logging messages have been received
 	loggerToolMode                             // initialized for short lifetime tool
 	loggerServiceMode                          // initialized for long time running service
 	loggerShuttingDownMode                     // transports are in the process of being closed
@@ -116,7 +116,7 @@ func updateEventMetadata(updatedMap *EventMetadataMap, tenantID uuid.UUID) error
 
 	if getEventInfoByName(EventNameNone, 0, tenantID).Code != EventCodeNone ||
 		getEventInfoByName(EventNameUnknown, 0, tenantID).Code != EventCodeUnknown {
-		Errorf(ctx, "Recieved invalid map (either None or Unknown missing, map length %d)", len(loggerInst.eventMetadata))
+		Errorf(ctx, "received invalid map (either None or Unknown missing, map length %d)", len(loggerInst.eventMetadata))
 	}
 
 	validateHandlerMap(ctx)

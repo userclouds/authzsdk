@@ -45,6 +45,7 @@ type Transformer struct {
 	TagIDs        uuidarray.UUIDArray `json:"tag_ids" validate:"skip"`
 	Function      string              `json:"function" required:"true"`
 	Parameters    string              `json:"parameters"`
+	IsSystem      bool                `json:"is_system" description:"Whether this transformer is a system transformer. System transformers cannot be deleted or modified. This property cannot be changed."`
 }
 
 // GetPaginationKeys is part of the pagination.PageableType interface
@@ -92,7 +93,7 @@ func (g Transformer) extraValidate() error {
 func (g *Transformer) Equals(other *Transformer) bool {
 	return (g.ID == other.ID || g.ID == uuid.Nil || other.ID == uuid.Nil) &&
 		g.Name == other.Name && g.InputType == other.InputType &&
-		g.TransformType == other.TransformType && g.Function == other.Function && g.Parameters == other.Parameters
+		g.TransformType == other.TransformType && g.Function == other.Function && g.Parameters == other.Parameters && g.IsSystem == other.IsSystem
 }
 
 // UserstoreDataProvenance is used by TransformTypeTokenizeByReference to describe the provenance of the data
@@ -124,11 +125,11 @@ const (
 
 // AccessPolicyTemplate describes a template for an access policy
 type AccessPolicyTemplate struct {
-	ucdb.BaseModel `validate:"skip"`
-	Name           string `db:"name" json:"name" validate:"length:1,128" required:"true"`
-	Description    string `db:"description" json:"description"`
-	Function       string `db:"function" json:"function" required:"true"`
-	Version        int    `db:"version" json:"version"`
+	ucdb.SystemAttributeBaseModel `validate:"skip"`
+	Name                          string `db:"name" json:"name" validate:"length:1,128" required:"true"`
+	Description                   string `db:"description" json:"description"`
+	Function                      string `db:"function" json:"function" required:"true"`
+	Version                       int    `db:"version" json:"version"`
 }
 
 // GetPaginationKeys is part of the pagination.PageableType interface
@@ -158,7 +159,7 @@ func (a AccessPolicyTemplate) extraValidate() error {
 // Equals returns true if the two templates are equal, ignoring the ID, description, and version fields
 func (a *AccessPolicyTemplate) Equals(other *AccessPolicyTemplate) bool {
 	return (a.ID == other.ID || a.ID == uuid.Nil || other.ID == uuid.Nil) &&
-		a.Name == other.Name && a.Function == other.Function
+		a.Name == other.Name && a.Function == other.Function && a.IsSystem == other.IsSystem
 }
 
 // AccessPolicyComponent is either an access policy a template paired with parameters to fill it with
@@ -196,6 +197,7 @@ type AccessPolicy struct {
 	PolicyType  PolicyType          `json:"policy_type" required:"true"`
 	TagIDs      uuidarray.UUIDArray `json:"tag_ids" validate:"skip"`
 	Version     int                 `json:"version"`
+	IsSystem    bool                `json:"is_system" description:"Whether this policy is a system policy. System policies cannot be deleted or modified. This property cannot be changed."`
 
 	Components []AccessPolicyComponent `json:"components" validate:"skip"`
 }

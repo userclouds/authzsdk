@@ -1,11 +1,15 @@
 package userstore
 
 import (
+	"fmt"
 	"regexp"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/gofrs/uuid"
 
+	"userclouds.com/infra/set"
 	"userclouds.com/infra/ucerr"
 )
 
@@ -38,6 +42,18 @@ type Address struct {
 	AdministrativeArea string `json:"administrative_area,omitempty"`
 	PostCode           string `json:"post_code,omitempty"`
 	SortingCode        string `json:"sorting_code,omitempty"`
+}
+
+// NewAddressSet returns a set of addresses
+func NewAddressSet(items ...Address) set.Set[Address] {
+	return set.NewSet(
+		func(items []Address) {
+			sort.Slice(items, func(i, j int) bool {
+				return fmt.Sprintf("%+v", items[i]) < fmt.Sprintf("%+v", items[j])
+			})
+		},
+		items...,
+	)
 }
 
 //go:generate gendbjson Address
@@ -91,7 +107,8 @@ func (c *Column) Equals(other *Column) bool {
 		c.Type == other.Type &&
 		c.IsArray == other.IsArray &&
 		c.DefaultValue == other.DefaultValue &&
-		c.IndexType == other.IndexType
+		c.IndexType == other.IndexType &&
+		c.IsSystem == other.IsSystem
 }
 
 // Record is a single "row" of data containing 0 or more Columns from userstore's schema
@@ -149,6 +166,48 @@ type ColumnOutputConfig struct {
 	Transformer ResourceID `json:"transformer"`
 }
 
+// GetRetentionTimeoutImmediateDeletion returns the immediate deletion retention timeout
+func GetRetentionTimeoutImmediateDeletion() time.Time {
+	return time.Time{}
+}
+
+// GetRetentionTimeoutIndefinite returns the indefinite retention timeout
+func GetRetentionTimeoutIndefinite() time.Time {
+	return time.Time{}
+}
+
+// DataLifeCycleState identifies the life-cycle state for a piece of data - either
+// pre-deleted (i.e., "live") or post-deleted.
+type DataLifeCycleState string
+
+// Supported data life cycle states
+const (
+	DataLifeCycleStateDefault    DataLifeCycleState = ""
+	DataLifeCycleStatePreDelete  DataLifeCycleState = "predelete"
+	DataLifeCycleStatePostDelete DataLifeCycleState = "postdelete"
+)
+
+//go:generate genconstant DataLifeCycleState
+
+// GetConcrete returns the concrete data life cycle state for the given data life cycle state
+func (dlcs DataLifeCycleState) GetConcrete() DataLifeCycleState {
+	switch dlcs {
+	case DataLifeCycleStateDefault:
+		return DataLifeCycleStatePreDelete
+	default:
+		return dlcs
+	}
+}
+
+// GetDefaultRetentionTimeout returns the default retention timeout for the data life cycle state
+func (dlcs DataLifeCycleState) GetDefaultRetentionTimeout() time.Time {
+	if dlcs.GetConcrete() == DataLifeCycleStatePreDelete {
+		return GetRetentionTimeoutIndefinite()
+	}
+
+	return GetRetentionTimeoutImmediateDeletion()
+}
+
 // Accessor represents a customer-defined view and permissions policy on userstore data
 type Accessor struct {
 	ID uuid.UUID `json:"id"`
@@ -161,6 +220,9 @@ type Accessor struct {
 
 	// Version of the accessor
 	Version int `json:"version"`
+
+	// Specify whether to access pre-deleted or post-deleted data
+	DataLifeCycleState DataLifeCycleState `json:"data_life_cycle_state"`
 
 	// Configuration for which user records to return
 	SelectorConfig UserSelectorConfig `json:"selector_config" required:"true"`
@@ -176,6 +238,8 @@ type Accessor struct {
 
 	// Policy for token resolution in the case of transformers that tokenize data
 	TokenAccessPolicy ResourceID `json:"token_access_policy,omitempty" validate:"skip"`
+
+	IsSystem bool `json:"is_system" description:"Whether this accessor is a system accessor. System accessors cannot be deleted or modified. This property cannot be changed."`
 }
 
 func (o *Accessor) extraValidate() error {
@@ -238,6 +302,8 @@ type Mutator struct {
 
 	// Policy for whether the data for each user record can be updated
 	AccessPolicy ResourceID `json:"access_policy" validate:"skip" required:"true"`
+
+	IsSystem bool `json:"is_system" description:"Whether this mutator is a system mutator. System mutators cannot be deleted or modified. This property cannot be changed."`
 }
 
 func (o *Mutator) extraValidate() error {
@@ -314,6 +380,7 @@ type Purpose struct {
 	ID          uuid.UUID `json:"id"`
 	Name        string    `json:"name" validate:"length:1,128" required:"true"`
 	Description string    `json:"description"`
+	IsSystem    bool      `json:"is_system" description:"Whether this purpose is a system purpose. System purposes cannot be deleted or modified. This property cannot be changed."`
 }
 
 func (p *Purpose) extraValidate() error {

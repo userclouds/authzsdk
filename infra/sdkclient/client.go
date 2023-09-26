@@ -12,8 +12,7 @@ type Client struct {
 
 // New constructs a new UserClouds SDK client
 func New(url string, opts ...jsonclient.Option) *Client {
-	opts = append(opts, jsonclient.Header(uclog.HeaderSDKVersion, getSDKVersion()))
-
+	opts = append(opts, jsonclient.Header(uclog.HeaderSDKVersion, sdkVersion))
 	c := jsonclient.New(url, opts...)
 
 	return &Client{c}

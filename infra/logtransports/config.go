@@ -1,40 +1,70 @@
 package logtransports
 
 import (
-	"github.com/gofrs/uuid"
+	"gopkg.in/yaml.v3"
+
 	"userclouds.com/infra/namespace/service"
+	"userclouds.com/infra/ucerr"
 	"userclouds.com/infra/ucjwt"
 	"userclouds.com/infra/uclog"
 )
 
-// LogServerTransportConfig defines the configuration for transport sending events to our servers
-type LogServerTransportConfig struct {
-	uclog.TransportConfig `yaml:"transportconfig" json:"transportconfig"`
-	TenantID              uuid.UUID `yaml:"tenant_id" json:"tenant_id"`
-	LogServiceURL         string    `yaml:"log_service_url" json:"log_service_url"`
-	Service               string    `yaml:"service" json:"service"`
-	SendRawData           bool      `yaml:"send_raw_data" json:"send_raw_data"`
-}
-
 // Config defines overall logging configuration
 type Config struct {
-	LogServerTransportC LogServerTransportConfig `yaml:"serverlogger,omitempty" json:"serverlogger"`
-	NoRequestIDs        bool                     `yaml:"no_request_ids" json:"no_request_ids"`
+	Transports   TransportConfigs `yaml:"transports" json:"transports"`
+	NoRequestIDs bool             `yaml:"no_request_ids" json:"no_request_ids"`
 }
 
-// InitLoggerAndTransportsForSDK sets up logging transports for SDK
-func InitLoggerAndTransportsForSDK(config *Config, auth *ucjwt.Config, name service.Service) {
-	transports := initConfigInfoInTransports(name, config, auth)
+//go:generate genvalidate Config
 
-	uclog.InitForService(name, transports, nil)
+// TransportConfigs is an alias for an array of TransportConfig so we can handle polymorphic config unmarshalling
+type TransportConfigs []TransportConfig
+
+// UnmarshalYAML implements yaml.Unmarshaler
+func (t TransportConfigs) UnmarshalYAML(value *yaml.Node) error {
+	var c []intermediateConfig
+	if err := value.Decode(&c); err != nil {
+		return ucerr.Wrap(err)
+	}
+	t = make([]TransportConfig, len(c))
+	for i, v := range c {
+		t[i] = v.c
+	}
+	return nil
 }
 
-// initConfigInfoInTransports passes the config data to each transport
-func initConfigInfoInTransports(name service.Service, config *Config, auth *ucjwt.Config) []uclog.Transport {
-
-	var transports []uclog.Transport = make([]uclog.Transport, 0, 1)
-
-	transports = append(transports, newTransportBackgroundIOWrapper(newLogServerTransport(&config.LogServerTransportC, auth, name)))
-
-	return transports
+// intermediateConfig is a place to unmarshal to before we know the type of transport
+type intermediateConfig struct {
+	c TransportConfig
 }
+
+// UnmarshalYAML implements yaml.Unmarshaler
+func (i *intermediateConfig) UnmarshalYAML(value *yaml.Node) error {
+	for _, d := range decoders {
+		if c, err := d(value); err == nil {
+			i.c = c
+			return nil
+		}
+	}
+	return ucerr.New("unknown TransportConfig implementation")
+}
+
+// decoders allows different files to register themselves as available decoders/types
+// so that we can ship some transports externally and leave others internal without causing
+// build issues
+var decoders = make(map[TransportType]func(*yaml.Node) (TransportConfig, error))
+
+// registerDecoder centralizes manipulation of `decoders“
+func registerDecoder(name TransportType, f func(*yaml.Node) (TransportConfig, error)) {
+	decoders[name] = f
+}
+
+// TransportConfig defines the interface for a transport config
+type TransportConfig interface {
+	GetTransport(service.Service, *ucjwt.Config) uclog.Transport
+	GetType() TransportType
+	Validate() error
+}
+
+// TransportType defines the type of transport
+type TransportType string
