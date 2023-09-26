@@ -74,9 +74,10 @@ func JSONClient(opt ...jsonclient.Option) Option {
 
 // Client represents a client to talk to the Userclouds IDP
 type Client struct {
-	client          *sdkclient.Client
-	options         options
-	TokenizerClient *TokenizerClient
+	*TokenizerClient
+
+	client  *sdkclient.Client
+	options options
 }
 
 // NewClient constructs a new IDP client
@@ -91,7 +92,8 @@ func NewClient(url string, opts ...Option) (*Client, error) {
 		client:  sdkclient.New(strings.TrimSuffix(url, "/"), options.jsonclientOptions...),
 		options: options,
 	}
-	c.TokenizerClient = &TokenizerClient{client: c.client, options: options}
+	tc := &TokenizerClient{client: c.client, options: options}
+	c.TokenizerClient = tc
 
 	if err := c.client.ValidateBearerTokenHeader(); err != nil {
 		return nil, ucerr.Wrap(err)
@@ -308,29 +310,17 @@ func (c *Client) UpdateColumn(ctx context.Context, columnID uuid.UUID, updatedCo
 	return &resp, nil
 }
 
-// DurationType identifies whether a duration is for a pre-deleted
-// (i.e., "live") value or a post-deleted value
-type DurationType int
-
-// Supported duration types
-const (
-	DurationTypePreDelete  DurationType = 1
-	DurationTypePostDelete DurationType = 2
-)
-
-//go:generate genconstant DurationType
-
 // DurationUnit identifies the unit of measurement for a duration
-type DurationUnit int
+type DurationUnit string
 
 // Supported duration units
 const (
-	DurationUnitIndefinite DurationUnit = 1
-	DurationUnitYear       DurationUnit = 2
-	DurationUnitMonth      DurationUnit = 3
-	DurationUnitWeek       DurationUnit = 4
-	DurationUnitDay        DurationUnit = 5
-	DurationUnitHour       DurationUnit = 6
+	DurationUnitIndefinite DurationUnit = "indefinite"
+	DurationUnitYear       DurationUnit = "year"
+	DurationUnitMonth      DurationUnit = "month"
+	DurationUnitWeek       DurationUnit = "week"
+	DurationUnitDay        DurationUnit = "day"
+	DurationUnitHour       DurationUnit = "hour"
 )
 
 //go:generate genconstant DurationUnit
@@ -359,7 +349,7 @@ func (d *RetentionDuration) extraValidate() error {
 func (d RetentionDuration) AddToTime(t time.Time) time.Time {
 	switch d.Unit {
 	case DurationUnitIndefinite:
-		return time.Time{}
+		return userstore.GetRetentionTimeoutIndefinite()
 	case DurationUnitYear:
 		return t.AddDate(d.Duration, 0, 0)
 	case DurationUnitMonth:
@@ -382,14 +372,14 @@ func (d RetentionDuration) LessThan(other RetentionDuration) bool {
 }
 
 // ColumnRetentionDurationType identifies the type of the retention duration
-type ColumnRetentionDurationType int
+type ColumnRetentionDurationType string
 
 // Supported column retention duration types
 const (
-	ColumnRetentionDurationTypeTenant   ColumnRetentionDurationType = 1
-	ColumnRetentionDurationTypeColumn   ColumnRetentionDurationType = 2
-	ColumnRetentionDurationTypePurpose  ColumnRetentionDurationType = 3
-	ColumnRetentionDurationTypeSpecific ColumnRetentionDurationType = 4
+	ColumnRetentionDurationTypeTenant   ColumnRetentionDurationType = "tenant"
+	ColumnRetentionDurationTypeColumn   ColumnRetentionDurationType = "column"
+	ColumnRetentionDurationTypePurpose  ColumnRetentionDurationType = "purpose"
+	ColumnRetentionDurationTypeSpecific ColumnRetentionDurationType = "specific"
 )
 
 //go:generate genconstant ColumnRetentionDurationType
@@ -399,16 +389,16 @@ const (
 // inherited from a less specific default value. DefaultDuration represents the duration
 // that would be inherited if a specific value is not set for the retention duration identifier.
 type ColumnRetentionDuration struct {
-	Type            ColumnRetentionDurationType `json:"type"`
-	ID              uuid.UUID                   `json:"id" validate:"skip"`
-	Version         int                         `json:"version"`
-	ColumnID        uuid.UUID                   `json:"column_id" validate:"skip"`
-	PurposeID       uuid.UUID                   `json:"purpose_id" validate:"skip"`
-	DurationType    DurationType                `json:"duration_type"`
-	PurposeName     string                      `json:"purpose_name"`
-	Duration        RetentionDuration           `json:"duration"`
-	UseDefault      bool                        `json:"use_default"`
-	DefaultDuration RetentionDuration           `json:"default_duration"`
+	Type            ColumnRetentionDurationType  `json:"type"`
+	ID              uuid.UUID                    `json:"id" validate:"skip"`
+	Version         int                          `json:"version"`
+	ColumnID        uuid.UUID                    `json:"column_id" validate:"skip"`
+	PurposeID       uuid.UUID                    `json:"purpose_id" validate:"skip"`
+	DurationType    userstore.DataLifeCycleState `json:"duration_type"`
+	PurposeName     string                       `json:"purpose_name"`
+	Duration        RetentionDuration            `json:"duration"`
+	UseDefault      bool                         `json:"use_default"`
+	DefaultDuration RetentionDuration            `json:"default_duration"`
 }
 
 func (d *ColumnRetentionDuration) extraValidate() error {
@@ -443,7 +433,7 @@ func (d *ColumnRetentionDuration) extraValidate() error {
 		return ucerr.New("Duration must equal DefaultDuration if UseDefault is true")
 	}
 
-	if d.DurationType == DurationTypePreDelete {
+	if d.DurationType.GetConcrete() == userstore.DataLifeCycleStatePreDelete {
 		if d.Duration.Unit != DurationUnitIndefinite && d.Duration.Duration == 0 {
 			return ucerr.New("DurationTypePreDelete cannot have a duration of 0")
 		}
@@ -473,9 +463,9 @@ type ColumnRetentionDurationsResponse struct {
 func (c *Client) GetColumnRetentionDurations(
 	ctx context.Context,
 	columnID uuid.UUID,
-	dt DurationType,
+	durationType userstore.DataLifeCycleState,
 ) (*ColumnRetentionDurationsResponse, error) {
-	path := paths.GetColumnRetentionDurationURL(columnID, dt == DurationTypePreDelete)
+	path := paths.GetColumnRetentionDurationURL(columnID, durationType.GetConcrete() == userstore.DataLifeCycleStatePreDelete)
 
 	var resp ColumnRetentionDurationsResponse
 	if err := c.client.Get(ctx, path, &resp); err != nil {
@@ -509,10 +499,10 @@ func (r UpdateColumnRetentionDurationsRequest) extraValidate() error {
 func (c *Client) UpdateColumnRetentionDurations(
 	ctx context.Context,
 	columnID uuid.UUID,
-	dt DurationType,
+	durationType userstore.DataLifeCycleState,
 	req UpdateColumnRetentionDurationsRequest,
 ) (*ColumnRetentionDurationsResponse, error) {
-	path := paths.GetColumnRetentionDurationURL(columnID, dt == DurationTypePreDelete)
+	path := paths.GetColumnRetentionDurationURL(columnID, durationType == userstore.DataLifeCycleStatePreDelete)
 
 	var resp ColumnRetentionDurationsResponse
 	if err := c.client.Post(ctx, path, req, &resp); err != nil {
@@ -772,15 +762,11 @@ func (c *Client) ExecuteAccessor(ctx context.Context, accessorID uuid.UUID, clie
 	return &res, nil
 }
 
-type mutatorSystemValue struct {
-	SystemValue string `json:"special_value"`
-}
-
 // MutatorColumnDefaultValue is a special value that can be used to set a column to its default value
-var MutatorColumnDefaultValue = mutatorSystemValue{SystemValue: "default"}
+const MutatorColumnDefaultValue = "UCDEF-7f55f479-3822-4976-a8a9-b789d5c6f152"
 
 // MutatorColumnCurrentValue is a special value that can be used to set a column to its current value
-var MutatorColumnCurrentValue = mutatorSystemValue{SystemValue: "current"}
+const MutatorColumnCurrentValue = "UCCUR-7f55f479-3822-4976-a8a9-b789d5c6f152"
 
 // ValueAndPurposes is a tuple for specifying the value and the purpose to store for a user column
 type ValueAndPurposes struct {

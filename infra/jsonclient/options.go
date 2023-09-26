@@ -2,10 +2,13 @@ package jsonclient
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 
 	"userclouds.com/infra/oidc"
+	"userclouds.com/infra/ucerr"
 )
 
 // HeaderFunc is a callback that's invoked on every request to generate a header
@@ -74,6 +77,21 @@ func Header(k, v string) Option {
 	})
 }
 
+// HeaderHost allows you to add a Host header to jsonclient requests
+func HeaderHost(host string) Option {
+	return Header("Host", host)
+}
+
+// HeaderAuth Adds an Authorization header to the request
+func HeaderAuth(auth string) Option {
+	return Header("Authorization", auth)
+}
+
+// HeaderAuthBearer Adds an Authorization header w/ a Bearer token to the request
+func HeaderAuthBearer(token string) Option {
+	return HeaderAuth(fmt.Sprintf("Bearer %s", token))
+}
+
 // Cookie allows you to add cookies to jsonclient requests
 func Cookie(cookie http.Cookie) Option {
 	return optFunc(func(opts *options) {
@@ -123,6 +141,18 @@ func ClientCredentialsTokenSource(tokenURL, clientID, clientSecret string, custo
 		ClientSecret:    clientSecret,
 		CustomAudiences: customAudiences,
 	})
+}
+
+// ClientCredentialsForURL can be specified to enable support for RefreshBearerToken automatically
+// refreshing the token if expired.
+func ClientCredentialsForURL(u string, clientID, clientSecret string, customAudiences []string) (Option, error) {
+	parsedURL, err := url.Parse(u)
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+	// TODO: move common routes into constants
+	parsedURL.Path = "/oidc/token"
+	return ClientCredentialsTokenSource(parsedURL.String(), clientID, clientSecret, customAudiences), nil
 }
 
 // TokenSource takes an arbitrary token source

@@ -9,6 +9,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"userclouds.com/infra/cache/shared"
+	"userclouds.com/infra/cache/shared/metrics"
 	"userclouds.com/infra/jsonclient"
 	"userclouds.com/infra/ucerr"
 	"userclouds.com/infra/uclog"
@@ -233,12 +234,14 @@ func GetItemFromCache[item any](ctx context.Context, c CacheManager, key shared.
 	if ttl == SkipCacheTTL {
 		return nil, "", nil
 	}
-
+	start := time.Now().UTC()
 	value, s, err := c.P.GetValue(ctx, key, lockOnMiss)
+	took := time.Now().UTC().Sub(start)
 	if err != nil {
 		return nil, "", ucerr.Wrap(err)
 	}
 	if value == nil {
+		metrics.RecordCacheMiss(ctx, took)
 		return nil, s, nil
 	}
 
@@ -247,7 +250,7 @@ func GetItemFromCache[item any](ctx context.Context, c CacheManager, key shared.
 	if err := json.Unmarshal([]byte(*value), &i); err != nil {
 		return nil, "", nil
 	}
-
+	metrics.RecordCacheHit(ctx, took)
 	return &i, "", nil
 }
 

@@ -82,6 +82,8 @@ func (e ucError) Error() string {
 }
 
 // Unwrap implements errors.Unwrap for errors.Is
+// TODO (sgarrity 9/23): just read that errors.Unwrap can also return []error, so
+// we should update this when we starting using Combine more, but it's not clearly well supported
 func (e *ucError) Unwrap() error {
 	if e == nil || len(e.underlying) == 0 {
 		return nil
@@ -259,27 +261,4 @@ func BaseError(err error) error {
 	}
 
 	return err
-}
-
-// ErrorWithName gives a name to the error
-type ErrorWithName interface {
-	error
-	Name() string
-}
-
-type errorWithName struct {
-	error
-	name string
-}
-
-func (e errorWithName) Name() string {
-	return e.name
-}
-
-// WrapWithName wraps an error with a name
-func WrapWithName(err error, name string) ErrorWithName {
-	return errorWithName{
-		error: Wrap(err, ExtraSkip()),
-		name:  name,
-	}
 }

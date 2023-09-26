@@ -5,10 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"time"
 
 	"github.com/gofrs/uuid"
+	"gopkg.in/yaml.v3"
 
 	"userclouds.com/infra/jsonclient"
 	"userclouds.com/infra/namespace/region"
@@ -18,6 +18,51 @@ import (
 	"userclouds.com/infra/uclog"
 	logServerInterface "userclouds.com/logserver/client"
 )
+
+func init() {
+	registerDecoder(TransportTypeServer, func(value *yaml.Node) (TransportConfig, error) {
+		var s LogServerTransportConfig
+		// NB: we need to check the type here because the yaml decoder will happily decode an
+		// empty struct, since dec.KnownFields(true) gets lost via the yaml.Unmarshaler
+		// interface implementation
+		if err := value.Decode(&s); err == nil && s.Type == TransportTypeServer {
+			return &s, nil
+		}
+		return nil, ucerr.New("Unknown transport type")
+	})
+}
+
+// TransportTypeServer defines the server transport
+const TransportTypeServer TransportType = "server"
+
+// LogServerTransportConfig defines the configuration for transport sending events to our servers
+type LogServerTransportConfig struct {
+	Type                  TransportType `yaml:"type" json:"type"`
+	uclog.TransportConfig `yaml:"transportconfig" json:"transportconfig"`
+	TenantID              uuid.UUID `yaml:"tenant_id" json:"tenant_id"`
+	LogServiceURL         string    `yaml:"log_service_url" json:"log_service_url"`
+	Service               string    `yaml:"service" json:"service"`
+	SendRawData           bool      `yaml:"send_raw_data" json:"send_raw_data"`
+}
+
+// GetType implements TransportConfig
+func (c LogServerTransportConfig) GetType() TransportType {
+	return TransportTypeServer
+}
+
+// GetTransport implements TransportConfig
+func (c LogServerTransportConfig) GetTransport(name service.Service, auth *ucjwt.Config) uclog.Transport {
+	return newTransportBackgroundIOWrapper(newLogServerTransport(&c, auth, name))
+}
+
+// Validate implements Validateable
+func (c *LogServerTransportConfig) Validate() error {
+	if c.Required && c.LogServiceURL == "" {
+		return ucerr.New("logging config invalid - missing service url")
+	}
+
+	return nil
+}
 
 const (
 	logServerTransportName = "LogServerTransport"
@@ -96,13 +141,10 @@ func (t *logServerTransport) init() (*uclog.TransportConfig, error) {
 	t.messageInterval = defaultMessageInterval
 
 	// Create client for calling log server
-	tokenEndpointURL, err := url.Parse(t.auth.TenantURL)
+	tokenSource, err := jsonclient.ClientCredentialsForURL(t.auth.TenantURL, t.auth.ClientID, t.auth.ClientSecret, nil)
 	if err != nil {
 		return nil, ucerr.Wrap(err)
 	}
-	// TODO: move common routes into constants
-	tokenEndpointURL.Path = "/oidc/token"
-	tokenSource := jsonclient.ClientCredentialsTokenSource(tokenEndpointURL.String(), t.auth.ClientID, t.auth.ClientSecret, []string{t.auth.TenantURL})
 
 	t.client, err = logServerInterface.NewClient(t.auth.TenantURL, t.auth.TenantID, tokenSource, jsonclient.StopLogging())
 	if err != nil {

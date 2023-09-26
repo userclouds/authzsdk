@@ -69,14 +69,12 @@ func (b BaseModel) Alive() bool {
 // NewBase initializes a new UCBase
 func NewBase() BaseModel {
 	// note that we don't propagate NewV4() errors because at that point the world has ended.
-	return BaseModel{ID: uuid.Must(uuid.NewV4()), Deleted: time.Time{}} // lint: basemodel-safe
+	return NewBaseWithID(uuid.Must(uuid.NewV4()))
 }
 
 // NewBaseWithID initializes a new BaseModel with a specific ID
 func NewBaseWithID(id uuid.UUID) BaseModel {
-	b := NewBase()
-	b.ID = id
-	return b
+	return BaseModel{ID: id, Deleted: time.Time{}} // lint: basemodel-safe
 }
 
 // UserBaseModel is a user-related underlying model for many of our models eg. in IDP
@@ -117,4 +115,33 @@ func NewVersionBase() VersionBaseModel {
 // NewVersionBaseWithID initializes a new VersionBaseModel with a specific ID
 func NewVersionBaseWithID(id uuid.UUID) VersionBaseModel {
 	return VersionBaseModel{BaseModel: NewBaseWithID(id)}
+}
+
+// SystemAttributeBaseModel is for resource types where we may have system
+// resources that clients should not be able to update or delete
+type SystemAttributeBaseModel struct {
+	BaseModel
+
+	// note: the "description" tag is for OpenAPI spec generation, because we
+	// use DB model structs as client models in a few places where it's not
+	// worth maintaining separate DB and client models
+	IsSystem bool `db:"is_system" json:"is_system" description:"Whether this resource is a system resource. System resources cannot be deleted or modified. This property cannot be changed."`
+}
+
+//go:generate genvalidate SystemAttributeBaseModel
+
+// NewSystemAttributeBase initializes a new SystemAttributeBaseModel
+func NewSystemAttributeBase() SystemAttributeBaseModel {
+	return SystemAttributeBaseModel{BaseModel: NewBase()}
+}
+
+// NewSystemAttributeBaseWithID initializes a new SystemAttributeBaseModel with a specific ID
+func NewSystemAttributeBaseWithID(id uuid.UUID) SystemAttributeBaseModel {
+	return SystemAttributeBaseModel{BaseModel: NewBaseWithID(id)}
+}
+
+// MarkAsSystem returns a copy of the given model with IsSystem set to true
+func MarkAsSystem(m SystemAttributeBaseModel) SystemAttributeBaseModel {
+	m.IsSystem = true
+	return m
 }

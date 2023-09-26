@@ -33,6 +33,7 @@ const (
 	IntKeyType       KeyType = "Int"
 	StringKeyType    KeyType = "String"
 	TimestampKeyType KeyType = "Timestamp"
+	UUIDArrayKeyType KeyType = "UUIDArray"
 	UUIDKeyType      KeyType = "UUID"
 )
 
@@ -43,6 +44,7 @@ func (kt KeyType) Validate() error {
 	case IntKeyType:
 	case StringKeyType:
 	case TimestampKeyType:
+	case UUIDArrayKeyType:
 	case UUIDKeyType:
 	default:
 		return ucerr.Errorf("KeyType is unsupported: '%v'", kt)

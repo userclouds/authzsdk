@@ -10,7 +10,7 @@ import (
 
 // LocalStatus contains basic approximate statistics about the service
 type LocalStatus struct {
-	CallCount          int       `json:"callcount"`           // total calls recieved by the service
+	CallCount          int       `json:"callcount"`           // total calls received by the service
 	InputErrorCount    int       `json:"input_errorcount"`    // number of input errors
 	InternalErrorCount int       `json:"internal_errorcount"` // number of internal errors
 	StartupTime        time.Time `json:"startup_time"`        // time the service started

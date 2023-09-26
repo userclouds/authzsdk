@@ -5,6 +5,7 @@ import (
 
 	"userclouds.com/infra/namespace/region"
 	"userclouds.com/infra/namespace/service"
+	"userclouds.com/infra/ucjwt"
 	"userclouds.com/infra/uclog"
 )
 
@@ -49,4 +50,15 @@ func EncodeLogForTransfer(logRecords *logRecord, region region.Region, host stri
 		}
 	}
 	return recordsReady
+}
+
+// initConfigInfoInTransports passes the config data to each transport
+func initConfigInfoInTransports(name service.Service, config *Config, auth *ucjwt.Config) []uclog.Transport {
+	var transports []uclog.Transport = make([]uclog.Transport, 0, 4)
+
+	for _, tr := range config.Transports {
+		transports = append(transports, tr.GetTransport(name, auth))
+	}
+
+	return transports
 }

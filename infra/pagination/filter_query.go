@@ -24,12 +24,23 @@ const (
 	gt  operator = "GT"
 	le  operator = "LE"
 	il  operator = "IL"
+	has operator = "HAS"
 	lk  operator = "LK"
 	lt  operator = "LT"
 	ne  operator = "NE"
 	nl  operator = "NL"
 	or  operator = "OR"
 )
+
+func (o operator) isArrayOperator() bool {
+	switch o {
+	case has:
+	default:
+		return false
+	}
+
+	return true
+}
 
 func (o operator) isComparisonOperator() bool {
 	switch o {
@@ -70,7 +81,7 @@ func (o operator) isLogicalOperator() bool {
 }
 
 func (o operator) isLeafOperator() bool {
-	return o.isComparisonOperator() || o.isPatternOperator()
+	return o.isComparisonOperator() || o.isPatternOperator() || o.isArrayOperator()
 }
 
 func (o operator) queryString() string {
@@ -83,6 +94,8 @@ func (o operator) queryString() string {
 		return "<"
 	case ge:
 		return ">="
+	case has:
+		return "@>"
 	case le:
 		return "<="
 	case ne:
