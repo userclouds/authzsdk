@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gofrs/uuid"
+
 	"userclouds.com/authz"
 	"userclouds.com/idp"
 	"userclouds.com/infra/pagination"
@@ -18,6 +19,7 @@ type FileManager struct {
 	authZClient *authz.Client
 }
 
+// NewFileManager returns a new FileManager
 func NewFileManager(authZClient *authz.Client) *FileManager {
 	return &FileManager{
 		authZClient: authZClient,
@@ -36,14 +38,15 @@ type File struct {
 	children []*File
 }
 
+// FullPath returns the full path of the File
 func (f File) FullPath() string {
 	if f.parent == nil {
 		return fmt.Sprintf("file://%s", f.id.String())
-	} else {
-		return fmt.Sprintf("%s/%s", f.parent.FullPath(), f.name)
 	}
+	return fmt.Sprintf("%s/%s", f.parent.FullPath(), f.name)
 }
 
+// FindFile finds a child file by name
 func (f File) FindFile(name string) *File {
 	if !f.isDir {
 		return nil
@@ -57,6 +60,7 @@ func (f File) FindFile(name string) *File {
 	return nil
 }
 
+// HasWriteAccess returns true if the given user has write access to the file
 func (fm *FileManager) HasWriteAccess(ctx context.Context, f *File, userID uuid.UUID) error {
 	resp, err := fm.authZClient.CheckAttribute(ctx, userID, f.id, "write")
 	if err != nil {
@@ -68,6 +72,7 @@ func (fm *FileManager) HasWriteAccess(ctx context.Context, f *File, userID uuid.
 	return ucerr.Errorf("user %v does not have write permissions on file %s (id: %s)", userID, f.FullPath(), f.id)
 }
 
+// HasReadAccess returns true if the given user has read access to the file
 func (fm *FileManager) HasReadAccess(ctx context.Context, f *File, userID uuid.UUID) error {
 	resp, err := fm.authZClient.CheckAttribute(ctx, userID, f.id, "read")
 	if err != nil {
@@ -79,6 +84,7 @@ func (fm *FileManager) HasReadAccess(ctx context.Context, f *File, userID uuid.U
 	return ucerr.Errorf("user %v does not have read permissions on file %s (id: %s)", userID, f.FullPath(), f.id)
 }
 
+// NewRoot creates a new root directory
 func (fm *FileManager) NewRoot(ctx context.Context, creatorUserID uuid.UUID) (*File, error) {
 	f := &File{
 		id:       uuid.Must(uuid.NewV4()),
@@ -140,16 +146,19 @@ func (fm *FileManager) newFileHelper(ctx context.Context, name string, isDir boo
 	return f, nil
 }
 
+// NewFile creates a new file under the given parent
 func (fm *FileManager) NewFile(ctx context.Context, name string, parent *File, creatorUserID uuid.UUID) (*File, error) {
 	f, err := fm.newFileHelper(ctx, name, false, parent, creatorUserID)
 	return f, ucerr.Wrap(err)
 }
 
+// NewDir creates a new directory under the given parent
 func (fm *FileManager) NewDir(ctx context.Context, name string, parent *File, creatorUserID uuid.UUID) (*File, error) {
 	f, err := fm.newFileHelper(ctx, name, true, parent, creatorUserID)
 	return f, ucerr.Wrap(err)
 }
 
+// ReadFile returns the contents of the file
 func (fm *FileManager) ReadFile(ctx context.Context, f *File, readerUserID uuid.UUID) (string, error) {
 	if err := fm.HasReadAccess(ctx, f, readerUserID); err != nil {
 		return "", ucerr.Wrap(err)

@@ -371,101 +371,139 @@ func (d RetentionDuration) LessThan(other RetentionDuration) bool {
 	return d.AddToTime(t).Before(other.AddToTime(t))
 }
 
-// ColumnRetentionDurationType identifies the type of the retention duration
-type ColumnRetentionDurationType string
-
-// Supported column retention duration types
-const (
-	ColumnRetentionDurationTypeTenant   ColumnRetentionDurationType = "tenant"
-	ColumnRetentionDurationTypeColumn   ColumnRetentionDurationType = "column"
-	ColumnRetentionDurationTypePurpose  ColumnRetentionDurationType = "purpose"
-	ColumnRetentionDurationTypeSpecific ColumnRetentionDurationType = "specific"
-)
-
-//go:generate genconstant ColumnRetentionDurationType
-
 // ColumnRetentionDuration represents an identified retention duration. If ID is nil, it
 // represents an inherited or new value. UseDefault set to true means that the duration is
 // inherited from a less specific default value. DefaultDuration represents the duration
 // that would be inherited if a specific value is not set for the retention duration identifier.
 type ColumnRetentionDuration struct {
-	Type            ColumnRetentionDurationType  `json:"type"`
-	ID              uuid.UUID                    `json:"id" validate:"skip"`
-	Version         int                          `json:"version"`
-	ColumnID        uuid.UUID                    `json:"column_id" validate:"skip"`
-	PurposeID       uuid.UUID                    `json:"purpose_id" validate:"skip"`
 	DurationType    userstore.DataLifeCycleState `json:"duration_type"`
-	PurposeName     string                       `json:"purpose_name"`
+	ID              uuid.UUID                    `json:"id"`
+	ColumnID        uuid.UUID                    `json:"column_id"`
+	PurposeID       uuid.UUID                    `json:"purpose_id"`
 	Duration        RetentionDuration            `json:"duration"`
 	UseDefault      bool                         `json:"use_default"`
-	DefaultDuration RetentionDuration            `json:"default_duration"`
+	Version         int                          `json:"version"`
+	DefaultDuration *RetentionDuration           `json:"default_duration"`
+	PurposeName     *string                      `json:"purpose_name"`
 }
 
-func (d *ColumnRetentionDuration) extraValidate() error {
-	switch d.Type {
-	case ColumnRetentionDurationTypeTenant:
-		if d.ColumnID != uuid.Nil || d.PurposeID != uuid.Nil {
-			return ucerr.New("ColumnID and PurposeID must be nil for tenant type")
-		}
-	case ColumnRetentionDurationTypeColumn:
-		if d.ColumnID == uuid.Nil || d.PurposeID == uuid.Nil {
-			return ucerr.New("ColumnID and PurposeID must be non-nil for column type")
-		}
-	case ColumnRetentionDurationTypePurpose:
-		if d.ColumnID != uuid.Nil || d.PurposeID == uuid.Nil {
-			return ucerr.New("PurposeID must be non-nil and ColumnID must be nil for purpose type")
-		}
-	case ColumnRetentionDurationTypeSpecific:
-		if d.ID == uuid.Nil {
-			return ucerr.New("ID must be non-nil for specific type")
-		}
-	}
-
-	if d.PurposeID != uuid.Nil && d.PurposeName == "" {
-		return ucerr.New("PurposeName must be specified if PurposeID is non-nil")
-	}
-
-	if d.PurposeID == uuid.Nil && d.PurposeName != "" {
-		return ucerr.New("PurposeName must be empty if PurposeID is nil")
-	}
-
-	if d.UseDefault && d.Duration != d.DefaultDuration {
-		return ucerr.New("Duration must equal DefaultDuration if UseDefault is true")
-	}
-
-	if d.DurationType.GetConcrete() == userstore.DataLifeCycleStatePreDelete {
-		if d.Duration.Unit != DurationUnitIndefinite && d.Duration.Duration == 0 {
-			return ucerr.New("DurationTypePreDelete cannot have a duration of 0")
-		}
-	} else if d.Duration.Unit == DurationUnitIndefinite {
-		return ucerr.New("DurationTypePostDelete cannot have an indefinite duration")
-	}
-
-	return nil
+// UpdateColumnRetentionDurationRequest is is used to update a single retention duration for a column.
+// The retention duration must have UseDefault set to false. ID must be nil for a creation request,
+// and non-nil for an update request.
+type UpdateColumnRetentionDurationRequest struct {
+	RetentionDuration ColumnRetentionDuration `json:"retention_duration"`
 }
 
-//go:generate genvalidate ColumnRetentionDuration
+// UpdateColumnRetentionDurationsRequest is used to update a collection of retention durations
+// for a column. If ID for a retention duration is non-nil, that retention duration will be
+// updated if UseDefault is set to false, or deleted if UseDefault is set to true.  If ID is nil,
+// the associated retention duration will be inserted.
+type UpdateColumnRetentionDurationsRequest struct {
+	RetentionDurations []ColumnRetentionDuration `json:"retention_durations"`
+}
 
-// ColumnRetentionDurationsResponse is the response to a get or update request for retention
-// durations. The set of retention durations that apply for the request will be returned,
-// along with a max allowed retention duration appropriate for the request parameters. Each
-// of the retention durations will have a non-nil ID if they are saved values, or a nil ID
-// if they represent an inherited value.
+// ColumnRetentionDurationResponse is the response to a get or update request for a single
+// retention duration.  The retention duration that applies for the request will be returned,
+// and will include both the specified and inherited default duration. In addition, a max allowed
+// retention duration appropriate for the request parameters will be included. The retention
+// duration will have a non-nil ID and have UseDefault set to false if it represents
+// a saved value, or a nil ID and UseDefault set to true if it represents an inherited value.
+type ColumnRetentionDurationResponse struct {
+	MaxDuration       RetentionDuration       `json:"max_duration"`
+	RetentionDuration ColumnRetentionDuration `json:"retention_duration"`
+}
+
+// ColumnRetentionDurationsResponse is the response to a get or update request for a set of
+// retention durations. The set of retention durations that apply for the request will be
+// returned, each of which will include a specified and inherited default duration. In addition,
+// a max allowed retention duration appropriate for the request parameters will be included. Each
+// of the retention durations will have a non-nil ID and have UseDefault set to false if they
+// are saved values, or a nil ID and UseDefault set to true if they represent an inherited value.
 type ColumnRetentionDurationsResponse struct {
 	MaxDuration        RetentionDuration         `json:"max_duration"`
 	RetentionDurations []ColumnRetentionDuration `json:"retention_durations"`
 }
 
-//go:generate genvalidate ColumnRetentionDurationsResponse
-
-// GetColumnRetentionDurations returns the retention durations for the specified column
-// and duration type
-func (c *Client) GetColumnRetentionDurations(
+// CreateColumnRetentionDurationForPurpose creates a column retention duration
+// for the specified duration type and purpose, failing if a retention duration
+// already exists and returning the derived retention duration upon success.
+func (c *Client) CreateColumnRetentionDurationForPurpose(
 	ctx context.Context,
+	dlcs userstore.DataLifeCycleState,
+	purposeID uuid.UUID,
+	crd ColumnRetentionDuration,
+) (*ColumnRetentionDurationResponse, error) {
+	path := paths.NewRetentionPath(dlcs.IsLive()).ForPurpose(purposeID).Build()
+
+	req := UpdateColumnRetentionDurationRequest{RetentionDuration: crd}
+
+	var resp ColumnRetentionDurationResponse
+	if err := c.client.Post(ctx, path, req, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// CreateColumnRetentionDurationForTenant creates a column retention duration
+// for the specified duration type and tenant, failing if a retention duration
+// already exists and returning the derived retention duration upon success.
+func (c *Client) CreateColumnRetentionDurationForTenant(
+	ctx context.Context,
+	dlcs userstore.DataLifeCycleState,
+	crd ColumnRetentionDuration,
+) (*ColumnRetentionDurationResponse, error) {
+	path := paths.NewRetentionPath(dlcs.IsLive()).ForTenant().Build()
+
+	req := UpdateColumnRetentionDurationRequest{RetentionDuration: crd}
+
+	var resp ColumnRetentionDurationResponse
+	if err := c.client.Post(ctx, path, req, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// DeleteColumnRetentionDurationForColumn deletes the specified column retention duration
+func (c *Client) DeleteColumnRetentionDurationForColumn(
+	ctx context.Context,
+	dlcs userstore.DataLifeCycleState,
 	columnID uuid.UUID,
-	durationType userstore.DataLifeCycleState,
+	durationID uuid.UUID,
+) error {
+	path := paths.NewRetentionPath(dlcs.IsLive()).ForColumn(columnID).ForDuration(durationID).Build()
+	return ucerr.Wrap(c.client.Delete(ctx, path, nil))
+}
+
+// DeleteColumnRetentionDurationForPurpose deletes the specified purpose retention duration
+func (c *Client) DeleteColumnRetentionDurationForPurpose(
+	ctx context.Context,
+	dlcs userstore.DataLifeCycleState,
+	purposeID uuid.UUID,
+	durationID uuid.UUID,
+) error {
+	path := paths.NewRetentionPath(dlcs.IsLive()).ForPurpose(purposeID).ForDuration(durationID).Build()
+	return ucerr.Wrap(c.client.Delete(ctx, path, nil))
+}
+
+// DeleteColumnRetentionDurationForTenant deletes the specified tenant retention duration
+func (c *Client) DeleteColumnRetentionDurationForTenant(
+	ctx context.Context,
+	dlcs userstore.DataLifeCycleState,
+	durationID uuid.UUID,
+) error {
+	path := paths.NewRetentionPath(dlcs.IsLive()).ForTenant().ForDuration(durationID).Build()
+	return ucerr.Wrap(c.client.Delete(ctx, path, nil))
+}
+
+// GetColumnRetentionDurationsForColumn returns the derived column and purpose retention durations for the specified column and duration type
+func (c *Client) GetColumnRetentionDurationsForColumn(
+	ctx context.Context,
+	dlcs userstore.DataLifeCycleState,
+	columnID uuid.UUID,
 ) (*ColumnRetentionDurationsResponse, error) {
-	path := paths.GetColumnRetentionDurationURL(columnID, durationType.GetConcrete() == userstore.DataLifeCycleStatePreDelete)
+	path := paths.NewRetentionPath(dlcs.IsLive()).ForColumn(columnID).Build()
 
 	var resp ColumnRetentionDurationsResponse
 	if err := c.client.Get(ctx, path, &resp); err != nil {
@@ -475,36 +513,164 @@ func (c *Client) GetColumnRetentionDurations(
 	return &resp, nil
 }
 
-// UpdateColumnRetentionDurationsRequest is used to update the specified set of retention durations
-// for a column. If ID for a retention duration is non-nil, that retention duration will be updated
-// if UseDefault is set to false, or deleted if UseDefault is set to true. If ID is nil, the
-// associated retention duration will be inserted.
-type UpdateColumnRetentionDurationsRequest struct {
-	RetentionDurations []ColumnRetentionDuration `json:"retention_durations"`
-}
+// GetColumnRetentionDurationForPurpose returns the derived purpose retention duration for the specified purpose and duration type
+func (c *Client) GetColumnRetentionDurationForPurpose(
+	ctx context.Context,
+	purposeID uuid.UUID,
+	dlcs userstore.DataLifeCycleState,
+) (*ColumnRetentionDurationResponse, error) {
+	path := paths.NewRetentionPath(dlcs.IsLive()).ForPurpose(purposeID).Build()
 
-func (r UpdateColumnRetentionDurationsRequest) extraValidate() error {
-	if len(r.RetentionDurations) == 0 {
-		return ucerr.New("no retentions to update")
+	var resp ColumnRetentionDurationResponse
+	if err := c.client.Get(ctx, path, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
 	}
 
-	return nil
+	return &resp, nil
 }
 
-//go:generate genvalidate UpdateColumnRetentionDurationsRequest
+// GetColumnRetentionDurationForTenant returns the derived tenant retention duration for the specified duration type
+func (c *Client) GetColumnRetentionDurationForTenant(
+	ctx context.Context,
+	dlcs userstore.DataLifeCycleState,
+) (*ColumnRetentionDurationResponse, error) {
+	path := paths.NewRetentionPath(dlcs.IsLive()).ForTenant().Build()
 
-// UpdateColumnRetentionDurations updates the column retention durations
+	var resp ColumnRetentionDurationResponse
+	if err := c.client.Get(ctx, path, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// GetSpecificColumnRetentionDurationForColumn gets the specified column retention duration
+func (c *Client) GetSpecificColumnRetentionDurationForColumn(
+	ctx context.Context,
+	dlcs userstore.DataLifeCycleState,
+	columnID uuid.UUID,
+	durationID uuid.UUID,
+) (*ColumnRetentionDurationResponse, error) {
+	path := paths.NewRetentionPath(dlcs.IsLive()).ForColumn(columnID).ForDuration(durationID).Build()
+
+	var resp ColumnRetentionDurationResponse
+	if err := c.client.Get(ctx, path, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// GetSpecificColumnRetentionDurationForPurpose gets the specified purpose retention duration
+func (c *Client) GetSpecificColumnRetentionDurationForPurpose(
+	ctx context.Context,
+	dlcs userstore.DataLifeCycleState,
+	purposeID uuid.UUID,
+	durationID uuid.UUID,
+) (*ColumnRetentionDurationResponse, error) {
+	path := paths.NewRetentionPath(dlcs.IsLive()).ForPurpose(purposeID).ForDuration(durationID).Build()
+
+	var resp ColumnRetentionDurationResponse
+	if err := c.client.Get(ctx, path, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// GetSpecificColumnRetentionDurationForTenant gets the specified tenant retention duration
+func (c *Client) GetSpecificColumnRetentionDurationForTenant(
+	ctx context.Context,
+	dlcs userstore.DataLifeCycleState,
+	durationID uuid.UUID,
+) (*ColumnRetentionDurationResponse, error) {
+	path := paths.NewRetentionPath(dlcs.IsLive()).ForTenant().ForDuration(durationID).Build()
+
+	var resp ColumnRetentionDurationResponse
+	if err := c.client.Get(ctx, path, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// UpdateColumnRetentionDurationsForColumn updates the column retention durations
 // for the specified column and duration type, returning the updated set
 // of retention durations for the column and duration type.
-func (c *Client) UpdateColumnRetentionDurations(
+func (c *Client) UpdateColumnRetentionDurationsForColumn(
 	ctx context.Context,
+	dlcs userstore.DataLifeCycleState,
 	columnID uuid.UUID,
-	durationType userstore.DataLifeCycleState,
 	req UpdateColumnRetentionDurationsRequest,
 ) (*ColumnRetentionDurationsResponse, error) {
-	path := paths.GetColumnRetentionDurationURL(columnID, durationType == userstore.DataLifeCycleStatePreDelete)
+	path := paths.NewRetentionPath(dlcs.IsLive()).ForColumn(columnID).Build()
 
 	var resp ColumnRetentionDurationsResponse
+	if err := c.client.Post(ctx, path, req, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// UpdateSpecificColumnRetentionDurationForColumn updates the specific column
+// retention duration for the specified column and duration type, returning the updated
+// retention duration upon success.
+func (c *Client) UpdateSpecificColumnRetentionDurationForColumn(
+	ctx context.Context,
+	dlcs userstore.DataLifeCycleState,
+	columnID uuid.UUID,
+	durationID uuid.UUID,
+	crd ColumnRetentionDuration,
+) (*ColumnRetentionDurationResponse, error) {
+	path := paths.NewRetentionPath(dlcs.IsLive()).ForColumn(columnID).ForDuration(durationID).Build()
+
+	req := UpdateColumnRetentionDurationRequest{RetentionDuration: crd}
+
+	var resp ColumnRetentionDurationResponse
+	if err := c.client.Post(ctx, path, req, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// UpdateSpecificColumnRetentionDurationForPurpose updates the specific column
+// retention duration for the specified purpose and duration type, returning the updated
+// retention duration upon success.
+func (c *Client) UpdateSpecificColumnRetentionDurationForPurpose(
+	ctx context.Context,
+	dlcs userstore.DataLifeCycleState,
+	purposeID uuid.UUID,
+	durationID uuid.UUID,
+	crd ColumnRetentionDuration,
+) (*ColumnRetentionDurationResponse, error) {
+	path := paths.NewRetentionPath(dlcs.IsLive()).ForPurpose(purposeID).ForDuration(durationID).Build()
+
+	req := UpdateColumnRetentionDurationRequest{RetentionDuration: crd}
+
+	var resp ColumnRetentionDurationResponse
+	if err := c.client.Post(ctx, path, req, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// UpdateSpecificColumnRetentionDurationForTenant updates the specific column
+// retention duration for the tenant and specified duration type, returning the updated
+// retention duration upon success.
+func (c *Client) UpdateSpecificColumnRetentionDurationForTenant(
+	ctx context.Context,
+	dlcs userstore.DataLifeCycleState,
+	durationID uuid.UUID,
+	crd ColumnRetentionDuration,
+) (*ColumnRetentionDurationResponse, error) {
+	path := paths.NewRetentionPath(dlcs.IsLive()).ForTenant().ForDuration(durationID).Build()
+
+	req := UpdateColumnRetentionDurationRequest{RetentionDuration: crd}
+
+	var resp ColumnRetentionDurationResponse
 	if err := c.client.Post(ctx, path, req, &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}

@@ -52,12 +52,22 @@ type Client struct {
 	tenantID uuid.UUID
 }
 
+// NewClientForTenant constructs a new LogServer client using the provided client ID & secret to authenticate
+func NewClientForTenant(tenantURL string, tenantID uuid.UUID, clientID, clientSecret string, opts ...jsonclient.Option) (*Client, error) {
+	tokenSource, err := jsonclient.ClientCredentialsForURL(tenantURL, clientID, clientSecret, nil)
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+	opts = append(opts, tokenSource)
+	return NewClient(tenantURL, tenantID, opts...)
+}
+
 // NewClient constructs a new LogServer client
 func NewClient(url string, tenantID uuid.UUID, opts ...jsonclient.Option) (*Client, error) {
 	c := &Client{
-		client: jsonclient.New(strings.TrimSuffix(url, "/"), opts...),
+		client:   jsonclient.New(strings.TrimSuffix(url, "/"), opts...),
+		tenantID: tenantID,
 	}
-	c.tenantID = tenantID
 	if err := c.client.ValidateBearerTokenHeader(); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
