@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/gofrs/uuid"
 
+	"userclouds.com/idp/userstore/selectorconfigparser"
 	"userclouds.com/infra/set"
 	"userclouds.com/infra/ucerr"
 )
@@ -177,14 +177,20 @@ func GetRetentionTimeoutIndefinite() time.Time {
 }
 
 // DataLifeCycleState identifies the life-cycle state for a piece of data - either
-// pre-deleted (i.e., "live") or post-deleted.
+// live or soft-deleted.
 type DataLifeCycleState string
 
 // Supported data life cycle states
 const (
-	DataLifeCycleStateDefault    DataLifeCycleState = ""
-	DataLifeCycleStatePreDelete  DataLifeCycleState = "predelete"
+	DataLifeCycleStateDefault     DataLifeCycleState = ""
+	DataLifeCycleStateLive        DataLifeCycleState = "live"
+	DataLifeCycleStateSoftDeleted DataLifeCycleState = "softdeleted"
+
+	// maps to softdeleted
 	DataLifeCycleStatePostDelete DataLifeCycleState = "postdelete"
+
+	// maps to live
+	DataLifeCycleStatePreDelete DataLifeCycleState = "predelete"
 )
 
 //go:generate genconstant DataLifeCycleState
@@ -192,8 +198,10 @@ const (
 // GetConcrete returns the concrete data life cycle state for the given data life cycle state
 func (dlcs DataLifeCycleState) GetConcrete() DataLifeCycleState {
 	switch dlcs {
-	case DataLifeCycleStateDefault:
-		return DataLifeCycleStatePreDelete
+	case DataLifeCycleStateDefault, DataLifeCycleStatePreDelete:
+		return DataLifeCycleStateLive
+	case DataLifeCycleStatePostDelete:
+		return DataLifeCycleStateSoftDeleted
 	default:
 		return dlcs
 	}
@@ -201,11 +209,16 @@ func (dlcs DataLifeCycleState) GetConcrete() DataLifeCycleState {
 
 // GetDefaultRetentionTimeout returns the default retention timeout for the data life cycle state
 func (dlcs DataLifeCycleState) GetDefaultRetentionTimeout() time.Time {
-	if dlcs.GetConcrete() == DataLifeCycleStatePreDelete {
+	if dlcs.GetConcrete() == DataLifeCycleStateLive {
 		return GetRetentionTimeoutIndefinite()
 	}
 
 	return GetRetentionTimeoutImmediateDeletion()
+}
+
+// IsLive return true if the concrete data life cycle state is live
+func (dlcs DataLifeCycleState) IsLive() bool {
+	return dlcs.GetConcrete() == DataLifeCycleStateLive
 }
 
 // Accessor represents a customer-defined view and permissions policy on userstore data
@@ -221,7 +234,7 @@ type Accessor struct {
 	// Version of the accessor
 	Version int `json:"version"`
 
-	// Specify whether to access pre-deleted or post-deleted data
+	// Specify whether to access live or soft-deleted data
 	DataLifeCycleState DataLifeCycleState `json:"data_life_cycle_state"`
 
 	// Configuration for which user records to return
@@ -344,31 +357,7 @@ type UserSelectorConfig struct {
 }
 
 func (u UserSelectorConfig) extraValidate() error {
-	// make sure the where clause only contains tokens for clauses of the form "{column_id} operator ? [conjunction {column_id} operator ?]*"
-	// e.g. "{id} = ANY (?) OR {phone_number} LIKE ?"
-	columnsRE := regexp.MustCompile(`{[a-zA-Z0-9_-]+}(->>'[a-zA-Z0-9_-]+')?`)
-	operatorRE := regexp.MustCompile(`(?i) (=|<=|>=|<|>|!=|LIKE|ILIKE|ANY)`)
-	valuesRE := regexp.MustCompile(`\?|\(\?\)`)
-	conjunctionRE := regexp.MustCompile(`(?i) (OR|AND) `)
-
-	if s := strings.TrimSpace(
-		conjunctionRE.ReplaceAllString(
-			operatorRE.ReplaceAllString(
-				valuesRE.ReplaceAllString(
-					columnsRE.ReplaceAllString(u.WhereClause, ""),
-					""),
-				""),
-			""),
-	); s != "" {
-		return ucerr.Friendlyf(
-			nil,
-			`invalid or unsupported SQL in UserSelectorConfig.WhereClause: "%s", near "%s"`,
-			u.WhereClause,
-			strings.Split(s, " ")[0],
-		)
-	}
-
-	return nil
+	return ucerr.Wrap(selectorconfigparser.ParseWhereClause(u.WhereClause))
 }
 
 //go:generate gendbjson UserSelectorConfig
