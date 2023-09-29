@@ -1,0 +1,29 @@
+%{
+package selectorconfigparser
+%}
+
+%union {
+}
+
+%token COLUMN_IDENTIFIER
+%token OPERATOR
+%token VALUE_PLACEHOLDER
+%token ANY
+%token ARRAY_PLACEHOLDER
+%token CONJUNCTION
+%token LEFT_PARENTHESIS
+%token RIGHT_PARENTHESIS
+%token UNKNOWN
+
+%%
+clause: term
+      | term CONJUNCTION clause
+;
+
+term:   COLUMN_IDENTIFIER OPERATOR VALUE_PLACEHOLDER
+      | COLUMN_IDENTIFIER OPERATOR ANY ARRAY_PLACEHOLDER
+      | LEFT_PARENTHESIS clause RIGHT_PARENTHESIS
+;
+
+%%
+

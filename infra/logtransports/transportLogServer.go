@@ -141,19 +141,12 @@ func (t *logServerTransport) init() (*uclog.TransportConfig, error) {
 	t.messageInterval = defaultMessageInterval
 
 	// Create client for calling log server
-	tokenSource, err := jsonclient.ClientCredentialsForURL(t.auth.TenantURL, t.auth.ClientID, t.auth.ClientSecret, nil)
+	t.client, err = logServerInterface.NewClientForTenant(t.auth.TenantURL, t.auth.TenantID, t.auth.ClientID, t.auth.ClientSecret, jsonclient.StopLogging())
 	if err != nil {
 		return nil, ucerr.Wrap(err)
 	}
-
-	t.client, err = logServerInterface.NewClient(t.auth.TenantURL, t.auth.TenantID, tokenSource, jsonclient.StopLogging())
-	if err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
 	t.host = uclog.Hostname()
 	t.region = region.Current()
-
 	return c, ucerr.Wrap(err)
 }
 

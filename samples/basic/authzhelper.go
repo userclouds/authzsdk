@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/gofrs/uuid"
+
 	"userclouds.com/authz"
 	"userclouds.com/idp"
 	"userclouds.com/idp/userstore"
