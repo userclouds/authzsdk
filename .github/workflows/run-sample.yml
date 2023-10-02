@@ -23,7 +23,7 @@ jobs:
         uses: ./.github/actions/run-sample
         with:
           module-path: ./samples/basic
-          tenant-id: vars.SAMPLE_APP_TENANT_ID
-          tenant-url: vars.SAMPLE_APP_TENANT_URL
-          client-id: secrets.SAMPLE_APP_CLIENT_ID
-          client-secret: secrets.SAMPLE_APP_CLIENT_SECRET
+          tenant-id: ${{ vars.SAMPLE_APP_TENANT_ID }}
+          tenant-url: ${{ vars.SAMPLE_APP_TENANT_URL }}
+          client-id: ${{ secrets.SAMPLE_APP_CLIENT_ID }}
+          client-secret: ${{ secrets.SAMPLE_APP_CLIENT_SECRET }}
