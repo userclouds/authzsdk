@@ -10,6 +10,7 @@ import (
 func GetTenantID(ctx context.Context) uuid.UUID {
 	return uuid.Nil
 }
+
 // validateHandlerMap does perform any validation in the SDK
 func validateHandlerMap(ctx context.Context) {
 }

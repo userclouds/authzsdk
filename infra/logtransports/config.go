@@ -4,6 +4,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"userclouds.com/infra/namespace/service"
+	"userclouds.com/infra/namespace/universe"
 	"userclouds.com/infra/ucerr"
 	"userclouds.com/infra/ucjwt"
 	"userclouds.com/infra/uclog"
@@ -17,18 +18,26 @@ type Config struct {
 
 //go:generate genvalidate Config
 
+func (c Config) extraValidate() error {
+	uv := universe.Current()
+	if len(c.Transports) == 0 && (uv.IsCloud() || uv.IsDev()) {
+		return ucerr.Errorf("No log transport configured")
+	}
+	return nil
+}
+
 // TransportConfigs is an alias for an array of TransportConfig so we can handle polymorphic config unmarshalling
 type TransportConfigs []TransportConfig
 
 // UnmarshalYAML implements yaml.Unmarshaler
-func (t TransportConfigs) UnmarshalYAML(value *yaml.Node) error {
+func (t *TransportConfigs) UnmarshalYAML(value *yaml.Node) error {
 	var c []intermediateConfig
 	if err := value.Decode(&c); err != nil {
 		return ucerr.Wrap(err)
 	}
-	t = make([]TransportConfig, len(c))
+	*t = make([]TransportConfig, len(c))
 	for i, v := range c {
-		t[i] = v.c
+		(*t)[i] = v.c
 	}
 	return nil
 }
