@@ -13,5 +13,9 @@ func (o *Config) Validate() error {
 			return ucerr.Wrap(err)
 		}
 	}
+	// .extraValidate() lets you do any validation you can't express in codegen tags yet
+	if err := o.extraValidate(); err != nil {
+		return ucerr.Wrap(err)
+	}
 	return nil
 }

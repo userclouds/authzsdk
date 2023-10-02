@@ -175,14 +175,3 @@ func GetReferenceURLForAccessPolicy(id uuid.UUID, v int) string {
 func GetReferenceURLForTransformer(id uuid.UUID, v int) string {
 	return fmt.Sprintf("%s/%s/%d", BaseTransformerPath, id.String(), v)
 }
-
-// GetColumnRetentionDurationURL returns a retention duration URL for the specified column ID and duration type
-func GetColumnRetentionDurationURL(columnID uuid.UUID, isPreDelete bool) string {
-	path := fmt.Sprintf("%s/%v", BaseConfigColumnsPath, columnID)
-	if isPreDelete {
-		path += "/predeleteretentiondurations"
-	} else {
-		path += "/postdeleteretentiondurations"
-	}
-	return path
-}
