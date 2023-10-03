@@ -1531,54 +1531,6 @@ var dfas = []dfa{
 		},
 	}, []int{ /* Start-of-input transitions */ -1, -1, -1, -1, -1, -1, -1}, []int{ /* End-of-input transitions */ -1, -1, -1, -1, -1, -1, -1}, nil},
 
-	// \(\?\)
-	{[]bool{false, false, false, true}, []func(rune) int{ // Transitions
-		func(r rune) int {
-			switch r {
-			case 40:
-				return 1
-			case 41:
-				return -1
-			case 63:
-				return -1
-			}
-			return -1
-		},
-		func(r rune) int {
-			switch r {
-			case 40:
-				return -1
-			case 41:
-				return -1
-			case 63:
-				return 2
-			}
-			return -1
-		},
-		func(r rune) int {
-			switch r {
-			case 40:
-				return -1
-			case 41:
-				return 3
-			case 63:
-				return -1
-			}
-			return -1
-		},
-		func(r rune) int {
-			switch r {
-			case 40:
-				return -1
-			case 41:
-				return -1
-			case 63:
-				return -1
-			}
-			return -1
-		},
-	}, []int{ /* Start-of-input transitions */ -1, -1, -1, -1}, []int{ /* End-of-input transitions */ -1, -1, -1, -1}, nil},
-
 	// AND | OR | and | or
 	{[]bool{false, false, false, false, false, false, false, true, false, false, true, false, true, false, false, true}, []func(rune) int{ // Transitions
 		func(r rune) int {
@@ -2168,24 +2120,20 @@ OUTER0:
 			}
 		case 4:
 			{
-				return ARRAY_PLACEHOLDER
+				return CONJUNCTION
 			}
 		case 5:
 			{
-				return CONJUNCTION
+				return LEFT_PARENTHESIS
 			}
 		case 6:
 			{
-				return LEFT_PARENTHESIS
-			}
-		case 7:
-			{
 				return RIGHT_PARENTHESIS
 			}
-		case 8:
+		case 7:
 			{ /* eat up whitespace */
 			}
-		case 9:
+		case 8:
 			{
 				return UNKNOWN
 			}

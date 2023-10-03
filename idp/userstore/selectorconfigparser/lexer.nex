@@ -2,7 +2,6 @@
 /=|<=|>=|<|>|!=| LIKE | ILIKE | like | ilike /  { return OPERATOR }
 /\?/                                            { return VALUE_PLACEHOLDER }
 /ANY|any/                                       { return ANY }
-/\(\?\)/                                        { return ARRAY_PLACEHOLDER }
 / AND | OR | and | or /                         { return CONJUNCTION }
 /\(/                                            { return LEFT_PARENTHESIS }
 /\)/                                            { return RIGHT_PARENTHESIS }

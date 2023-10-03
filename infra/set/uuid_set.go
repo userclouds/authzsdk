@@ -8,7 +8,7 @@ import (
 
 // NewUUIDSet returns a set of uuid.UUIDs
 func NewUUIDSet(items ...uuid.UUID) Set[uuid.UUID] {
-	return NewSet(uuidSorter, items...)
+	return New(uuidSorter, items...)
 }
 
 func uuidSorter(items []uuid.UUID) {
