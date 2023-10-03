@@ -52,7 +52,7 @@ type Address struct {
 
 // NewAddressSet returns a set of addresses
 func NewAddressSet(items ...Address) set.Set[Address] {
-	return set.NewSet(
+	return set.New(
 		func(items []Address) {
 			sort.Slice(items, func(i, j int) bool {
 				return fmt.Sprintf("%+v", items[i]) < fmt.Sprintf("%+v", items[j])

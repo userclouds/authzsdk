@@ -6,7 +6,7 @@ import (
 
 // NewBoolSet returns a set of bools
 func NewBoolSet(items ...bool) Set[bool] {
-	return NewSet(boolSorter, items...)
+	return New(boolSorter, items...)
 }
 
 func boolSorter(items []bool) {

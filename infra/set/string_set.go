@@ -6,5 +6,5 @@ import (
 
 // NewStringSet returns a set of strings.
 func NewStringSet(items ...string) Set[string] {
-	return NewSet(func(s []string) { sort.Strings(s) }, items...)
+	return New(func(s []string) { sort.Strings(s) }, items...)
 }

@@ -23,8 +23,8 @@ type Set[T comparable] struct {
 	sorter func([]T)
 }
 
-// NewSet creates a set.
-func NewSet[T comparable](sorter func([]T), items ...T) Set[T] {
+// New creates a new set.
+func New[T comparable](sorter func([]T), items ...T) Set[T] {
 	s := make(map[T]struct{}, len(items))
 	for _, item := range items {
 		s[item] = struct{}{}
@@ -76,7 +76,7 @@ func (s Set[T]) Evict(item T) bool {
 
 // Difference returns elements of the set not in the other.
 func (s Set[T]) Difference(other Set[T]) Set[T] {
-	output := NewSet(s.sorter)
+	output := New(s.sorter)
 	for item := range s.set {
 		if !other.Contains(item) {
 			// Avoid the varargs allocation from Insert.
@@ -104,7 +104,7 @@ func (s Set[T]) Intersection(other Set[T]) Set[T] {
 	if small.Size() > big.Size() {
 		big, small = small, big
 	}
-	output := NewSet(s.sorter)
+	output := New(s.sorter)
 	for item := range small.set {
 		if big.Contains(item) {
 			output.set[item] = struct{}{}
@@ -115,7 +115,7 @@ func (s Set[T]) Intersection(other Set[T]) Set[T] {
 
 // Union returns a set with elements in either of the sets.
 func (s Set[T]) Union(other Set[T]) Set[T] {
-	output := NewSet(s.sorter)
+	output := New(s.sorter)
 	for item := range s.set {
 		output.set[item] = struct{}{}
 	}

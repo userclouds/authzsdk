@@ -7,7 +7,7 @@ import (
 
 // NewTimestampSet returns a set of time.Times
 func NewTimestampSet(items ...time.Time) Set[time.Time] {
-	return NewSet(timestampSorter, items...)
+	return New(timestampSorter, items...)
 }
 
 func timestampSorter(items []time.Time) {

@@ -12,11 +12,10 @@ const COLUMN_IDENTIFIER = 57346
 const OPERATOR = 57347
 const VALUE_PLACEHOLDER = 57348
 const ANY = 57349
-const ARRAY_PLACEHOLDER = 57350
-const CONJUNCTION = 57351
-const LEFT_PARENTHESIS = 57352
-const RIGHT_PARENTHESIS = 57353
-const UNKNOWN = 57354
+const CONJUNCTION = 57350
+const LEFT_PARENTHESIS = 57351
+const RIGHT_PARENTHESIS = 57352
+const UNKNOWN = 57353
 
 var yyToknames = [...]string{
 	"$end",
@@ -26,7 +25,6 @@ var yyToknames = [...]string{
 	"OPERATOR",
 	"VALUE_PLACEHOLDER",
 	"ANY",
-	"ARRAY_PLACEHOLDER",
 	"CONJUNCTION",
 	"LEFT_PARENTHESIS",
 	"RIGHT_PARENTHESIS",
@@ -47,38 +45,38 @@ var yyExca = [...]int8{
 
 const yyPrivate = 57344
 
-const yyLast = 13
+const yyLast = 18
 
 var yyAct = [...]int8{
-	11, 3, 5, 12, 9, 10, 1, 4, 6, 2,
-	0, 7, 8,
+	9, 11, 10, 16, 12, 11, 13, 3, 12, 5,
+	1, 14, 4, 15, 6, 7, 8, 2,
 }
 
 var yyPact = [...]int16{
-	-3, -1000, -7, 3, -3, -3, -2, -11, -1000, -1000,
-	-5, -1000, -1000,
+	3, -1000, 1, 9, 3, 3, -5, -4, -1000, -1000,
+	-1, -1000, -1, -1000, -1000, -7, -1000,
 }
 
 var yyPgo = [...]int8{
-	0, 6, 9,
+	0, 10, 17, 0,
 }
 
 var yyR1 = [...]int8{
-	0, 1, 1, 2, 2, 2,
+	0, 1, 1, 2, 2, 2, 3, 3,
 }
 
 var yyR2 = [...]int8{
-	0, 1, 3, 3, 4, 3,
+	0, 1, 3, 3, 4, 3, 1, 3,
 }
 
 var yyChk = [...]int16{
-	-1000, -1, -2, 4, 10, 9, 5, -1, -1, 6,
-	7, 11, 8,
+	-1000, -1, -2, 4, 9, 8, 5, -1, -1, -3,
+	7, 6, 9, 10, -3, -3, 10,
 }
 
 var yyDef = [...]int8{
 	0, -2, 1, 0, 0, 0, 0, 0, 2, 3,
-	0, 5, 4,
+	0, 6, 0, 5, 4, 0, 7,
 }
 
 var yyTok1 = [...]int8{
@@ -87,7 +85,6 @@ var yyTok1 = [...]int8{
 
 var yyTok2 = [...]int8{
 	2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
-	12,
 }
 
 var yyTok3 = [...]int8{
