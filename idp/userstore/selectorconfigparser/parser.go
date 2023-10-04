@@ -10,12 +10,15 @@ type yySymType struct {
 
 const COLUMN_IDENTIFIER = 57346
 const OPERATOR = 57347
-const VALUE_PLACEHOLDER = 57348
-const ANY = 57349
-const CONJUNCTION = 57350
-const LEFT_PARENTHESIS = 57351
-const RIGHT_PARENTHESIS = 57352
-const UNKNOWN = 57353
+const IS = 57348
+const NOT = 57349
+const NULL = 57350
+const VALUE_PLACEHOLDER = 57351
+const ANY = 57352
+const CONJUNCTION = 57353
+const LEFT_PARENTHESIS = 57354
+const RIGHT_PARENTHESIS = 57355
+const UNKNOWN = 57356
 
 var yyToknames = [...]string{
 	"$end",
@@ -23,6 +26,9 @@ var yyToknames = [...]string{
 	"$unk",
 	"COLUMN_IDENTIFIER",
 	"OPERATOR",
+	"IS",
+	"NOT",
+	"NULL",
 	"VALUE_PLACEHOLDER",
 	"ANY",
 	"CONJUNCTION",
@@ -45,38 +51,44 @@ var yyExca = [...]int8{
 
 const yyPrivate = 57344
 
-const yyLast = 18
+const yyLast = 23
 
 var yyAct = [...]int8{
-	9, 11, 10, 16, 12, 11, 13, 3, 12, 5,
-	1, 14, 4, 15, 6, 7, 8, 2,
+	11, 13, 12, 21, 14, 13, 17, 7, 14, 3,
+	5, 16, 15, 18, 20, 19, 1, 4, 6, 8,
+	2, 9, 10,
 }
 
 var yyPact = [...]int16{
-	3, -1000, 1, 9, 3, 3, -5, -4, -1000, -1000,
-	-1, -1000, -1, -1000, -1000, -7, -1000,
+	5, -1000, -1, 13, 5, 5, -8, -1000, 4, -7,
+	-1000, -1000, -4, -1000, -4, -1000, 6, -1000, -1000, -10,
+	-1000, -1000,
 }
 
 var yyPgo = [...]int8{
-	0, 10, 17, 0,
+	0, 16, 20, 0, 7,
 }
 
 var yyR1 = [...]int8{
-	0, 1, 1, 2, 2, 2, 3, 3,
+	0, 1, 1, 2, 2, 2, 2, 3, 3, 4,
+	4,
 }
 
 var yyR2 = [...]int8{
-	0, 1, 3, 3, 4, 3, 1, 3,
+	0, 1, 3, 3, 4, 2, 3, 1, 3, 2,
+	3,
 }
 
 var yyChk = [...]int16{
-	-1000, -1, -2, 4, 9, 8, 5, -1, -1, -3,
-	7, 6, 9, 10, -3, -3, 10,
+	-1000, -1, -2, 4, 12, 11, 5, -4, 6, -1,
+	-1, -3, 10, 9, 12, 8, 7, 13, -3, -3,
+	8, 13,
 }
 
 var yyDef = [...]int8{
-	0, -2, 1, 0, 0, 0, 0, 0, 2, 3,
-	0, 6, 0, 5, 4, 0, 7,
+	0, -2, 1, 0, 0, 0, 0, 5, 0, 0,
+	2, 3, 0, 7, 0, 9, 0, 6, 4, 0,
+	10, 8,
 }
 
 var yyTok1 = [...]int8{
@@ -85,6 +97,7 @@ var yyTok1 = [...]int8{
 
 var yyTok2 = [...]int8{
 	2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+	12, 13, 14,
 }
 
 var yyTok3 = [...]int8{

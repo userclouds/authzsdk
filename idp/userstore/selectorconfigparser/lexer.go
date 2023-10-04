@@ -1390,6 +1390,355 @@ var dfas = []dfa{
 		},
 	}, []int{ /* Start-of-input transitions */ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}, []int{ /* End-of-input transitions */ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}, nil},
 
+	// IS|is
+	{[]bool{false, false, false, true, true}, []func(rune) int{ // Transitions
+		func(r rune) int {
+			switch r {
+			case 73:
+				return 1
+			case 83:
+				return -1
+			case 105:
+				return 2
+			case 115:
+				return -1
+			}
+			return -1
+		},
+		func(r rune) int {
+			switch r {
+			case 73:
+				return -1
+			case 83:
+				return 4
+			case 105:
+				return -1
+			case 115:
+				return -1
+			}
+			return -1
+		},
+		func(r rune) int {
+			switch r {
+			case 73:
+				return -1
+			case 83:
+				return -1
+			case 105:
+				return -1
+			case 115:
+				return 3
+			}
+			return -1
+		},
+		func(r rune) int {
+			switch r {
+			case 73:
+				return -1
+			case 83:
+				return -1
+			case 105:
+				return -1
+			case 115:
+				return -1
+			}
+			return -1
+		},
+		func(r rune) int {
+			switch r {
+			case 73:
+				return -1
+			case 83:
+				return -1
+			case 105:
+				return -1
+			case 115:
+				return -1
+			}
+			return -1
+		},
+	}, []int{ /* Start-of-input transitions */ -1, -1, -1, -1, -1}, []int{ /* End-of-input transitions */ -1, -1, -1, -1, -1}, nil},
+
+	// NOT|not
+	{[]bool{false, false, false, false, true, false, true}, []func(rune) int{ // Transitions
+		func(r rune) int {
+			switch r {
+			case 78:
+				return 1
+			case 79:
+				return -1
+			case 84:
+				return -1
+			case 110:
+				return 2
+			case 111:
+				return -1
+			case 116:
+				return -1
+			}
+			return -1
+		},
+		func(r rune) int {
+			switch r {
+			case 78:
+				return -1
+			case 79:
+				return 5
+			case 84:
+				return -1
+			case 110:
+				return -1
+			case 111:
+				return -1
+			case 116:
+				return -1
+			}
+			return -1
+		},
+		func(r rune) int {
+			switch r {
+			case 78:
+				return -1
+			case 79:
+				return -1
+			case 84:
+				return -1
+			case 110:
+				return -1
+			case 111:
+				return 3
+			case 116:
+				return -1
+			}
+			return -1
+		},
+		func(r rune) int {
+			switch r {
+			case 78:
+				return -1
+			case 79:
+				return -1
+			case 84:
+				return -1
+			case 110:
+				return -1
+			case 111:
+				return -1
+			case 116:
+				return 4
+			}
+			return -1
+		},
+		func(r rune) int {
+			switch r {
+			case 78:
+				return -1
+			case 79:
+				return -1
+			case 84:
+				return -1
+			case 110:
+				return -1
+			case 111:
+				return -1
+			case 116:
+				return -1
+			}
+			return -1
+		},
+		func(r rune) int {
+			switch r {
+			case 78:
+				return -1
+			case 79:
+				return -1
+			case 84:
+				return 6
+			case 110:
+				return -1
+			case 111:
+				return -1
+			case 116:
+				return -1
+			}
+			return -1
+		},
+		func(r rune) int {
+			switch r {
+			case 78:
+				return -1
+			case 79:
+				return -1
+			case 84:
+				return -1
+			case 110:
+				return -1
+			case 111:
+				return -1
+			case 116:
+				return -1
+			}
+			return -1
+		},
+	}, []int{ /* Start-of-input transitions */ -1, -1, -1, -1, -1, -1, -1}, []int{ /* End-of-input transitions */ -1, -1, -1, -1, -1, -1, -1}, nil},
+
+	// NULL|null
+	{[]bool{false, false, false, false, false, true, false, false, true}, []func(rune) int{ // Transitions
+		func(r rune) int {
+			switch r {
+			case 76:
+				return -1
+			case 78:
+				return 1
+			case 85:
+				return -1
+			case 108:
+				return -1
+			case 110:
+				return 2
+			case 117:
+				return -1
+			}
+			return -1
+		},
+		func(r rune) int {
+			switch r {
+			case 76:
+				return -1
+			case 78:
+				return -1
+			case 85:
+				return 6
+			case 108:
+				return -1
+			case 110:
+				return -1
+			case 117:
+				return -1
+			}
+			return -1
+		},
+		func(r rune) int {
+			switch r {
+			case 76:
+				return -1
+			case 78:
+				return -1
+			case 85:
+				return -1
+			case 108:
+				return -1
+			case 110:
+				return -1
+			case 117:
+				return 3
+			}
+			return -1
+		},
+		func(r rune) int {
+			switch r {
+			case 76:
+				return -1
+			case 78:
+				return -1
+			case 85:
+				return -1
+			case 108:
+				return 4
+			case 110:
+				return -1
+			case 117:
+				return -1
+			}
+			return -1
+		},
+		func(r rune) int {
+			switch r {
+			case 76:
+				return -1
+			case 78:
+				return -1
+			case 85:
+				return -1
+			case 108:
+				return 5
+			case 110:
+				return -1
+			case 117:
+				return -1
+			}
+			return -1
+		},
+		func(r rune) int {
+			switch r {
+			case 76:
+				return -1
+			case 78:
+				return -1
+			case 85:
+				return -1
+			case 108:
+				return -1
+			case 110:
+				return -1
+			case 117:
+				return -1
+			}
+			return -1
+		},
+		func(r rune) int {
+			switch r {
+			case 76:
+				return 7
+			case 78:
+				return -1
+			case 85:
+				return -1
+			case 108:
+				return -1
+			case 110:
+				return -1
+			case 117:
+				return -1
+			}
+			return -1
+		},
+		func(r rune) int {
+			switch r {
+			case 76:
+				return 8
+			case 78:
+				return -1
+			case 85:
+				return -1
+			case 108:
+				return -1
+			case 110:
+				return -1
+			case 117:
+				return -1
+			}
+			return -1
+		},
+		func(r rune) int {
+			switch r {
+			case 76:
+				return -1
+			case 78:
+				return -1
+			case 85:
+				return -1
+			case 108:
+				return -1
+			case 110:
+				return -1
+			case 117:
+				return -1
+			}
+			return -1
+		},
+	}, []int{ /* Start-of-input transitions */ -1, -1, -1, -1, -1, -1, -1, -1, -1}, []int{ /* End-of-input transitions */ -1, -1, -1, -1, -1, -1, -1, -1, -1}, nil},
+
 	// \?
 	{[]bool{false, true}, []func(rune) int{ // Transitions
 		func(r rune) int {
@@ -2112,28 +2461,40 @@ OUTER0:
 			}
 		case 2:
 			{
-				return VALUE_PLACEHOLDER
+				return IS
 			}
 		case 3:
 			{
-				return ANY
+				return NOT
 			}
 		case 4:
 			{
-				return CONJUNCTION
+				return NULL
 			}
 		case 5:
 			{
-				return LEFT_PARENTHESIS
+				return VALUE_PLACEHOLDER
 			}
 		case 6:
 			{
-				return RIGHT_PARENTHESIS
+				return ANY
 			}
 		case 7:
-			{ /* eat up whitespace */
+			{
+				return CONJUNCTION
 			}
 		case 8:
+			{
+				return LEFT_PARENTHESIS
+			}
+		case 9:
+			{
+				return RIGHT_PARENTHESIS
+			}
+		case 10:
+			{ /* eat up whitespace */
+			}
+		case 11:
 			{
 				return UNKNOWN
 			}
