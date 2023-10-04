@@ -34,7 +34,8 @@ func InitLoggerAndTransportsForTools(ctx context.Context, lScreen uclog.LogLevel
 			Required:    true,
 			MaxLogLevel: lScreen,
 		},
-		PrefixFlag: NoPrefixVal,
+		PrefixFlag:    NoPrefixVal,
+		SupportsColor: to.supportsColor,
 	},
 	}
 
