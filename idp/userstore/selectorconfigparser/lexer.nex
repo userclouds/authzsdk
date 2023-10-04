@@ -1,5 +1,8 @@
 /{[a-zA-Z0-9_-]+}(->>'[a-zA-Z0-9_-]+')?/        { return COLUMN_IDENTIFIER }
 /=|<=|>=|<|>|!=| LIKE | ILIKE | like | ilike /  { return OPERATOR }
+/IS|is/                                         { return IS }
+/NOT|not/                                       { return NOT }
+/NULL|null/                                     { return NULL }
 /\?/                                            { return VALUE_PLACEHOLDER }
 /ANY|any/                                       { return ANY }
 / AND | OR | and | or /                         { return CONJUNCTION }
