@@ -32,8 +32,16 @@ func Filename(filename string) ToolLogOption {
 	})
 }
 
+// SupportsColor specifies that terminal supports color
+func SupportsColor() ToolLogOption {
+	return optFunc(func(po *ToolLogConfig) {
+		po.supportsColor = true
+	})
+}
+
 // ToolLogConfig describes optional parameters for configuring logging for a tool
 type ToolLogConfig struct {
-	filename string
-	prefix   int
+	filename      string
+	prefix        int
+	supportsColor bool
 }

@@ -10,7 +10,6 @@ import (
 
 	"userclouds.com/infra/namespace/color"
 	"userclouds.com/infra/namespace/service"
-	"userclouds.com/infra/namespace/universe"
 	"userclouds.com/infra/ucerr"
 	"userclouds.com/infra/ucjwt"
 	"userclouds.com/infra/uclog"
@@ -38,7 +37,8 @@ const TransportTypeGo TransportType = "go"
 type GoTransportConfig struct {
 	Type                  TransportType `yaml:"type" json:"type"`
 	uclog.TransportConfig `yaml:"transportconfig" json:"transportconfig"`
-	PrefixFlag            int `yaml:"prefix_flag" json:"prefix_flag"`
+	PrefixFlag            int  `yaml:"prefix_flag" json:"prefix_flag"`
+	SupportsColor         bool `yaml:"supports_color" json:"supports_color"`
 }
 
 // GetType implements TransportConfig
@@ -109,7 +109,7 @@ func (t *logTransport) WriteMessage(ctx context.Context, message string, level u
 	}
 
 	// TODO: there's a cleaner factoring here but
-	if messageColor != defaultColor && universe.Current().IsDev() {
+	if messageColor != defaultColor && t.config.SupportsColor {
 		log.Printf("%s%s%s%s%s", color.ANSIEscapeColor, messageColor, message, color.ANSIEscapeColor, defaultColor) // lint: ucwrapper-safe
 	} else {
 		log.Println(message) // lint: ucwrapper-safe
