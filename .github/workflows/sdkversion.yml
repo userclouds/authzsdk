@@ -11,6 +11,6 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout PR source code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Verify sdkVersion is not empty and is not existing tag
         uses: ./.github/actions/check-sdkversion
