@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -19,19 +20,23 @@ const maxRdConflictRetries = 15 // If the cache is accessed by a number of clien
 
 // RedisClientCacheProvider is the base implementation of the CacheProvider interface
 type RedisClientCacheProvider struct {
-	rc *redis.Client
-	sm *shared.WriteThroughCacheSentinelManager
+	rc     *redis.Client
+	prefix string
+	sm     *shared.WriteThroughCacheSentinelManager
 }
 
 // NewRedisClientCacheProvider creates a new RedisClientCacheProvider
-func NewRedisClientCacheProvider(rc *redis.Client) *RedisClientCacheProvider {
-	return &RedisClientCacheProvider{rc: rc, sm: shared.NewWriteThroughCacheSentinelManager()}
+func NewRedisClientCacheProvider(rc *redis.Client, prefix string) *RedisClientCacheProvider {
+	return &RedisClientCacheProvider{rc: rc, prefix: prefix, sm: shared.NewWriteThroughCacheSentinelManager()}
 }
 
 // WriteSentinel writes the sentinel value into the given keys
 func (c *RedisClientCacheProvider) WriteSentinel(ctx context.Context, stype shared.SentinelType, keysIn []shared.CacheKey) (shared.CacheSentinel, error) {
 	sentinel := c.sm.GenerateSentinel(stype)
-	keys := getStringsFromCacheKeys(keysIn)
+	keys, err := getValidatedStringKeysFromCacheKeys(keysIn, c.prefix)
+	if err != nil {
+		return shared.NoLockSentinel, ucerr.Wrap(err)
+	}
 	// There must be at least one key to lock
 	if len(keys) == 0 {
 		return shared.NoLockSentinel, ucerr.New("WriteSentinel was passed no keys to set")
@@ -87,23 +92,34 @@ func (c *RedisClientCacheProvider) WriteSentinel(ctx context.Context, stype shar
 	return shared.NoLockSentinel, ucerr.New("WriteSentinel reached maximum number of retries")
 }
 
-// getStringsFromCacheKeys filters out any empty keys and does the type conversion
-func getStringsFromCacheKeys(keys []shared.CacheKey) []string {
+// getValidatedStringKeysFromCacheKeys filters out any empty keys and does the type conversion
+func getValidatedStringKeysFromCacheKeys(keys []shared.CacheKey, prefix string) ([]string, error) {
 	strKeys := make([]string, 0, len(keys))
 	for _, k := range keys {
 		if k != "" {
-			strKeys = append(strKeys, string(k))
+			if strings.HasPrefix(string(k), prefix) {
+				strKeys = append(strKeys, string(k))
+			} else {
+				return nil, ucerr.New(fmt.Sprintf("Key %v does not have prefix %v", k, prefix))
+			}
 		}
 	}
-	return strKeys
+	return strKeys, nil
+}
+
+func getValidatedStringKeyFromCacheKey(key shared.CacheKey, prefix string) (string, error) {
+	if strings.HasPrefix(string(key), prefix) {
+		return string(key), nil
+	}
+	return "", ucerr.New(fmt.Sprintf("Key %v does not have prefix %v", key, prefix))
 }
 
 // ReleaseSentinel clears the sentinel value from the given keys
 func (c *RedisClientCacheProvider) ReleaseSentinel(ctx context.Context, keysIn []shared.CacheKey, s shared.CacheSentinel) {
 	// Filter out any empty keys
-	keys := getStringsFromCacheKeys(keysIn)
+	keys, err := getValidatedStringKeysFromCacheKeys(keysIn, c.prefix)
 	// If there are no keys to potentially clear, return
-	if len(keys) == 0 {
+	if err != nil || len(keys) == 0 {
 		return
 	}
 
@@ -176,7 +192,10 @@ func multiSetWithPipe(ctx context.Context, pipe redis.Pipeliner, keys []string, 
 
 // SetValue sets the value in cache key(s) to val with given expiration time if the sentinel matches and returns true if the value was set
 func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.CacheKey, keysToSet []shared.CacheKey, val string, sentinel shared.CacheSentinel, ttl time.Duration) (bool, bool, error) {
-	keys := getStringsFromCacheKeys(keysToSet)
+	keys, err := getValidatedStringKeysFromCacheKeys(keysToSet, c.prefix)
+	if err != nil {
+		return false, false, ucerr.Wrap(err)
+	}
 	// There needs to be at least a single key to check for sentinel/set to value
 	if len(keys) == 0 {
 		return false, false, ucerr.New("No keys provided to SetValue")
@@ -251,7 +270,10 @@ func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.C
 
 // GetValue gets the value in CacheKey (if any) and tries to lock the key for Read is lockOnMiss = true
 func (c *RedisClientCacheProvider) GetValue(ctx context.Context, keyIn shared.CacheKey, lockOnMiss bool) (*string, shared.CacheSentinel, error) {
-	key := string(keyIn)
+	key, err := getValidatedStringKeyFromCacheKey(keyIn, c.prefix)
+	if err != nil {
+		return nil, "", ucerr.Wrap(err)
+	}
 	if key == "" {
 		return nil, "", ucerr.New("Empty key provided to GetValue")
 	}
@@ -288,7 +310,10 @@ func (c *RedisClientCacheProvider) GetValue(ctx context.Context, keyIn shared.Ca
 
 // DeleteValue deletes the value(s) in passed in keys
 func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []shared.CacheKey, force bool) error {
-	keysAll := getStringsFromCacheKeys(keysIn)
+	keysAll, err := getValidatedStringKeysFromCacheKeys(keysIn, c.prefix)
+	if err != nil {
+		return ucerr.Wrap(err)
+	}
 	if len(keysAll) != 0 {
 		if force {
 			return c.rc.Del(ctx, keysAll...).Err()
@@ -357,8 +382,10 @@ func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []sha
 
 // AddDependency adds the given cache key(s) as dependencies of an item represented by by key
 func (c *RedisClientCacheProvider) AddDependency(ctx context.Context, keysIn []shared.CacheKey, values []shared.CacheKey, ttl time.Duration) error {
-	keysAll := getStringsFromCacheKeys(keysIn)
-
+	keysAll, err := getValidatedStringKeysFromCacheKeys(keysIn, c.prefix)
+	if err != nil {
+		return ucerr.Wrap(err)
+	}
 	i := make([]interface{}, 0, len(values))
 	for _, v := range values {
 		if v != "" { // Skip empty values
@@ -451,7 +478,10 @@ func (c *RedisClientCacheProvider) AddDependency(ctx context.Context, keysIn []s
 
 // ClearDependencies clears the dependencies of an item represented by key and removes all dependent keys from the cache
 func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn shared.CacheKey, setTombstone bool) error {
-	key := string(keyIn)
+	key, err := getValidatedStringKeyFromCacheKey(keyIn, c.prefix)
+	if err != nil {
+		return ucerr.Wrap(err)
+	}
 
 	// Using optimistic concurrency control to clear the dependent keys for each value in key. This may cause us to flush more keys than needed but
 	// never miss one. We tombstone the key to prevent new dependencies from being added from reads that might have been in flight during deletion.
