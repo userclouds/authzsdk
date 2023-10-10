@@ -109,6 +109,9 @@ var (
 	DeleteAccessPolicy = func(id uuid.UUID, version int) string {
 		return fmt.Sprintf("%s/%s?policy_version=%d", BaseAccessPolicyPath, id, version)
 	}
+	DeleteAllAccessPolicyVersions = func(id uuid.UUID) string {
+		return fmt.Sprintf("%s/%s?policy_version=all", BaseAccessPolicyPath, id)
+	}
 	TestAccessPolicy    = fmt.Sprintf("%s/actions/test", BaseAccessPolicyPath)
 	ExecuteAccessPolicy = fmt.Sprintf("%s/actions/execute", BaseAccessPolicyPath)
 
@@ -131,6 +134,9 @@ var (
 	DeleteAccessPolicyTemplate = func(id uuid.UUID, version int) string {
 		return fmt.Sprintf("%s/%s?template_version=%d", BaseAccessPolicyTemplatePath, id, version)
 	}
+	DeleteAllAccessPolicyTemplateVersions = func(id uuid.UUID) string {
+		return fmt.Sprintf("%s/%s?template_version=all", BaseAccessPolicyTemplatePath, id)
+	}
 
 	BaseTransformerPath = fmt.Sprintf("%s/transformation", BasePolicyPath)
 	ListTransformers    = BaseTransformerPath
@@ -144,6 +150,10 @@ var (
 	DeleteTransformer  = func(id uuid.UUID) string { return fmt.Sprintf("%s/%s", BaseTransformerPath, id) }
 	TestTransformer    = fmt.Sprintf("%s/actions/test", BaseTransformerPath)
 	ExecuteTransformer = fmt.Sprintf("%s/actions/execute", BaseTransformerPath)
+
+	DownloadGolangSDKPath     = fmt.Sprintf("%s/download/codegensdk.go", UserStoreBasePath)
+	DownloadPythonSDKPath     = fmt.Sprintf("%s/download/codegensdk.py", UserStoreBasePath)
+	DownloadTypescriptSDKPath = fmt.Sprintf("%s/download/codegensdk.ts", UserStoreBasePath)
 )
 
 // StripUserstoreBase makes the URLs functional for handler setup

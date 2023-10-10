@@ -9,6 +9,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"userclouds.com/idp/userstore/selectorconfigparser"
+	"userclouds.com/infra/pagination"
 	"userclouds.com/infra/set"
 	"userclouds.com/infra/ucerr"
 )
@@ -105,6 +106,16 @@ func (c *Column) extraValidate() error {
 }
 
 //go:generate genvalidate Column
+
+// GetPaginationKeys is part of the pagination.PageableType interface
+func (Column) GetPaginationKeys() pagination.KeyTypes {
+	return pagination.KeyTypes{
+		"id":      pagination.UUIDKeyType,
+		"name":    pagination.StringKeyType,
+		"created": pagination.TimestampKeyType,
+		"updated": pagination.TimestampKeyType,
+	}
+}
 
 // Equals returns true if the two columns are equal
 func (c *Column) Equals(other *Column) bool {
@@ -293,6 +304,16 @@ func (o *Accessor) extraValidate() error {
 }
 
 //go:generate genvalidate Accessor
+
+// GetPaginationKeys is part of the pagination.PageableType interface
+func (Accessor) GetPaginationKeys() pagination.KeyTypes {
+	return pagination.KeyTypes{
+		"id":      pagination.UUIDKeyType,
+		"name":    pagination.StringKeyType,
+		"created": pagination.TimestampKeyType,
+		"updated": pagination.TimestampKeyType,
+	}
+}
 
 // ColumnInputConfig is a struct that contains a column and the validator to use for that column
 type ColumnInputConfig struct {

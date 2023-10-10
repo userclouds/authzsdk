@@ -12,7 +12,7 @@ func (o *ObjectType) Validate() error {
 		return ucerr.Wrap(err)
 	}
 	if o.TypeName == "" {
-		return ucerr.Errorf("ObjectType.TypeName (%v) can't be empty", o.ID)
+		return ucerr.Friendlyf(nil, "ObjectType.TypeName (%v) can't be empty", o.ID)
 	}
 	return nil
 }
