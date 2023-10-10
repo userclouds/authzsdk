@@ -14,13 +14,13 @@ func (o *Edge) Validate() error {
 		return ucerr.Wrap(err)
 	}
 	if o.EdgeTypeID == uuid.Nil {
-		return ucerr.Errorf("Edge.EdgeTypeID (%v) can't be nil", o.ID)
+		return ucerr.Friendlyf(nil, "Edge.EdgeTypeID (%v) can't be nil", o.ID)
 	}
 	if o.SourceObjectID == uuid.Nil {
-		return ucerr.Errorf("Edge.SourceObjectID (%v) can't be nil", o.ID)
+		return ucerr.Friendlyf(nil, "Edge.SourceObjectID (%v) can't be nil", o.ID)
 	}
 	if o.TargetObjectID == uuid.Nil {
-		return ucerr.Errorf("Edge.TargetObjectID (%v) can't be nil", o.ID)
+		return ucerr.Friendlyf(nil, "Edge.TargetObjectID (%v) can't be nil", o.ID)
 	}
 	return nil
 }

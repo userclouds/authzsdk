@@ -157,7 +157,7 @@ func NewCustomClient(objTypeTTL time.Duration, edgeTypeTTL time.Duration, objTTL
 
 	ttlP := newAuthzCacheTTLProvider(objTypeTTL, edgeTypeTTL, objTTL, edgeTTL)
 	// TODO should be tenantID_OrgID
-	basePrefixWihOrg := url + options.organizationID.String()
+	basePrefixWihOrg := fmt.Sprintf("%s_%s", url, options.organizationID.String())
 
 	c := &Client{
 		client:            sdkclient.New(strings.TrimSuffix(url, "/"), options.jsonclientOptions...),
@@ -181,7 +181,7 @@ func (c *Client) getCacheKeyNameProvider(orgID uuid.UUID) clientcache.CacheKeyNa
 	if orgID == uuid.Nil {
 		return newAuthZCacheNameProvider(c.basePrefixWithOrg)
 	}
-	return newAuthZCacheNameProvider(c.basePrefix + orgID.String())
+	return newAuthZCacheNameProvider(fmt.Sprintf("%s_%s", c.basePrefix, orgID.String()))
 }
 
 // ErrObjectNotFound is returned if an object is not found.
