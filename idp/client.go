@@ -3,6 +3,7 @@ package idp
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"strings"
 	"time"
@@ -1106,4 +1107,46 @@ func (c *Client) GetConsentedPurposesForUser(ctx context.Context, userID uuid.UU
 	}
 
 	return resp, nil
+}
+
+// DownloadGolangSDK downloads the generated Golang SDK for this tenant's userstore configuration
+func (c *Client) DownloadGolangSDK(ctx context.Context) (string, error) {
+	path := paths.DownloadGolangSDKPath
+
+	var sdk string
+	rawBodyDecoder := func(ctx context.Context, body io.ReadCloser) error {
+		buf := &strings.Builder{}
+		if _, err := io.Copy(buf, body); err != nil {
+			return ucerr.Wrap(err)
+		}
+		sdk = buf.String()
+		return nil
+	}
+
+	if err := c.client.Get(ctx, path, nil, jsonclient.CustomDecoder(rawBodyDecoder)); err != nil {
+		return "", ucerr.Wrap(err)
+	}
+
+	return sdk, nil
+}
+
+// DownloadPythonSDK downloads the generated Python SDK for this tenant's userstore configuration
+func (c *Client) DownloadPythonSDK(ctx context.Context) (string, error) {
+	path := paths.DownloadPythonSDKPath
+
+	var sdk string
+	rawBodyDecoder := func(ctx context.Context, body io.ReadCloser) error {
+		buf := &strings.Builder{}
+		if _, err := io.Copy(buf, body); err != nil {
+			return ucerr.Wrap(err)
+		}
+		sdk = buf.String()
+		return nil
+	}
+
+	if err := c.client.Get(ctx, path, nil, jsonclient.CustomDecoder(rawBodyDecoder)); err != nil {
+		return "", ucerr.Wrap(err)
+	}
+
+	return sdk, nil
 }

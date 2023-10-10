@@ -14,7 +14,7 @@ func (o *Object) Validate() error {
 		return ucerr.Wrap(err)
 	}
 	if o.TypeID == uuid.Nil {
-		return ucerr.Errorf("Object.TypeID (%v) can't be nil", o.ID)
+		return ucerr.Friendlyf(nil, "Object.TypeID (%v) can't be nil", o.ID)
 	}
 	return nil
 }

@@ -125,11 +125,6 @@ func (p Paginator) GetVersion() Version {
 	return p.version
 }
 
-// HasResultType returns true if the result type has been provided
-func (p Paginator) HasResultType() bool {
-	return p.hasResultType
-}
-
 // IsForward returns true if the paginator is configured to page forward
 func (p Paginator) IsForward() bool {
 	return p.direction == DirectionForward
