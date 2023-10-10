@@ -76,17 +76,21 @@ func (c *InMemoryClientCacheProvider) inMemMultiDelete(keys []string) {
 	}
 }
 
+// getStringKeysFromCacheKeys filters out any empty keys and does the type conversion
+func (c *InMemoryClientCacheProvider) getStringKeysFromCacheKeys(keys []shared.CacheKey) []string {
+	strKeys := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if k != "" {
+			strKeys = append(strKeys, string(k))
+		}
+	}
+	return strKeys
+}
+
 // WriteSentinel writes the sentinel value into the given keys
 func (c *InMemoryClientCacheProvider) WriteSentinel(ctx context.Context, stype shared.SentinelType, keysIn []shared.CacheKey) (shared.CacheSentinel, error) {
 	sentinel := c.sm.GenerateSentinel(stype)
-	keys := make([]string, len(keysIn))
-	for i, k := range keysIn {
-		if k == "" {
-			continue
-		}
-		keys[i] = string(k)
-	}
-
+	keys := c.getStringKeysFromCacheKeys(keysIn)
 	if len(keys) == 0 {
 		return shared.NoLockSentinel, ucerr.New("Expected at least one key passed to WriteSentinel")
 	}
@@ -116,14 +120,7 @@ func (c *InMemoryClientCacheProvider) WriteSentinel(ctx context.Context, stype s
 
 // ReleaseSentinel clears the sentinel value from the given keys
 func (c *InMemoryClientCacheProvider) ReleaseSentinel(ctx context.Context, keysIn []shared.CacheKey, s shared.CacheSentinel) {
-	keys := make([]string, len(keysIn))
-	for i, k := range keysIn {
-		if k == "" {
-			continue
-		}
-		keys[i] = string(k)
-	}
-
+	keys := c.getStringKeysFromCacheKeys(keysIn)
 	if len(keys) == 0 {
 		return
 	}
@@ -147,13 +144,7 @@ func (c *InMemoryClientCacheProvider) ReleaseSentinel(ctx context.Context, keysI
 
 // SetValue sets the value in cache key(s) to val with given expiration time if the sentinel matches and returns true if the value was set
 func (c *InMemoryClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.CacheKey, keysToSet []shared.CacheKey, val string, sentinel shared.CacheSentinel, ttl time.Duration) (bool, bool, error) {
-	keys := make([]string, len(keysToSet))
-	for i, k := range keysToSet {
-		if k == "" {
-			continue
-		}
-		keys[i] = string(k)
-	}
+	keys := c.getStringKeysFromCacheKeys(keysToSet)
 
 	lkey := string(lkeyIn)
 	if len(keys) == 0 {
@@ -224,13 +215,7 @@ func (c *InMemoryClientCacheProvider) GetValue(ctx context.Context, keyIn shared
 
 // DeleteValue deletes the value(s) in passed in keys
 func (c *InMemoryClientCacheProvider) DeleteValue(ctx context.Context, keysIn []shared.CacheKey, force bool) error {
-	keys := make([]string, len(keysIn))
-	for i, k := range keysIn {
-		if k == "" {
-			continue
-		}
-		keys[i] = string(k)
-	}
+	keys := c.getStringKeysFromCacheKeys(keysIn)
 
 	c.keysMutex.Lock()
 	defer c.keysMutex.Unlock()
@@ -304,7 +289,7 @@ func (c *InMemoryClientCacheProvider) deleteKeyArray(dkey string, setTombstone b
 
 // AddDependency adds the given cache key(s) as dependencies of an item represented by by key
 func (c *InMemoryClientCacheProvider) AddDependency(ctx context.Context, keysIn []shared.CacheKey, values []shared.CacheKey, ttl time.Duration) error {
-	keys := getStringsFromCacheKeys(keysIn)
+	keys := c.getStringKeysFromCacheKeys(keysIn)
 	i := make([]string, 0, len(values))
 	for _, v := range values {
 		if v == "" {
