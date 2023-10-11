@@ -279,25 +279,25 @@ func (o *Accessor) extraValidate() error {
 	}
 
 	if len(o.Columns) == 0 {
-		return ucerr.Errorf("Accessor.Columns (%v) can't be empty", o.ID)
+		return ucerr.Friendlyf(nil, "Accessor.Columns (%v) can't be empty", o.ID)
 	}
 
 	for _, ct := range o.Columns {
 		if ct.Column.ID == uuid.Nil && ct.Column.Name == "" {
-			return ucerr.Errorf("Each element of Accessor.Columns (%v) must have a column ID or name", o.ID)
+			return ucerr.Friendlyf(nil, "Each element of Accessor.Columns (%v) must have a column ID or name", o.ID)
 		}
 
 		if ct.Transformer.ID == uuid.Nil && ct.Transformer.Name == "" {
-			return ucerr.Errorf("Each element of Accessor.Columns (%v) must have a transformer ID or name", o.ID)
+			return ucerr.Friendlyf(nil, "Each element of Accessor.Columns (%v) must have a transformer ID or name", o.ID)
 		}
 	}
 
 	if o.AccessPolicy.ID == uuid.Nil && o.AccessPolicy.Name == "" {
-		return ucerr.Errorf("Accessor.AccessPolicy (%v) must have an ID or name", o.ID)
+		return ucerr.Friendlyf(nil, "Accessor.AccessPolicy (%v) must have an ID or name", o.ID)
 	}
 
 	if len(o.Purposes) == 0 {
-		return ucerr.Errorf("Accessor.Purposes (%v) can't be empty", o.ID)
+		return ucerr.Friendlyf(nil, "Accessor.Purposes (%v) can't be empty", o.ID)
 	}
 
 	return nil
@@ -353,21 +353,21 @@ func (o *Mutator) extraValidate() error {
 	}
 
 	if len(o.Columns) == 0 && !o.IsSystem {
-		return ucerr.Errorf("Mutator.Columns (%v) can't be empty", o.ID)
+		return ucerr.Friendlyf(nil, "Mutator.Columns (%v) can't be empty", o.ID)
 	}
 
 	for _, cv := range o.Columns {
 		if cv.Column.ID == uuid.Nil && cv.Column.Name == "" {
-			return ucerr.Errorf("Each element of Mutator.Columns (%v) must have a column ID or name", o.ID)
+			return ucerr.Friendlyf(nil, "Each element of Mutator.Columns (%v) must have a column ID or name", o.ID)
 		}
 
 		if cv.Validator.ID == uuid.Nil && cv.Validator.Name == "" {
-			return ucerr.Errorf("Each element of Mutator.Columns (%v) must have a validator ID or name", o.ID)
+			return ucerr.Friendlyf(nil, "Each element of Mutator.Columns (%v) must have a validator ID or name", o.ID)
 		}
 	}
 
 	if o.AccessPolicy.ID == uuid.Nil && o.AccessPolicy.Name == "" {
-		return ucerr.Errorf("Mutator.AccessPolicy (%v) must have an ID or name", o.ID)
+		return ucerr.Friendlyf(nil, "Mutator.AccessPolicy (%v) must have an ID or name", o.ID)
 	}
 
 	return nil
