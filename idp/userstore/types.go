@@ -353,21 +353,21 @@ func (o *Mutator) extraValidate() error {
 	}
 
 	if len(o.Columns) == 0 && !o.IsSystem {
-		return ucerr.Friendlyf(nil, "Mutator.Columns (%v) can't be empty", o.ID)
+		return ucerr.Friendlyf(nil, "Mutator with ID (%v) can't have empty Columns", o.ID)
 	}
 
 	for _, cv := range o.Columns {
 		if cv.Column.ID == uuid.Nil && cv.Column.Name == "" {
-			return ucerr.Friendlyf(nil, "Each element of Mutator.Columns (%v) must have a column ID or name", o.ID)
+			return ucerr.Friendlyf(nil, "Mutator with ID (%v): each element of Columns must have a column ID or name", o.ID)
 		}
 
 		if cv.Validator.ID == uuid.Nil && cv.Validator.Name == "" {
-			return ucerr.Friendlyf(nil, "Each element of Mutator.Columns (%v) must have a validator ID or name", o.ID)
+			return ucerr.Friendlyf(nil, "Mutator with ID (%v): each element of Columns must have a validator ID or name", o.ID)
 		}
 	}
 
 	if o.AccessPolicy.ID == uuid.Nil && o.AccessPolicy.Name == "" {
-		return ucerr.Friendlyf(nil, "Mutator.AccessPolicy (%v) must have an ID or name", o.ID)
+		return ucerr.Friendlyf(nil, "Mutator with ID (%v): AccessPolicy must have an ID or name", o.ID)
 	}
 
 	return nil
