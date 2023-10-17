@@ -517,8 +517,8 @@ func (c *Client) GetColumnRetentionDurationsForColumn(
 // GetColumnRetentionDurationForPurpose returns the derived purpose retention duration for the specified purpose and duration type
 func (c *Client) GetColumnRetentionDurationForPurpose(
 	ctx context.Context,
-	purposeID uuid.UUID,
 	dlcs userstore.DataLifeCycleState,
+	purposeID uuid.UUID,
 ) (*ColumnRetentionDurationResponse, error) {
 	path := paths.NewRetentionPath(dlcs.IsLive()).ForPurpose(purposeID).Build()
 
@@ -629,7 +629,7 @@ func (c *Client) UpdateSpecificColumnRetentionDurationForColumn(
 	req := UpdateColumnRetentionDurationRequest{RetentionDuration: crd}
 
 	var resp ColumnRetentionDurationResponse
-	if err := c.client.Post(ctx, path, req, &resp); err != nil {
+	if err := c.client.Put(ctx, path, req, &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
@@ -651,7 +651,7 @@ func (c *Client) UpdateSpecificColumnRetentionDurationForPurpose(
 	req := UpdateColumnRetentionDurationRequest{RetentionDuration: crd}
 
 	var resp ColumnRetentionDurationResponse
-	if err := c.client.Post(ctx, path, req, &resp); err != nil {
+	if err := c.client.Put(ctx, path, req, &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
@@ -672,7 +672,7 @@ func (c *Client) UpdateSpecificColumnRetentionDurationForTenant(
 	req := UpdateColumnRetentionDurationRequest{RetentionDuration: crd}
 
 	var resp ColumnRetentionDurationResponse
-	if err := c.client.Post(ctx, path, req, &resp); err != nil {
+	if err := c.client.Put(ctx, path, req, &resp); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 
