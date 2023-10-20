@@ -214,15 +214,20 @@ func (c *InMemoryClientCacheProvider) GetValue(ctx context.Context, keyIn shared
 }
 
 // DeleteValue deletes the value(s) in passed in keys
-func (c *InMemoryClientCacheProvider) DeleteValue(ctx context.Context, keysIn []shared.CacheKey, force bool) error {
+func (c *InMemoryClientCacheProvider) DeleteValue(ctx context.Context, keysIn []shared.CacheKey, setTombstone bool, force bool) error {
 	keys := c.getStringKeysFromCacheKeys(keysIn)
 
 	c.keysMutex.Lock()
 	defer c.keysMutex.Unlock()
 
 	if force {
-		// Delete regardless of value
+		// Delete or tombstone regardless of value
 		c.inMemMultiDelete(keys)
+		if setTombstone {
+			c.inMemMultiSet(keys, string(shared.TombstoneSentinel), false, memSentinelTTL)
+		} else {
+			c.inMemMultiDelete(keys)
+		}
 	} else {
 		// Delete only unlocked keys
 		for _, k := range keys {
@@ -233,7 +238,11 @@ func (c *InMemoryClientCacheProvider) DeleteValue(ctx context.Context, keysIn []
 						continue
 					}
 				}
-				c.cache.Delete(k)
+				if setTombstone {
+					c.cache.Set(k, string(shared.TombstoneSentinel), memSentinelTTL)
+				} else {
+					c.cache.Delete(k)
+				}
 			}
 		}
 	}
@@ -275,15 +284,22 @@ func (c *InMemoryClientCacheProvider) saveKeyArray(dkeys []string, newKeys []str
 }
 
 func (c *InMemoryClientCacheProvider) deleteKeyArray(dkey string, setTombstone bool) {
+	isTombstone := false
 	if x, found := c.cache.Get(dkey); found {
 		if keyNames, ok := x.([]string); ok {
 			c.inMemMultiDelete(keyNames)
+		} else if val, ok := x.(string); ok {
+			if val == string(shared.TombstoneSentinel) {
+				isTombstone = true
+			}
 		}
 	}
 	if setTombstone {
 		c.cache.Set(dkey, string(shared.TombstoneSentinel), memSentinelTTL)
 	} else {
-		c.cache.Delete(dkey)
+		if !isTombstone {
+			c.cache.Delete(dkey)
+		}
 	}
 }
 
