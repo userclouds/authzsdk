@@ -41,6 +41,7 @@ type Transformer struct {
 	Name          string              `json:"name" validate:"length:1,128" required:"true"`
 	Description   string              `json:"description"`
 	InputType     userstore.DataType  `json:"input_type" required:"true"`
+	OutputType    userstore.DataType  `json:"output_type" required:"true" validate:"skip"`
 	TransformType TransformType       `json:"transform_type" required:"true"`
 	TagIDs        uuidarray.UUIDArray `json:"tag_ids" validate:"skip"`
 	Function      string              `json:"function" required:"true"`
@@ -55,6 +56,7 @@ func (Transformer) GetPaginationKeys() pagination.KeyTypes {
 		"name":           pagination.StringKeyType,
 		"description":    pagination.StringKeyType,
 		"input_type":     pagination.StringKeyType,
+		"output_type":    pagination.StringKeyType,
 		"transform_type": pagination.StringKeyType,
 		"created":        pagination.TimestampKeyType,
 		"updated":        pagination.TimestampKeyType,
@@ -86,14 +88,25 @@ func (g Transformer) extraValidate() error {
 		return ucerr.Friendlyf(err, "Transformer validation - Javascript error: %v", err)
 	}
 
+	if g.OutputType != userstore.DataTypeInvalid {
+		if err := g.OutputType.Validate(); err != nil {
+			return ucerr.Wrap(err)
+		}
+	}
+
 	return nil
 }
 
 // Equals returns true if the two policies are equal, ignoring the ID and description fields
 func (g *Transformer) Equals(other *Transformer) bool {
 	return (g.ID == other.ID || g.ID == uuid.Nil || other.ID == uuid.Nil) &&
-		g.Name == other.Name && g.InputType == other.InputType &&
-		g.TransformType == other.TransformType && g.Function == other.Function && g.Parameters == other.Parameters && g.IsSystem == other.IsSystem
+		g.Name == other.Name &&
+		g.InputType == other.InputType &&
+		g.OutputType == other.OutputType &&
+		g.TransformType == other.TransformType &&
+		g.Function == other.Function &&
+		g.Parameters == other.Parameters &&
+		g.IsSystem == other.IsSystem
 }
 
 // UserstoreDataProvenance is used by TransformTypeTokenizeByReference to describe the provenance of the data
