@@ -15,6 +15,7 @@ import (
 )
 
 const rdSentinelTTL = 60 * time.Second
+const rdInvalidationTombstoneTTL = 5 * time.Second
 const maxRdConflictRetries = 15 // If the cache is accessed by a number of clients (across all machines) above this value performing create/update/delete operations on same
 // keys, the operation may fail for some of them due to optimistic locking not retrying enough times.
 
@@ -309,13 +310,13 @@ func (c *RedisClientCacheProvider) GetValue(ctx context.Context, keyIn shared.Ca
 }
 
 // DeleteValue deletes the value(s) in passed in keys
-func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []shared.CacheKey, force bool) error {
+func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []shared.CacheKey, setTombstone bool, force bool) error {
 	keysAll, err := getValidatedStringKeysFromCacheKeys(keysIn, c.prefix)
 	if err != nil {
 		return ucerr.Wrap(err)
 	}
 	if len(keysAll) != 0 {
-		if force {
+		if force && !setTombstone {
 			return c.rc.Del(ctx, keysAll...).Err()
 		}
 		batchSize := 2
@@ -332,6 +333,9 @@ func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []sha
 			txf := func(tx *redis.Tx) error {
 				// Operation is commited only if the watched keys remain unchanged.
 				_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+					if force {
+						return ucerr.Wrap(multiSetWithPipe(ctx, pipe, keys, string(shared.TombstoneSentinel), rdInvalidationTombstoneTTL))
+					}
 					values, err := c.rc.MGet(ctx, keys...).Result()
 					if err != nil && err != redis.Nil {
 						return ucerr.Wrap(err)
@@ -345,6 +349,9 @@ func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []sha
 					}
 
 					if len(keysToDelete) > 0 {
+						if setTombstone {
+							return ucerr.Wrap(multiSetWithPipe(ctx, pipe, keysToDelete, string(shared.TombstoneSentinel), rdInvalidationTombstoneTTL))
+						}
 						if err := pipe.Del(ctx, keysToDelete...).Err(); err != nil {
 							return ucerr.Wrap(err)
 						}
@@ -491,12 +498,14 @@ func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn 
 		// Operation is committed only if the watched keys remain unchanged.
 		_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
 			keys := []string{}
-			m, err := tx.SMembersMap(ctx, string(key)).Result()
-			if err == nil {
+			var isTombstone bool
+			if m, err := tx.SMembersMap(ctx, string(key)).Result(); err == nil {
 				keys = make([]string, 0, len(m))
 				for k := range m {
 					keys = append(keys, k)
 				}
+			} else if v, err := c.rc.Get(ctx, key).Result(); err == nil && v == string(shared.TombstoneSentinel) {
+				isTombstone = true
 			}
 
 			if len(keys) != 0 {
@@ -510,7 +519,7 @@ func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn 
 					return ucerr.Wrap(err)
 				}
 				uclog.Verbosef(ctx, "Set tombstone for %v", key)
-			} else {
+			} else if !isTombstone {
 				if err := pipe.Del(ctx, key).Err(); err != nil && err != redis.Nil {
 					return ucerr.Wrap(err)
 				}

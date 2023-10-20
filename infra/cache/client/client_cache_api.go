@@ -71,7 +71,7 @@ type CacheProvider interface {
 	// SetValue sets the value in cache key(s) to val with given expiration time if the sentinel matches lkey and returns true if the value was set
 	SetValue(ctx context.Context, lkey shared.CacheKey, keysToSet []shared.CacheKey, val string, sentinel shared.CacheSentinel, ttl time.Duration) (bool, bool, error)
 	// DeleteValue deletes the value(s) in passed in keys, force is true also deletes keys with sentinel or tombstone values
-	DeleteValue(ctx context.Context, key []shared.CacheKey, force bool) error
+	DeleteValue(ctx context.Context, key []shared.CacheKey, setTombstone bool, force bool) error
 	// WriteSentinel writes the sentinel value into the given keys, returns NoLockSentinel if it couldn't acquire the lock
 	WriteSentinel(ctx context.Context, stype shared.SentinelType, keys []shared.CacheKey) (shared.CacheSentinel, error)
 	// ReleaseSentinel clears the sentinel value from the given keys
@@ -297,7 +297,7 @@ func saveItemToCacheWorker[item CacheSingleItem](ctx context.Context, c CacheMan
 			if len(additionalColKeys) > 0 {
 				ckeys = append(ckeys, additionalColKeys...)
 			}
-			if err := c.P.DeleteValue(ctx, ckeys, true); err != nil {
+			if err := c.P.DeleteValue(ctx, ckeys, false, true /* force delete regardless of value */); err != nil {
 				uclog.Errorf(ctx, "Error clearing collection keys from cache: %v", err)
 				clearKeysOnError = true
 				keyset = false
@@ -333,7 +333,7 @@ func saveItemToCacheWorker[item CacheSingleItem](ctx context.Context, c CacheMan
 		}
 		// Cache is still in consistent state in this case, we just failed to add the cache the item to do contention
 		if clearKeysOnError {
-			if err := c.P.DeleteValue(ctx, keyNames, false); err != nil {
+			if err := c.P.DeleteValue(ctx, keyNames, false, false); err != nil {
 				uclog.Warningf(ctx, "Failed to delete secondary key after dependency failure %v: %v", i.GetSecondaryKeys(c.N), err)
 			}
 		}
