@@ -4,6 +4,7 @@ package universe
 
 var allUniverseValues = []Universe{
 	CI,
+	Container,
 	Debug,
 	Dev,
 	Prod,
