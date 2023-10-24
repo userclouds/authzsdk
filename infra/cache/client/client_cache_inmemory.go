@@ -233,7 +233,7 @@ func (c *InMemoryClientCacheProvider) DeleteValue(ctx context.Context, keysIn []
 		for _, k := range keys {
 			if x, found := c.cache.Get(k); found {
 				if v, ok := x.(string); ok {
-					if c.sm.IsSentinelValue(v) || v == string(shared.TombstoneSentinel) {
+					if c.sm.IsSentinelValue(v) || shared.IsTombstoneSentinel(v) {
 						// Skip locked key
 						continue
 					}
@@ -264,7 +264,7 @@ func (c *InMemoryClientCacheProvider) saveKeyArray(dkeys []string, newKeys []str
 				}
 			} else {
 				val, ok := x.(string)
-				if !ok || val == string(shared.TombstoneSentinel) {
+				if !ok || shared.IsTombstoneSentinel(val) {
 					return ucerr.New("Can't add dependency: key is tombstoned")
 				}
 			}
@@ -289,7 +289,7 @@ func (c *InMemoryClientCacheProvider) deleteKeyArray(dkey string, setTombstone b
 		if keyNames, ok := x.([]string); ok {
 			c.inMemMultiDelete(keyNames)
 		} else if val, ok := x.(string); ok {
-			if val == string(shared.TombstoneSentinel) {
+			if shared.IsTombstoneSentinel(val) {
 				isTombstone = true
 			}
 		}
