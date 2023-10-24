@@ -37,16 +37,17 @@ const (
 
 // Transformer describes a token transformer
 type Transformer struct {
-	ID            uuid.UUID           `json:"id"`
-	Name          string              `json:"name" validate:"length:1,128" required:"true"`
-	Description   string              `json:"description"`
-	InputType     userstore.DataType  `json:"input_type" required:"true"`
-	OutputType    userstore.DataType  `json:"output_type" required:"true" validate:"skip"`
-	TransformType TransformType       `json:"transform_type" required:"true"`
-	TagIDs        uuidarray.UUIDArray `json:"tag_ids" validate:"skip"`
-	Function      string              `json:"function" required:"true"`
-	Parameters    string              `json:"parameters"`
-	IsSystem      bool                `json:"is_system" description:"Whether this transformer is a system transformer. System transformers cannot be deleted or modified. This property cannot be changed."`
+	ID                 uuid.UUID           `json:"id"`
+	Name               string              `json:"name" validate:"length:1,128" required:"true"`
+	Description        string              `json:"description"`
+	InputType          userstore.DataType  `json:"input_type" required:"true"`
+	OutputType         userstore.DataType  `json:"output_type" required:"true" validate:"skip"`
+	ReuseExistingToken bool                `json:"reuse_existing_token" required:"true" validate:"skip" description:"Specifies if the tokenizing transfomer should return existing token instead of creating a new one."`
+	TransformType      TransformType       `json:"transform_type" required:"true"`
+	TagIDs             uuidarray.UUIDArray `json:"tag_ids" validate:"skip"`
+	Function           string              `json:"function" required:"true"`
+	Parameters         string              `json:"parameters"`
+	IsSystem           bool                `json:"is_system" description:"Whether this transformer is a system transformer. System transformers cannot be deleted or modified. This property cannot be changed."`
 }
 
 // GetPaginationKeys is part of the pagination.PageableType interface
@@ -94,6 +95,10 @@ func (g Transformer) extraValidate() error {
 		}
 	}
 
+	if g.ReuseExistingToken && g.TransformType != TransformTypeTokenizeByValue && g.TransformType != TransformTypeTokenizeByReference {
+		return ucerr.Friendlyf(nil, "ReuseExistingToken can only be true for tokenization transformers")
+	}
+
 	return nil
 }
 
@@ -104,6 +109,7 @@ func (g *Transformer) Equals(other *Transformer) bool {
 		g.InputType == other.InputType &&
 		g.OutputType == other.OutputType &&
 		g.TransformType == other.TransformType &&
+		g.ReuseExistingToken == other.ReuseExistingToken &&
 		g.Function == other.Function &&
 		g.Parameters == other.Parameters &&
 		g.IsSystem == other.IsSystem
