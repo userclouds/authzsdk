@@ -14,8 +14,6 @@ import (
 	"userclouds.com/infra/uclog"
 )
 
-const rdSentinelTTL = 60 * time.Second
-const rdInvalidationTombstoneTTL = 5 * time.Second
 const maxRdConflictRetries = 15 // If the cache is accessed by a number of clients (across all machines) above this value performing create/update/delete operations on same
 // keys, the operation may fail for some of them due to optimistic locking not retrying enough times.
 
@@ -65,7 +63,7 @@ func (c *RedisClientCacheProvider) WriteSentinel(ctx context.Context, stype shar
 				// Proceed to take the lock if key is empty (err == redis.Nil) or it doesn't contain sentinel value
 			}
 
-			if err := multiSetWithPipe(ctx, pipe, keys, string(sentinel), rdSentinelTTL); err != nil {
+			if err := multiSetWithPipe(ctx, pipe, keys, string(sentinel), shared.SentinelTTL); err != nil {
 				return ucerr.Wrap(err)
 			}
 			lockValue = sentinel
@@ -236,7 +234,7 @@ func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.C
 				}
 				return nil
 			} else if conflict { // Conflict detected so upgrade the lock to conflict
-				if err := multiSetWithPipe(ctx, pipe, keys, cV+string(sentinel), rdSentinelTTL); err != nil {
+				if err := multiSetWithPipe(ctx, pipe, keys, cV+string(sentinel), shared.SentinelTTL); err != nil {
 					return ucerr.Wrap(err)
 				}
 				uclog.Verbosef(ctx, "Lock upgraded to conflict on write collision %v got %v added %v", lkey, cV, sentinel)
@@ -284,7 +282,7 @@ func (c *RedisClientCacheProvider) GetValue(ctx context.Context, keyIn shared.Ca
 		if lockOnMiss {
 			sentinel := c.sm.GenerateSentinel(shared.Read)
 			// Since SetNX is atomic we don't need to worry about the other operation on key between the Get and SetNX
-			r, err := c.rc.SetNX(ctx, key, string(sentinel), rdSentinelTTL).Result()
+			r, err := c.rc.SetNX(ctx, key, string(sentinel), shared.SentinelTTL).Result()
 			if err != nil {
 				uclog.Verbosef(ctx, "Cache miss key %v lock fail %v", key, err)
 				return nil, "", ucerr.Wrap(err)
@@ -331,10 +329,10 @@ func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []sha
 
 			// Transactional function to only clear keys if they don't contain sentinel or tombstone
 			txf := func(tx *redis.Tx) error {
-				// Operation is commited only if the watched keys remain unchanged.
+				// Operation is committed only if the watched keys remain unchanged.
 				_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
 					if force {
-						return ucerr.Wrap(multiSetWithPipe(ctx, pipe, keys, string(shared.TombstoneSentinel), rdInvalidationTombstoneTTL))
+						return ucerr.Wrap(multiSetWithPipe(ctx, pipe, keys, string(shared.TombstoneSentinel), shared.InvalidationTombstoneTTL))
 					}
 					values, err := c.rc.MGet(ctx, keys...).Result()
 					if err != nil && err != redis.Nil {
@@ -343,14 +341,14 @@ func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []sha
 
 					keysToDelete := []string{}
 					for i, v := range values {
-						if vS, ok := v.(string); ok && !c.sm.IsSentinelValue(vS) && vS != string(shared.TombstoneSentinel) {
+						if vS, ok := v.(string); ok && !c.sm.IsSentinelValue(vS) && !shared.IsTombstoneSentinel(vS) {
 							keysToDelete = append(keysToDelete, keys[i])
 						}
 					}
 
 					if len(keysToDelete) > 0 {
 						if setTombstone {
-							return ucerr.Wrap(multiSetWithPipe(ctx, pipe, keysToDelete, string(shared.TombstoneSentinel), rdInvalidationTombstoneTTL))
+							return ucerr.Wrap(multiSetWithPipe(ctx, pipe, keysToDelete, string(shared.TombstoneSentinel), shared.InvalidationTombstoneTTL))
 						}
 						if err := pipe.Del(ctx, keysToDelete...).Err(); err != nil {
 							return ucerr.Wrap(err)
@@ -439,7 +437,7 @@ func (c *RedisClientCacheProvider) AddDependency(ctx context.Context, keysIn []s
 
 				for _, v := range values {
 					vS, ok := v.(string)
-					if ok && vS == string(shared.TombstoneSentinel) {
+					if ok && shared.IsTombstoneSentinel(vS) {
 						return ucerr.New("Can't add dependency: key is tombstoned")
 					}
 				}
@@ -504,7 +502,7 @@ func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn 
 				for k := range m {
 					keys = append(keys, k)
 				}
-			} else if v, err := c.rc.Get(ctx, key).Result(); err == nil && v == string(shared.TombstoneSentinel) {
+			} else if v, err := c.rc.Get(ctx, key).Result(); err == nil && shared.IsTombstoneSentinel(v) {
 				isTombstone = true
 			}
 
@@ -515,7 +513,7 @@ func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn 
 				uclog.Verbosef(ctx, "Cleared dependencies %v keys", keys)
 			}
 			if setTombstone {
-				if err := pipe.Set(ctx, key, string(shared.TombstoneSentinel), rdSentinelTTL).Err(); err != nil {
+				if err := pipe.Set(ctx, key, string(shared.TombstoneSentinel), shared.SentinelTTL).Err(); err != nil {
 					return ucerr.Wrap(err)
 				}
 				uclog.Verbosef(ctx, "Set tombstone for %v", key)

@@ -6,20 +6,6 @@ import (
 	"github.com/gofrs/uuid"
 )
 
-// NoLockSentinel represents the sentinel value for no lock
-const NoLockSentinel CacheSentinel = ""
-
-// SentinelType names
-const (
-	Create SentinelType = "create"
-	Update SentinelType = "update"
-	Delete SentinelType = "delete"
-	Read   SentinelType = "read"
-)
-
-// TombstoneSentinel represents the sentinel value for a tombstone
-const TombstoneSentinel CacheSentinel = "Tombstone"
-
 const sentinelPrefix = "sentinel_"
 const sentinelWritePrefix = "write_"
 const sentinelDeletePrefix = "delete_"
