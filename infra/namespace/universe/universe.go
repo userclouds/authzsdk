@@ -19,12 +19,13 @@ const (
 // Supported universes.
 // NOTE: keep in sync with `enum Universe` in TSX codebase
 const (
-	Dev     Universe = "dev"     // local dev laptops
-	Test    Universe = "test"    // automated tests on localhost
-	CI      Universe = "ci"      // AWS continuous integration env
-	Debug   Universe = "debug"   // AWS EB universe to debug off master
-	Staging Universe = "staging" // cloud hosted staging universe (similar to prod)
-	Prod    Universe = "prod"    // user-facing prod deployment
+	Dev       Universe = "dev"       // local dev laptops
+	Test      Universe = "test"      // automated tests on localhost
+	CI        Universe = "ci"        // AWS continuous integration env
+	Debug     Universe = "debug"     // AWS EB universe to debug off master
+	Staging   Universe = "staging"   // cloud hosted staging universe (similar to prod)
+	Prod      Universe = "prod"      // user-facing prod deployment
+	Container Universe = "container" //  container (dev only for now)
 )
 
 //go:generate genstringconstenum Universe
