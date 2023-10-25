@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/gofrs/uuid"
 
@@ -11,7 +12,7 @@ import (
 	"userclouds.com/infra/pagination"
 	"userclouds.com/infra/ucdb"
 	"userclouds.com/infra/ucerr"
-	"userclouds.com/infra/uuidarray"
+	"userclouds.com/infra/uctypes/uuidarray"
 )
 
 var validIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_-]*$`)
@@ -105,7 +106,7 @@ func (g Transformer) extraValidate() error {
 // Equals returns true if the two policies are equal, ignoring the ID and description fields
 func (g *Transformer) Equals(other *Transformer) bool {
 	return (g.ID == other.ID || g.ID == uuid.Nil || other.ID == uuid.Nil) &&
-		g.Name == other.Name &&
+		strings.EqualFold(g.Name, other.Name) &&
 		g.InputType == other.InputType &&
 		g.OutputType == other.OutputType &&
 		g.TransformType == other.TransformType &&
@@ -178,7 +179,9 @@ func (a AccessPolicyTemplate) extraValidate() error {
 // Equals returns true if the two templates are equal, ignoring the ID, description, and version fields
 func (a *AccessPolicyTemplate) Equals(other *AccessPolicyTemplate) bool {
 	return (a.ID == other.ID || a.ID == uuid.Nil || other.ID == uuid.Nil) &&
-		a.Name == other.Name && a.Function == other.Function && a.IsSystem == other.IsSystem
+		strings.EqualFold(a.Name, other.Name) &&
+		a.Function == other.Function &&
+		a.IsSystem == other.IsSystem
 }
 
 // AccessPolicyComponent is either an access policy a template paired with parameters to fill it with
