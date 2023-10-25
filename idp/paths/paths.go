@@ -90,19 +90,19 @@ var (
 
 	BasePolicyPath = fmt.Sprintf("%s/policies", TokenizerBasePath)
 
-	BaseAccessPolicyPath = fmt.Sprintf("%s/access", BasePolicyPath)
-	ListAccessPolicies   = BaseAccessPolicyPath
-	GetAccessPolicy      = func(id uuid.UUID) string {
-		return fmt.Sprintf("%s/%s", BaseAccessPolicyPath, id)
-	}
+	BaseAccessPolicyPath  = fmt.Sprintf("%s/access", BasePolicyPath)
+	ListAccessPolicies    = BaseAccessPolicyPath
 	GetAccessPolicyByName = func(name string) string {
-		return fmt.Sprintf("%s?name=%s", BaseAccessPolicyPath, name)
+		return fmt.Sprintf("%s?policy_name=%s", BaseAccessPolicyPath, name)
+	}
+	GetAccessPolicyByNameAndVersion = func(name string, version int) string {
+		return fmt.Sprintf("%s?policy_name=%s&policy_version=%d", BaseAccessPolicyPath, name, version)
+	}
+	GetAccessPolicy = func(id uuid.UUID) string {
+		return fmt.Sprintf("%s/%s", BaseAccessPolicyPath, id)
 	}
 	GetAccessPolicyByVersion = func(id uuid.UUID, version int) string {
 		return fmt.Sprintf("%s/%s?policy_version=%d", BaseAccessPolicyPath, id, version)
-	}
-	GetAccessPolicyByNameAndVersion = func(name string, version int) string {
-		return fmt.Sprintf("%s?name=%s&policy_version=%d", BaseAccessPolicyPath, name, version)
 	}
 	CreateAccessPolicy = BaseAccessPolicyPath
 	UpdateAccessPolicy = func(id uuid.UUID) string { return fmt.Sprintf("%s/%s", BaseAccessPolicyPath, id) }
@@ -115,19 +115,19 @@ var (
 	TestAccessPolicy    = fmt.Sprintf("%s/actions/test", BaseAccessPolicyPath)
 	ExecuteAccessPolicy = fmt.Sprintf("%s/actions/execute", BaseAccessPolicyPath)
 
-	BaseAccessPolicyTemplatePath = fmt.Sprintf("%s/accesstemplate", BasePolicyPath)
-	ListAccessPolicyTemplates    = BaseAccessPolicyTemplatePath
-	GetAccessPolicyTemplate      = func(id uuid.UUID) string {
-		return fmt.Sprintf("%s/%s", BaseAccessPolicyTemplatePath, id)
-	}
+	BaseAccessPolicyTemplatePath  = fmt.Sprintf("%s/accesstemplate", BasePolicyPath)
+	ListAccessPolicyTemplates     = BaseAccessPolicyTemplatePath
 	GetAccessPolicyTemplateByName = func(name string) string {
-		return fmt.Sprintf("%s?name=%s", BaseAccessPolicyTemplatePath, name)
+		return fmt.Sprintf("%s?template_name=%s", BaseAccessPolicyTemplatePath, name)
+	}
+	GetAccessPolicyTemplateByNameAndVersion = func(name string, version int) string {
+		return fmt.Sprintf("%s?template_name=%s&template_version=%d", BaseAccessPolicyTemplatePath, name, version)
+	}
+	GetAccessPolicyTemplate = func(id uuid.UUID) string {
+		return fmt.Sprintf("%s/%s", BaseAccessPolicyTemplatePath, id)
 	}
 	GetAccessPolicyTemplateByVersion = func(id uuid.UUID, version int) string {
 		return fmt.Sprintf("%s/%s?template_version=%d", BaseAccessPolicyTemplatePath, id, version)
-	}
-	GetAccessPolicyTemplateByNameAndVersion = func(name string, version int) string {
-		return fmt.Sprintf("%s?name=%s&template_version=%d", BaseAccessPolicyTemplatePath, name, version)
 	}
 	CreateAccessPolicyTemplate = BaseAccessPolicyTemplatePath
 	UpdateAccessPolicyTemplate = func(id uuid.UUID) string { return fmt.Sprintf("%s/%s", BaseAccessPolicyTemplatePath, id) }
@@ -138,13 +138,13 @@ var (
 		return fmt.Sprintf("%s/%s?template_version=all", BaseAccessPolicyTemplatePath, id)
 	}
 
-	BaseTransformerPath = fmt.Sprintf("%s/transformation", BasePolicyPath)
-	ListTransformers    = BaseTransformerPath
-	GetTransformer      = func(id uuid.UUID) string {
-		return fmt.Sprintf("%s/%s", BaseTransformerPath, id)
-	}
+	BaseTransformerPath  = fmt.Sprintf("%s/transformation", BasePolicyPath)
+	ListTransformers     = BaseTransformerPath
 	GetTransformerByName = func(name string) string {
-		return fmt.Sprintf("%s?name=%s", BaseTransformerPath, name)
+		return fmt.Sprintf("%s?transformer_name=%s", BaseTransformerPath, name)
+	}
+	GetTransformer = func(id uuid.UUID) string {
+		return fmt.Sprintf("%s/%s", BaseTransformerPath, id)
 	}
 	CreateTransformer  = BaseTransformerPath
 	DeleteTransformer  = func(id uuid.UUID) string { return fmt.Sprintf("%s/%s", BaseTransformerPath, id) }

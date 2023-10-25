@@ -4,14 +4,15 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/gofrs/uuid"
 
 	"userclouds.com/idp/userstore/selectorconfigparser"
 	"userclouds.com/infra/pagination"
-	"userclouds.com/infra/set"
 	"userclouds.com/infra/ucerr"
+	"userclouds.com/infra/uctypes/set"
 )
 
 // DataType is an enum for supported data types
@@ -120,7 +121,7 @@ func (Column) GetPaginationKeys() pagination.KeyTypes {
 // Equals returns true if the two columns are equal
 func (c *Column) Equals(other *Column) bool {
 	return (c.ID == other.ID || c.ID == uuid.Nil || other.ID == uuid.Nil) &&
-		c.Name == other.Name &&
+		strings.EqualFold(c.Name, other.Name) &&
 		c.Type == other.Type &&
 		c.IsArray == other.IsArray &&
 		c.DefaultValue == other.DefaultValue &&

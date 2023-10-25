@@ -3,9 +3,9 @@ package idp
 import (
 	"time"
 
-	"userclouds.com/infra/messaging/email/emailaddress"
 	"userclouds.com/infra/oidc"
 	"userclouds.com/infra/ucerr"
+	"userclouds.com/infra/uctypes/messaging/email/emailaddress"
 )
 
 // AuthnType defines the kinds of authentication factors

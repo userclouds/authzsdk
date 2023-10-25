@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/gofrs/uuid"
 
@@ -237,13 +238,18 @@ func (c *TokenizerClient) GetAccessPolicy(ctx context.Context, accessPolicyRID u
 		if err := c.client.Get(ctx, paths.GetAccessPolicy(accessPolicyRID.ID), &res); err != nil {
 			return nil, ucerr.Wrap(err)
 		}
-		if accessPolicyRID.Name != "" && res.Name != accessPolicyRID.Name {
+		if accessPolicyRID.Name != "" && !strings.EqualFold(res.Name, accessPolicyRID.Name) {
 			return nil, ucerr.Errorf("Access policy name mismatch: %s != %s", res.Name, accessPolicyRID.Name)
 		}
 	} else {
-		if err := c.client.Get(ctx, paths.GetAccessPolicyByName(accessPolicyRID.Name), &res); err != nil {
+		var policiesResp ListAccessPoliciesResponse
+		if err := c.client.Get(ctx, paths.GetAccessPolicyByName(accessPolicyRID.Name), &policiesResp); err != nil {
 			return nil, ucerr.Wrap(err)
 		}
+		if len(policiesResp.Data) != 1 {
+			return nil, ucerr.Errorf("found %d access policies for name %s", len(policiesResp.Data), accessPolicyRID.Name)
+		}
+		res = policiesResp.Data[0]
 	}
 
 	return &res, nil
@@ -256,13 +262,18 @@ func (c *TokenizerClient) GetAccessPolicyByVersion(ctx context.Context, accessPo
 		if err := c.client.Get(ctx, paths.GetAccessPolicyByVersion(accessPolicyRID.ID, version), &res); err != nil {
 			return nil, ucerr.Wrap(err)
 		}
-		if accessPolicyRID.Name != "" && res.Name != accessPolicyRID.Name {
+		if accessPolicyRID.Name != "" && !strings.EqualFold(res.Name, accessPolicyRID.Name) {
 			return nil, ucerr.Errorf("Access policy name mismatch: %s != %s", res.Name, accessPolicyRID.Name)
 		}
 	} else {
-		if err := c.client.Get(ctx, paths.GetAccessPolicyByNameAndVersion(accessPolicyRID.Name, version), &res); err != nil {
+		var policiesResp ListAccessPoliciesResponse
+		if err := c.client.Get(ctx, paths.GetAccessPolicyByNameAndVersion(accessPolicyRID.Name, version), &policiesResp); err != nil {
 			return nil, ucerr.Wrap(err)
 		}
+		if len(policiesResp.Data) != 1 {
+			return nil, ucerr.Errorf("found %d access policies for name %s", len(policiesResp.Data), accessPolicyRID.Name)
+		}
+		res = policiesResp.Data[0]
 	}
 
 	return &res, nil
@@ -365,13 +376,18 @@ func (c *TokenizerClient) GetAccessPolicyTemplate(ctx context.Context, accessPol
 		if err := c.client.Get(ctx, paths.GetAccessPolicyTemplate(accessPolicyTemplateRID.ID), &res); err != nil {
 			return nil, ucerr.Wrap(err)
 		}
-		if accessPolicyTemplateRID.Name != "" && res.Name != accessPolicyTemplateRID.Name {
+		if accessPolicyTemplateRID.Name != "" && !strings.EqualFold(res.Name, accessPolicyTemplateRID.Name) {
 			return nil, ucerr.Errorf("Access policy template name mismatch: %s != %s", res.Name, accessPolicyTemplateRID.Name)
 		}
 	} else {
-		if err := c.client.Get(ctx, paths.GetAccessPolicyTemplateByName(accessPolicyTemplateRID.Name), &res); err != nil {
+		var templatesResp ListAccessPolicyTemplatesResponse
+		if err := c.client.Get(ctx, paths.GetAccessPolicyTemplateByName(accessPolicyTemplateRID.Name), &templatesResp); err != nil {
 			return nil, ucerr.Wrap(err)
 		}
+		if len(templatesResp.Data) != 1 {
+			return nil, ucerr.Errorf("found %d access policy templates for name %s", len(templatesResp.Data), accessPolicyTemplateRID.Name)
+		}
+		res = templatesResp.Data[0]
 	}
 
 	return &res, nil
@@ -384,13 +400,18 @@ func (c *TokenizerClient) GetAccessPolicyTemplateByVersion(ctx context.Context, 
 		if err := c.client.Get(ctx, paths.GetAccessPolicyTemplateByVersion(accessPolicyTemplateRID.ID, version), &res); err != nil {
 			return nil, ucerr.Wrap(err)
 		}
-		if accessPolicyTemplateRID.Name != "" && res.Name != accessPolicyTemplateRID.Name {
+		if accessPolicyTemplateRID.Name != "" && !strings.EqualFold(res.Name, accessPolicyTemplateRID.Name) {
 			return nil, ucerr.Errorf("Access policy template name mismatch: %s != %s", res.Name, accessPolicyTemplateRID.Name)
 		}
 	} else {
-		if err := c.client.Get(ctx, paths.GetAccessPolicyByNameAndVersion(accessPolicyTemplateRID.Name, version), &res); err != nil {
+		var templatesResp ListAccessPolicyTemplatesResponse
+		if err := c.client.Get(ctx, paths.GetAccessPolicyTemplateByNameAndVersion(accessPolicyTemplateRID.Name, version), &templatesResp); err != nil {
 			return nil, ucerr.Wrap(err)
 		}
+		if len(templatesResp.Data) != 1 {
+			return nil, ucerr.Errorf("found %d access policy templates for name %s", len(templatesResp.Data), accessPolicyTemplateRID.Name)
+		}
+		res = templatesResp.Data[0]
 	}
 
 	return &res, nil
@@ -519,13 +540,18 @@ func (c *TokenizerClient) GetTransformer(ctx context.Context, transformerRID use
 		if err := c.client.Get(ctx, paths.GetTransformer(transformerRID.ID), &res); err != nil {
 			return nil, ucerr.Wrap(err)
 		}
-		if transformerRID.Name != "" && res.Name != transformerRID.Name {
+		if transformerRID.Name != "" && !strings.EqualFold(res.Name, transformerRID.Name) {
 			return nil, ucerr.Errorf("Transformer name mismatch: %s != %s", res.Name, transformerRID.Name)
 		}
 	} else {
-		if err := c.client.Get(ctx, paths.GetTransformerByName(transformerRID.Name), &res); err != nil {
+		var transformersResp ListTransformersResponse
+		if err := c.client.Get(ctx, paths.GetTransformerByName(transformerRID.Name), &transformersResp); err != nil {
 			return nil, ucerr.Wrap(err)
 		}
+		if len(transformersResp.Data) != 1 {
+			return nil, ucerr.Errorf("found %d transformers for name %s", len(transformersResp.Data), transformerRID.Name)
+		}
+		res = transformersResp.Data[0]
 	}
 
 	return &res, nil
