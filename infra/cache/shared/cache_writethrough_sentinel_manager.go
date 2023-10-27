@@ -82,6 +82,11 @@ func (c *WriteThroughCacheSentinelManager) IsSentinelValue(v string) bool {
 	return strings.HasPrefix(v, sentinelPrefix)
 }
 
+// IsInvalidatingSentinelValue returns true if the sentinel requires invalidating the value across other
+func (c *WriteThroughCacheSentinelManager) IsInvalidatingSentinelValue(v CacheSentinel) bool {
+	return c.IsWriteSentinelPrefix(v) || c.IsDeleteSentinelPrefix(v)
+}
+
 // IsReadSentinelPrefix returns true if the sentinel value is a read sentinel
 func (c *WriteThroughCacheSentinelManager) IsReadSentinelPrefix(v CacheSentinel) bool {
 	return strings.HasPrefix(string(v), readSentinelPrefix())
@@ -107,4 +112,9 @@ func writeSentinelPrefix() string {
 
 func readSentinelPrefix() string {
 	return sentinelPrefix + sentinelReadPrefix
+}
+
+// IsInvalidatingSentinelValue returns true if the sentinel requires invalidating the value across other
+func IsInvalidatingSentinelValue(v CacheSentinel) bool {
+	return strings.HasPrefix(string(v), writeSentinelPrefix()) || strings.HasPrefix(string(v), deleteSentinelPrefix())
 }
