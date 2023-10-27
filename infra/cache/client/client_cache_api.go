@@ -82,6 +82,8 @@ type CacheProvider interface {
 	ClearDependencies(ctx context.Context, key shared.CacheKey, setTombstone bool) error
 	// Flush flushes the cache
 	Flush(ctx context.Context)
+	// GetCacheName returns the global name of the cache if any
+	GetCacheName(ctx context.Context) string
 }
 
 // CacheManager is the bundle cache classes that are needed to interact with the cache

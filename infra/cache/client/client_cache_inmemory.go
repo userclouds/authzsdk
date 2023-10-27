@@ -24,19 +24,18 @@ const memSentinelTTL = 70 * time.Second
 
 // InMemoryClientCacheProvider is the base implementation of the CacheProvider interface
 type InMemoryClientCacheProvider struct {
-	cache *cache.Cache
-
+	cache     *cache.Cache
 	keysMutex sync.Mutex
-
-	sm *shared.WriteThroughCacheSentinelManager
+	sm        *shared.WriteThroughCacheSentinelManager
+	cacheName string
 }
 
 // NewInMemoryClientCacheProvider creates a new InMemoryClientCacheProvider
-func NewInMemoryClientCacheProvider() *InMemoryClientCacheProvider {
+func NewInMemoryClientCacheProvider(cacheName string) *InMemoryClientCacheProvider {
 	// TODO - Underlying library treats 0 and -1 as no expiration, so we need to set it to minimum value and not look up items from the cache, work around that
 	cacheEdges := cache.New(DefaultCacheTTL, gcInterval)
 
-	return &InMemoryClientCacheProvider{cache: cacheEdges, sm: shared.NewWriteThroughCacheSentinelManager()}
+	return &InMemoryClientCacheProvider{cache: cacheEdges, sm: shared.NewWriteThroughCacheSentinelManager(), cacheName: cacheName}
 }
 
 // inMemMultiSet sets all passed in keys to the same value with given TTL. Locking is left up to caller
@@ -143,7 +142,8 @@ func (c *InMemoryClientCacheProvider) ReleaseSentinel(ctx context.Context, keysI
 }
 
 // SetValue sets the value in cache key(s) to val with given expiration time if the sentinel matches and returns true if the value was set
-func (c *InMemoryClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.CacheKey, keysToSet []shared.CacheKey, val string, sentinel shared.CacheSentinel, ttl time.Duration) (bool, bool, error) {
+func (c *InMemoryClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.CacheKey, keysToSet []shared.CacheKey, val string,
+	sentinel shared.CacheSentinel, ttl time.Duration) (bool, bool, error) {
 	keys := c.getStringKeysFromCacheKeys(keysToSet)
 
 	lkey := string(lkeyIn)
@@ -159,23 +159,23 @@ func (c *InMemoryClientCacheProvider) SetValue(ctx context.Context, lkeyIn share
 			set, clear, conflict := c.sm.CanSetValue(cV, val, sentinel)
 			if set {
 				// The sentinel is still in the key which means nothing interrupted the operation and value can be safely stored in the cache
-				uclog.Verbosef(ctx, "Cache set key %v", keys)
+				uclog.Verbosef(ctx, "Cache[%v] set key %v", c.cacheName, keys)
 				c.inMemMultiSet(keys, val, false, ttl)
 				return true, false, nil
 			} else if clear {
-				uclog.Verbosef(ctx, "Cache cleared on value mismatch or conflict sentinal key %v curr val %v would store %v", keys, cV, val)
+				uclog.Verbosef(ctx, "Cache[%v] cleared on value mismatch or conflict sentinal key %v curr val %v would store %v", c.cacheName, keys, cV, val)
 				c.inMemMultiDelete(keys)
 				return false, false, nil
 			} else if conflict {
 				c.inMemMultiSet(keys, cV+string(sentinel), false, memSentinelTTL)
-				uclog.Verbosef(ctx, "Lock upgraded to conflict on write collision %v got %v added %v", lkey, cV, sentinel)
+				uclog.Verbosef(ctx, "Cache[%v] lock upgraded to conflict on write collision %v got %v added %v", c.cacheName, lkey, cV, sentinel)
 				return false, true, nil
 			}
-			uclog.Verbosef(ctx, "Cache not set key %v on sentinel mismatch got %v expect %v", lkey, cV, sentinel)
+			uclog.Verbosef(ctx, "Cache[%v] not set key %v on sentinel mismatch got %v expect %v", c.cacheName, lkey, cV, sentinel)
 			return false, true, nil
 		}
 	}
-	uclog.Verbosef(ctx, "Cache not set key %v on sentinel %v key not found", lkey, sentinel)
+	uclog.Verbosef(ctx, "Cache[%v] not set key %v on sentinel %v key not found", c.cacheName, lkey, sentinel)
 	return false, false, nil
 }
 
@@ -192,21 +192,21 @@ func (c *InMemoryClientCacheProvider) GetValue(ctx context.Context, keyIn shared
 		if lockOnMiss {
 			sentinel := c.sm.GenerateSentinel(shared.Read)
 			if r := c.inMemMultiSet([]string{key}, string(sentinel), true, memSentinelTTL); r {
-				uclog.Verbosef(ctx, "Cache miss key %v sentinel set %v", key, sentinel)
+				uclog.Verbosef(ctx, "Cache[%v] miss key %v sentinel set %v", c.cacheName, key, sentinel)
 				return nil, shared.CacheSentinel(sentinel), nil
 			}
 		}
-		uclog.Verbosef(ctx, "Cache miss key %v no lock requested", key)
+		uclog.Verbosef(ctx, "Cache[%v] miss key %v no lock requested", c.cacheName, key)
 		return nil, shared.NoLockSentinel, nil
 	}
 
 	if value, ok := x.(string); ok {
 		if c.sm.IsSentinelValue(value) {
-			uclog.Verbosef(ctx, "Cache key %v is locked for in progress op %v", key, value)
+			uclog.Verbosef(ctx, "Cache[%v] key %v is locked for in progress op %v", c.cacheName, key, value)
 			return nil, shared.NoLockSentinel, nil
 		}
 
-		uclog.Verbosef(ctx, "Cache hit key %v", key)
+		uclog.Verbosef(ctx, "Cache[%v] hit key %v", c.cacheName, key)
 		return &value, shared.NoLockSentinel, nil
 	}
 
@@ -332,4 +332,9 @@ func (c *InMemoryClientCacheProvider) ClearDependencies(ctx context.Context, key
 // Flush flushes the cache (applies only to the tenant for which the client was created)
 func (c *InMemoryClientCacheProvider) Flush(ctx context.Context) {
 	c.cache.Flush()
+}
+
+// GetCacheName returns the name of the cache
+func (c *InMemoryClientCacheProvider) GetCacheName(ctx context.Context) string {
+	return c.cacheName
 }

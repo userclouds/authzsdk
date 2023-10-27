@@ -14,19 +14,25 @@ import (
 	"userclouds.com/infra/uclog"
 )
 
-const maxRdConflictRetries = 15 // If the cache is accessed by a number of clients (across all machines) above this value performing create/update/delete operations on same
-// keys, the operation may fail for some of them due to optimistic locking not retrying enough times.
+const (
+	// If the cache is accessed by a number of clients (across all machines) above this value performing create/update/delete operations on same
+	// keys, the operation may fail for some of them due to optimistic locking not retrying enough times.
+	maxRdConflictRetries = 15
+	// RegionalRedisCacheName is default name of the regional redis cache
+	RegionalRedisCacheName = "redisRegionalCache"
+)
 
 // RedisClientCacheProvider is the base implementation of the CacheProvider interface
 type RedisClientCacheProvider struct {
-	rc     *redis.Client
-	prefix string
-	sm     *shared.WriteThroughCacheSentinelManager
+	rc        *redis.Client
+	prefix    string
+	sm        *shared.WriteThroughCacheSentinelManager
+	cacheName string
 }
 
 // NewRedisClientCacheProvider creates a new RedisClientCacheProvider
-func NewRedisClientCacheProvider(rc *redis.Client, prefix string) *RedisClientCacheProvider {
-	return &RedisClientCacheProvider{rc: rc, prefix: prefix, sm: shared.NewWriteThroughCacheSentinelManager()}
+func NewRedisClientCacheProvider(rc *redis.Client, prefix string, cacheName string) *RedisClientCacheProvider {
+	return &RedisClientCacheProvider{rc: rc, prefix: prefix, sm: shared.NewWriteThroughCacheSentinelManager(), cacheName: cacheName}
 }
 
 // WriteSentinel writes the sentinel value into the given keys
@@ -150,7 +156,7 @@ func (c *RedisClientCacheProvider) ReleaseSentinel(ctx context.Context, keysIn [
 				if err := pipe.Del(ctx, keysToClear...).Err(); err != nil && err != redis.Nil {
 					uclog.Errorf(ctx, "Error clearing key(s) %v sentinel  %v", keysToClear, err)
 				}
-				uclog.Verbosef(ctx, "Cleared key(s) %v sentinel %v", keysToClear, s)
+				uclog.Verbosef(ctx, "Cache[%v] cleared key(s) %v sentinel %v", c.cacheName, keysToClear, s)
 			}
 			return nil
 		})
@@ -190,7 +196,9 @@ func multiSetWithPipe(ctx context.Context, pipe redis.Pipeliner, keys []string, 
 }
 
 // SetValue sets the value in cache key(s) to val with given expiration time if the sentinel matches and returns true if the value was set
-func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.CacheKey, keysToSet []shared.CacheKey, val string, sentinel shared.CacheSentinel, ttl time.Duration) (bool, bool, error) {
+func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.CacheKey, keysToSet []shared.CacheKey, val string,
+	sentinel shared.CacheSentinel, ttl time.Duration) (bool, bool, error) {
+
 	keys, err := getValidatedStringKeysFromCacheKeys(keysToSet, c.prefix)
 	if err != nil {
 		return false, false, ucerr.Wrap(err)
@@ -221,14 +229,14 @@ func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.C
 			set, clear, conflict := c.sm.CanSetValue(cV, val, sentinel)
 
 			if set { // Value can be set
-				uclog.Verbosef(ctx, "Cache set key %v", keys)
+				uclog.Verbosef(ctx, "Cache[%v] set key %v", c.cacheName, keys)
 				if err := multiSetWithPipe(ctx, pipe, keys, val, ttl); err != nil {
 					return ucerr.Wrap(err)
 				}
 				valueSet = true
 				return nil
 			} else if clear { // Intermediate state detected so clear the cache
-				uclog.Verbosef(ctx, "Cache cleared on value mismatch or conflict sentinel key %v curr var %v would store %v", keys, cV, val)
+				uclog.Verbosef(ctx, "Cache[%v] cleared on value mismatch or conflict sentinel key %v curr var %v would store %v", c.cacheName, keys, cV, val)
 				if err := pipe.Del(ctx, keys...).Err(); err != nil && err != redis.Nil {
 					uclog.Errorf(ctx, "Error clearing key(s) %v mismatch -  %v", keys, err)
 				}
@@ -237,12 +245,12 @@ func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.C
 				if err := multiSetWithPipe(ctx, pipe, keys, cV+string(sentinel), shared.SentinelTTL); err != nil {
 					return ucerr.Wrap(err)
 				}
-				uclog.Verbosef(ctx, "Lock upgraded to conflict on write collision %v got %v added %v", lkey, cV, sentinel)
+				uclog.Verbosef(ctx, "Cache[%v] lock upgraded to conflict on write collision %v got %v added %v", c.cacheName, lkey, cV, sentinel)
 				conflictDetected = true
 				return nil
 			}
 
-			uclog.Verbosef(ctx, "Cache not set key %v on sentinel mismatch got %v expect %v", lkey, cV, sentinel)
+			uclog.Verbosef(ctx, "Cache[%v] not set key %v on sentinel mismatch got %v expect %v", c.cacheName, lkey, cV, sentinel)
 			conflictDetected = true
 			return nil
 		})
@@ -284,26 +292,26 @@ func (c *RedisClientCacheProvider) GetValue(ctx context.Context, keyIn shared.Ca
 			// Since SetNX is atomic we don't need to worry about the other operation on key between the Get and SetNX
 			r, err := c.rc.SetNX(ctx, key, string(sentinel), shared.SentinelTTL).Result()
 			if err != nil {
-				uclog.Verbosef(ctx, "Cache miss key %v lock fail %v", key, err)
+				uclog.Verbosef(ctx, "Cache[%v] miss key %v lock fail %v", c.cacheName, key, err)
 				return nil, "", ucerr.Wrap(err)
 			}
 			if r {
-				uclog.Verbosef(ctx, "Cache miss key %v sentinel set %v", key, sentinel)
+				uclog.Verbosef(ctx, "Cache[%v] miss key %v sentinel set %v", c.cacheName, key, sentinel)
 				return nil, shared.CacheSentinel(sentinel), nil
 			}
 		}
-		uclog.Verbosef(ctx, "Cache miss key %v no lock requested", key)
+		uclog.Verbosef(ctx, "Cache[%v] miss key %v no lock requested", c.cacheName, key)
 		return nil, shared.NoLockSentinel, nil
 	}
 	if err != nil {
 		return nil, shared.NoLockSentinel, ucerr.Wrap(err)
 	}
 	if c.sm.IsSentinelValue(value) {
-		uclog.Verbosef(ctx, "Cache key %v is locked for in progress op %v", key, value)
+		uclog.Verbosef(ctx, "Cache[%v] key %v is locked for in progress op %v", c.cacheName, key, value)
 		return nil, shared.NoLockSentinel, nil
 	}
 
-	uclog.Verbosef(ctx, "Cache hit key %v", key)
+	uclog.Verbosef(ctx, "Cache[%v] hit key %v", c.cacheName, key)
 	return &value, shared.NoLockSentinel, nil
 }
 
@@ -510,13 +518,13 @@ func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn 
 				if err := pipe.Del(ctx, keys...).Err(); err != nil && err != redis.Nil {
 					return ucerr.Wrap(err)
 				}
-				uclog.Verbosef(ctx, "Cleared dependencies %v keys", keys)
+				uclog.Verbosef(ctx, "Cache[%v] cleared dependencies %v keys", c.cacheName, keys)
 			}
 			if setTombstone {
 				if err := pipe.Set(ctx, key, string(shared.TombstoneSentinel), shared.SentinelTTL).Err(); err != nil {
 					return ucerr.Wrap(err)
 				}
-				uclog.Verbosef(ctx, "Set tombstone for %v", key)
+				uclog.Verbosef(ctx, "Cache[%v] set tombstone for %v", c.cacheName, key)
 			} else if !isTombstone {
 				if err := pipe.Del(ctx, key).Err(); err != nil && err != redis.Nil {
 					return ucerr.Wrap(err)
@@ -548,4 +556,9 @@ func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn 
 // Flush flushes the cache (applies only to the tenant for which the client was created)
 func (c *RedisClientCacheProvider) Flush(ctx context.Context) {
 	c.rc.FlushAll(ctx)
+}
+
+// GetCacheName returns the name of the cache
+func (c *RedisClientCacheProvider) GetCacheName(ctx context.Context) string {
+	return c.cacheName
 }

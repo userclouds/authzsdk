@@ -152,7 +152,7 @@ func NewCustomClient(objTypeTTL time.Duration, edgeTypeTTL time.Duration, objTTL
 
 	// If cache provider is not specified use default
 	if cp == nil {
-		cp = clientcache.NewInMemoryClientCacheProvider()
+		cp = clientcache.NewInMemoryClientCacheProvider(uuid.Must(uuid.NewV4()).String())
 	}
 
 	ttlP := newAuthzCacheTTLProvider(objTypeTTL, edgeTypeTTL, objTTL, edgeTTL)
