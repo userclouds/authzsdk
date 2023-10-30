@@ -135,6 +135,7 @@ type Client struct {
 // NewClient creates a new authz client
 // Web API base URL, e.g. "http://localhost:1234".
 func NewClient(url string, opts ...Option) (*Client, error) {
+	opts = append(opts, BypassCache())
 	return NewCustomClient(DefaultObjTypeTTL, DefaultEdgeTypeTTL, DefaultObjTTL, DefaultEdgeTTL, url, opts...)
 }
 
@@ -155,7 +156,15 @@ func NewCustomClient(objTypeTTL time.Duration, edgeTypeTTL time.Duration, objTTL
 		cp = clientcache.NewInMemoryClientCacheProvider(uuid.Must(uuid.NewV4()).String())
 	}
 
-	ttlP := newAuthzCacheTTLProvider(objTypeTTL, edgeTypeTTL, objTTL, edgeTTL)
+	// TODO need to redo this in a way that makes more sense
+	if options.bypassCache {
+		objTypeTTL = clientcache.SkipCacheTTL
+		edgeTypeTTL = clientcache.SkipCacheTTL
+		objTTL = clientcache.SkipCacheTTL
+		edgeTTL = clientcache.SkipCacheTTL
+	}
+
+	ttlP := NewCacheTTLProvider(objTypeTTL, edgeTypeTTL, objTTL, edgeTTL)
 	// TODO should be tenantID_OrgID
 	basePrefixWihOrg := fmt.Sprintf("%s_%s", url, options.organizationID.String())
 
@@ -179,9 +188,9 @@ func NewCustomClient(objTypeTTL time.Duration, edgeTypeTTL time.Duration, objTTL
 
 func (c *Client) getCacheKeyNameProvider(orgID uuid.UUID) clientcache.CacheKeyNameProvider {
 	if orgID == uuid.Nil {
-		return newAuthZCacheNameProvider(c.basePrefixWithOrg)
+		return NewCacheNameProvider(c.basePrefixWithOrg)
 	}
-	return newAuthZCacheNameProvider(fmt.Sprintf("%s_%s", c.basePrefix, orgID.String()))
+	return NewCacheNameProvider(fmt.Sprintf("%s_%s", c.basePrefix, orgID.String()))
 }
 
 // ErrObjectNotFound is returned if an object is not found.
@@ -192,18 +201,18 @@ var ErrObjectNotFound = ucerr.New("object not found")
 var ErrRelationshipTypeNotFound = ucerr.New("relationship type not found")
 
 // FlushCache clears all contents of the cache
-func (c *Client) FlushCache() {
-	c.cp.Flush(context.Background())
+func (c *Client) FlushCache() error {
+	return ucerr.Wrap(c.cp.Flush(context.Background(), c.basePrefix))
 }
 
 // FlushCacheEdges clears the edge cache only.
-func (c *Client) FlushCacheEdges() {
-	c.cp.Flush(context.Background())
+func (c *Client) FlushCacheEdges() error {
+	return ucerr.Wrap(c.cp.Flush(context.Background(), c.basePrefix))
 }
 
 // FlushCacheObjectsAndEdges clears the objects/edges cache only.
-func (c *Client) FlushCacheObjectsAndEdges() {
-	c.cp.Flush(context.Background())
+func (c *Client) FlushCacheObjectsAndEdges() error {
+	return ucerr.Wrap(c.cp.Flush(context.Background(), c.basePrefix))
 }
 
 // CreateObjectType creates a new type of object for the authz system.
@@ -263,7 +272,7 @@ func (c *Client) FindObjectTypeID(ctx context.Context, typeName string, opts ...
 
 	if !options.bypassCache {
 		cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
-		v, _, err := clientcache.GetItemFromCache[ObjectType](ctx, cm, cm.N.GetKeyNameWithString(objTypeNameKeyID, typeName), false, c.ttlP.TTL(objTypeTTL))
+		v, _, err := clientcache.GetItemFromCache[ObjectType](ctx, cm, cm.N.GetKeyNameWithString(ObjectTypeNameKeyID, typeName), false, c.ttlP.TTL(ObjectTypeTTL))
 		if err != nil {
 			return uuid.Nil, ucerr.Wrap(err)
 		}
@@ -301,7 +310,7 @@ func (c *Client) GetObjectType(ctx context.Context, id uuid.UUID, opts ...Option
 	if !options.bypassCache {
 		var v *ObjectType
 		var err error
-		v, s, err = clientcache.GetItemFromCache[ObjectType](ctx, cm, cm.N.GetKeyNameWithID(objTypeKeyID, id), true, c.ttlP.TTL(objTypeTTL))
+		v, s, err = clientcache.GetItemFromCache[ObjectType](ctx, cm, cm.N.GetKeyNameWithID(ObjectTypeKeyID, id), true, c.ttlP.TTL(ObjectTypeTTL))
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
@@ -339,7 +348,7 @@ func (c *Client) ListObjectTypes(ctx context.Context, opts ...Option) ([]ObjectT
 		var v *[]ObjectType
 		var err error
 		cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
-		v, s, err = clientcache.GetItemFromCache[[]ObjectType](ctx, cm, cm.N.GetKeyNameStatic(objTypeCollectionKeyID), true, c.ttlP.TTL(objTypeTTL))
+		v, s, err = clientcache.GetItemFromCache[[]ObjectType](ctx, cm, cm.N.GetKeyNameStatic(ObjectTypeCollectionKeyID), true, c.ttlP.TTL(ObjectTypeTTL))
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
@@ -373,8 +382,8 @@ func (c *Client) ListObjectTypes(ctx context.Context, opts ...Option) ([]ObjectT
 			break
 		}
 	}
-	ckey := cm.N.GetKeyNameStatic(objTypeCollectionKeyID)
-	clientcache.SaveItemsToCollection(ctx, cm, ObjectType{}, objTypes, ckey, ckey, s, true, c.ttlP.TTL(objTypeTTL))
+	ckey := cm.N.GetKeyNameStatic(ObjectTypeCollectionKeyID)
+	clientcache.SaveItemsToCollection(ctx, cm, ObjectType{}, objTypes, ckey, ckey, s, true, c.ttlP.TTL(ObjectTypeTTL))
 
 	return objTypes, nil
 }
@@ -389,8 +398,7 @@ func (c *Client) DeleteObjectType(ctx context.Context, objectTypeID uuid.UUID) e
 	}
 
 	// There are so many potential inconsistencies when object type is deleted so flush the whole cache
-	c.FlushCache()
-	return nil
+	return ucerr.Wrap(c.FlushCache())
 }
 
 // CreateEdgeType creates a new type of edge for the authz system.
@@ -475,7 +483,9 @@ func (c *Client) UpdateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectT
 	clientcache.SaveItemToCache(ctx, cm, resp, s, true, nil)
 
 	// For now flush the cache because we don't track all the paths that need to be invalidated
-	c.FlushCache()
+	if err := c.FlushCache(); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
 
 	return &resp, nil
 }
@@ -495,7 +505,7 @@ func (c *Client) GetEdgeType(ctx context.Context, edgeTypeID uuid.UUID, opts ...
 		var v *EdgeType
 		var err error
 
-		v, s, err = clientcache.GetItemFromCache[EdgeType](ctx, cm, cm.N.GetKeyNameWithID(edgeTypeKeyID, edgeTypeID), true, c.ttlP.TTL(edgeTypeTTL))
+		v, s, err = clientcache.GetItemFromCache[EdgeType](ctx, cm, cm.N.GetKeyNameWithID(EdgeTypeKeyID, edgeTypeID), true, c.ttlP.TTL(EdgeTypeTTL))
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
@@ -523,7 +533,7 @@ func (c *Client) FindEdgeTypeID(ctx context.Context, typeName string, opts ...Op
 
 	if !options.bypassCache {
 		cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
-		v, _, err := clientcache.GetItemFromCache[EdgeType](ctx, cm, cm.N.GetKeyNameWithString(edgeTypeNameKeyID, typeName), false, c.ttlP.TTL(edgeTypeTTL))
+		v, _, err := clientcache.GetItemFromCache[EdgeType](ctx, cm, cm.N.GetKeyNameWithString(EdgeTypeNameKeyID, typeName), false, c.ttlP.TTL(EdgeTypeTTL))
 		if err != nil {
 			return uuid.Nil, ucerr.Wrap(err)
 		}
@@ -571,7 +581,7 @@ func (c *Client) ListEdgeTypes(ctx context.Context, opts ...Option) ([]EdgeType,
 	if !options.bypassCache {
 		var v *[]EdgeType
 		var err error
-		v, s, err = clientcache.GetItemFromCache[[]EdgeType](ctx, cm, cm.N.GetKeyNameStatic(edgeTypeCollectionKeyID), true, c.ttlP.TTL(edgeTypeTTL))
+		v, s, err = clientcache.GetItemFromCache[[]EdgeType](ctx, cm, cm.N.GetKeyNameStatic(EdgeTypeCollectionKeyID), true, c.ttlP.TTL(EdgeTypeTTL))
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
@@ -608,8 +618,8 @@ func (c *Client) ListEdgeTypes(ctx context.Context, opts ...Option) ([]EdgeType,
 			break
 		}
 	}
-	ckey := cm.N.GetKeyNameStatic(edgeTypeCollectionKeyID)
-	clientcache.SaveItemsToCollection(ctx, cm, EdgeType{}, edgeTypes, ckey, ckey, s, true, c.ttlP.TTL(edgeTypeTTL))
+	ckey := cm.N.GetKeyNameStatic(EdgeTypeCollectionKeyID)
+	clientcache.SaveItemsToCollection(ctx, cm, EdgeType{}, edgeTypes, ckey, ckey, s, true, c.ttlP.TTL(EdgeTypeTTL))
 
 	return edgeTypes, nil
 }
@@ -623,8 +633,7 @@ func (c *Client) DeleteEdgeType(ctx context.Context, edgeTypeID uuid.UUID) error
 		return ucerr.Wrap(err)
 	}
 	// There are so many potential inconsistencies when edge type is deleted so flush the whole cache
-	c.FlushCache()
-	return nil
+	return ucerr.Wrap(c.FlushCache())
 }
 
 // CreateObject creates a new object with a given ID, name, and type.
@@ -693,7 +702,7 @@ func (c *Client) GetObject(ctx context.Context, id uuid.UUID, opts ...Option) (*
 	if !options.bypassCache {
 		var v *Object
 		var err error
-		v, s, err = clientcache.GetItemFromCache[Object](ctx, cm, cm.N.GetKeyNameWithID(objectKeyID, id), true, c.ttlP.TTL(objTTL))
+		v, s, err = clientcache.GetItemFromCache[Object](ctx, cm, cm.N.GetKeyNameWithID(ObjectKeyID, id), true, c.ttlP.TTL(ObjectTTL))
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
@@ -730,7 +739,7 @@ func (c *Client) GetObjectForName(ctx context.Context, typeID uuid.UUID, name st
 		var v *Object
 		var err error
 
-		v, _, err = clientcache.GetItemFromCache[Object](ctx, cm, cm.N.GetKeyName(objAliasNameKeyID, []string{typeID.String(), name}), false, c.ttlP.TTL(objTTL))
+		v, _, err = clientcache.GetItemFromCache[Object](ctx, cm, cm.N.GetKeyName(ObjAliasNameKeyID, []string{typeID.String(), name}), false, c.ttlP.TTL(ObjectTTL))
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
@@ -765,7 +774,7 @@ func (c *Client) DeleteObject(ctx context.Context, id uuid.UUID) error {
 	cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
 	obj := &Object{BaseModel: ucdb.NewBaseWithID(id)}
 	// Stop in flight reads/writes of this object, edges leading to/from this object, paths including this object and object collection from committing to the cache
-	obj, _, err := clientcache.GetItemFromCache[Object](ctx, cm, obj.GetPrimaryKey(cm.N), false, c.ttlP.TTL(objTTL))
+	obj, _, err := clientcache.GetItemFromCache[Object](ctx, cm, obj.GetPrimaryKey(cm.N), false, c.ttlP.TTL(ObjectTTL))
 	if err != nil {
 		return ucerr.Wrap(err)
 	}
@@ -852,8 +861,8 @@ func (c *Client) ListObjectsFromQuery(ctx context.Context, query url.Values, opt
 	s := cache.NoLockSentinel
 	if !options.bypassCache {
 		var err error
-		ckey := cm.N.GetKeyNameStatic(objCollectionKeyID)
-		_, s, err := clientcache.GetItemFromCache[[]Object](ctx, cm, ckey, true, c.ttlP.TTL(objTTL))
+		ckey := cm.N.GetKeyNameStatic(ObjectCollectionKeyID)
+		_, s, err := clientcache.GetItemFromCache[[]Object](ctx, cm, ckey, true, c.ttlP.TTL(ObjectTTL))
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
@@ -916,7 +925,7 @@ func (c *Client) ListEdgesOnObject(ctx context.Context, objectID uuid.UUID, opts
 	cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
 	obj := Object{BaseModel: ucdb.NewBaseWithID(objectID)}
 
-	edges, s, err := clientcache.GetItemFromCache[[]Edge](ctx, cm, cm.N.GetKeyNameWithID(objEdgesKeyID, objectID), true, c.ttlP.TTL(edgeTTL))
+	edges, s, err := clientcache.GetItemFromCache[[]Edge](ctx, cm, cm.N.GetKeyNameWithID(ObjEdgesKeyID, objectID), true, c.ttlP.TTL(EdgeTTL))
 
 	if err != nil {
 		return nil, ucerr.Wrap(err)
@@ -939,8 +948,8 @@ func (c *Client) ListEdgesOnObject(ctx context.Context, objectID uuid.UUID, opts
 
 	// Only cache the response if it fits on one page
 	if !resp.HasNext && !resp.HasPrev {
-		ckey := cm.N.GetKeyNameWithID(objEdgesKeyID, objectID)
-		clientcache.SaveItemsToCollection(ctx, cm, obj, resp.Data, ckey, ckey, s, false, c.ttlP.TTL(edgeTTL))
+		ckey := cm.N.GetKeyNameWithID(ObjEdgesKeyID, objectID)
+		clientcache.SaveItemsToCollection(ctx, cm, obj, resp.Data, ckey, ckey, s, false, c.ttlP.TTL(EdgeTTL))
 	}
 	return &resp, nil
 }
@@ -956,7 +965,7 @@ func (c *Client) ListEdgesBetweenObjects(ctx context.Context, sourceObjectID, ta
 
 	cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
 	obj := Object{BaseModel: ucdb.NewBaseWithID(sourceObjectID)}
-	ckey := cm.N.GetKeyName(edgesObjToObjID, []string{sourceObjectID.String(), targetObjectID.String()})
+	ckey := cm.N.GetKeyName(EdgesObjToObjID, []string{sourceObjectID.String(), targetObjectID.String()})
 
 	s := cache.NoLockSentinel
 	if !options.bypassCache {
@@ -964,7 +973,7 @@ func (c *Client) ListEdgesBetweenObjects(ctx context.Context, sourceObjectID, ta
 		var err error
 
 		// First try to read the all in/out edges from source object
-		cEdges, _, err = clientcache.GetItemFromCache[[]Edge](ctx, cm, cm.N.GetKeyNameWithID(objEdgesKeyID, sourceObjectID), false, c.ttlP.TTL(edgeTTL))
+		cEdges, _, err = clientcache.GetItemFromCache[[]Edge](ctx, cm, cm.N.GetKeyNameWithID(ObjEdgesKeyID, sourceObjectID), false, c.ttlP.TTL(EdgeTTL))
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
@@ -980,7 +989,7 @@ func (c *Client) ListEdgesBetweenObjects(ctx context.Context, sourceObjectID, ta
 
 		// Next try to read the edges between target object and source object. We could also try to read the edges from target object but in authz graph
 		// it is rare to traverse in both directions so those collections would be less likely to be cached.
-		cEdges, s, err = clientcache.GetItemFromCache[[]Edge](ctx, cm, ckey, true, c.ttlP.TTL(edgeTTL))
+		cEdges, s, err = clientcache.GetItemFromCache[[]Edge](ctx, cm, ckey, true, c.ttlP.TTL(EdgeTTL))
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
@@ -1006,7 +1015,7 @@ func (c *Client) ListEdgesBetweenObjects(ctx context.Context, sourceObjectID, ta
 		}
 	}
 
-	clientcache.SaveItemsToCollection(ctx, cm, obj, resp.Data, ckey, ckey, s, false, c.ttlP.TTL(edgeTTL))
+	clientcache.SaveItemsToCollection(ctx, cm, obj, resp.Data, ckey, ckey, s, false, c.ttlP.TTL(EdgeTTL))
 
 	return edges, nil
 }
@@ -1027,7 +1036,7 @@ func (c *Client) GetEdge(ctx context.Context, id uuid.UUID, opts ...Option) (*Ed
 		var edge *Edge
 		var err error
 
-		edge, s, err = clientcache.GetItemFromCache[Edge](ctx, cm, cm.N.GetKeyNameWithID(edgeKeyID, id), true, c.ttlP.TTL(edgeTTL))
+		edge, s, err = clientcache.GetItemFromCache[Edge](ctx, cm, cm.N.GetKeyNameWithID(EdgeKeyID, id), true, c.ttlP.TTL(EdgeTTL))
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
@@ -1063,13 +1072,13 @@ func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, e
 		var err error
 
 		// Try to fetch the invidual edge first using secondary key  Source_Target_TypeID
-		edge, _, err = clientcache.GetItemFromCache[Edge](ctx, cm, cm.N.GetKeyName(edgeFullKeyID, []string{sourceObjectID.String(), targetObjectID.String(), edgeTypeID.String()}), false, c.ttlP.TTL(edgeTTL))
+		edge, _, err = clientcache.GetItemFromCache[Edge](ctx, cm, cm.N.GetKeyName(EdgeFullKeyID, []string{sourceObjectID.String(), targetObjectID.String(), edgeTypeID.String()}), false, c.ttlP.TTL(EdgeTTL))
 		// Since we are not taking a lock we can ignore cache errors
 		if err == nil && edge != nil {
 			return edge, nil
 		}
 		// If the edges are in the cache by source->target - iterate over that set first
-		edges, _, err = clientcache.GetItemFromCache[[]Edge](ctx, cm, cm.N.GetKeyName(edgesObjToObjID, []string{sourceObjectID.String(), targetObjectID.String()}), false, c.ttlP.TTL(edgeTTL))
+		edges, _, err = clientcache.GetItemFromCache[[]Edge](ctx, cm, cm.N.GetKeyName(EdgesObjToObjID, []string{sourceObjectID.String(), targetObjectID.String()}), false, c.ttlP.TTL(EdgeTTL))
 		// Since we are not taking a lock we can ignore cache errors
 		if err == nil && edges != nil {
 			for _, edge := range *edges {
@@ -1080,7 +1089,7 @@ func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, e
 			// In theory we could return NotFound here but this is a rare enough case that it makes sense to try the server
 		}
 		// If there is a cache miss, try to get the edges from all in/out edges on the source object
-		edges, _, err = clientcache.GetItemFromCache[[]Edge](ctx, cm, cm.N.GetKeyNameWithID(objEdgesKeyID, sourceObjectID), false, c.ttlP.TTL(edgeTTL))
+		edges, _, err = clientcache.GetItemFromCache[[]Edge](ctx, cm, cm.N.GetKeyNameWithID(ObjEdgesKeyID, sourceObjectID), false, c.ttlP.TTL(EdgeTTL))
 		// Since we are not taking a lock we can ignore cache errors
 		if err == nil && edges != nil {
 			for _, edge := range *edges {
@@ -1093,7 +1102,7 @@ func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, e
 		// We could also try all in/out edges from targetObjectID collection
 
 		// If we still don't have the edge, try the server but we can't take a lock single edge lock since we don't know the primary key
-		_, s, err = clientcache.GetItemFromCache[[]Object](ctx, cm, cm.N.GetKeyNameStatic(edgeCollectionKeyID), true, c.ttlP.TTL(objTTL))
+		_, s, err = clientcache.GetItemFromCache[[]Object](ctx, cm, cm.N.GetKeyNameStatic(EdgeCollectionKeyID), true, c.ttlP.TTL(ObjectTTL))
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
@@ -1160,10 +1169,10 @@ func (c *Client) CreateEdge(ctx context.Context, id, sourceObjectID, targetObjec
 
 	clientcache.SaveItemToCache(ctx, cm, resp, s, true,
 		// Clear additional collections that may be invalidated by this write
-		[]cache.CacheKey{cm.N.GetKeyName(edgesObjToObjID, []string{resp.SourceObjectID.String(), resp.TargetObjectID.String()}), // Source -> Target edges collection
-			cm.N.GetKeyNameWithID(objEdgesKeyID, resp.SourceObjectID),                                              // Source all in/out edges collection
-			cm.N.GetKeyName(edgesObjToObjID, []string{resp.TargetObjectID.String(), resp.SourceObjectID.String()}), // Target -> Source edges collection
-			cm.N.GetKeyNameWithID(objEdgesKeyID, resp.TargetObjectID),                                              // Target all in/out edges collection
+		[]cache.CacheKey{cm.N.GetKeyName(EdgesObjToObjID, []string{resp.SourceObjectID.String(), resp.TargetObjectID.String()}), // Source -> Target edges collection
+			cm.N.GetKeyNameWithID(ObjEdgesKeyID, resp.SourceObjectID),                                              // Source all in/out edges collection
+			cm.N.GetKeyName(EdgesObjToObjID, []string{resp.TargetObjectID.String(), resp.SourceObjectID.String()}), // Target -> Source edges collection
+			cm.N.GetKeyNameWithID(ObjEdgesKeyID, resp.TargetObjectID),                                              // Target all in/out edges collection
 		})
 
 	return &resp, nil
@@ -1174,7 +1183,7 @@ func (c *Client) DeleteEdge(ctx context.Context, edgeID uuid.UUID) error {
 	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
 
 	cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
-	edge, _, err := clientcache.GetItemFromCache[Edge](ctx, cm, cm.N.GetKeyNameWithID(edgeKeyID, edgeID), false, c.ttlP.TTL(edgeTTL))
+	edge, _, err := clientcache.GetItemFromCache[Edge](ctx, cm, cm.N.GetKeyNameWithID(EdgeKeyID, edgeID), false, c.ttlP.TTL(EdgeTTL))
 	if err != nil {
 		return ucerr.Wrap(err)
 	}
@@ -1218,14 +1227,14 @@ func (c *Client) CheckAttribute(ctx context.Context, sourceObjectID, targetObjec
 	}
 
 	cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
-	ckey := cm.N.GetKeyName(attributePathObjToObjID, []string{sourceObjectID.String(), targetObjectID.String(), attributeName})
+	ckey := cm.N.GetKeyName(AttributePathObjToObjID, []string{sourceObjectID.String(), targetObjectID.String(), attributeName})
 
 	s := cache.NoLockSentinel
 	if !options.bypassCache {
 		var path *[]AttributePathNode
 		var err error
 
-		path, s, err = clientcache.GetItemFromCache[[]AttributePathNode](ctx, cm, ckey, true, c.ttlP.TTL(edgeTTL))
+		path, s, err = clientcache.GetItemFromCache[[]AttributePathNode](ctx, cm, ckey, true, c.ttlP.TTL(EdgeTTL))
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
@@ -1251,7 +1260,7 @@ func (c *Client) CheckAttribute(ctx context.Context, sourceObjectID, targetObjec
 
 	if resp.HasAttribute {
 		// We can only cache positive responses, since we don't know when the path will be added to invalidate the negative result.
-		clientcache.SaveItemsToCollection(ctx, cm, obj, resp.Path, ckey, ckey, s, false, c.ttlP.TTL(edgeTTL))
+		clientcache.SaveItemsToCollection(ctx, cm, obj, resp.Path, ckey, ckey, s, false, c.ttlP.TTL(EdgeTTL))
 	}
 	return &resp, nil
 }
@@ -1348,7 +1357,7 @@ func (c *Client) ListOrganizations(ctx context.Context, opts ...Option) ([]Organ
 		var v *[]Organization
 		var err error
 		cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
-		v, s, err = clientcache.GetItemFromCache[[]Organization](ctx, cm, cm.N.GetKeyNameStatic(orgCollectionKeyID), true, c.ttlP.TTL(orgTTL))
+		v, s, err = clientcache.GetItemFromCache[[]Organization](ctx, cm, cm.N.GetKeyNameStatic(OrganizationCollectionKeyID), true, c.ttlP.TTL(OrganizationTTL))
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
@@ -1383,8 +1392,8 @@ func (c *Client) ListOrganizations(ctx context.Context, opts ...Option) ([]Organ
 			break
 		}
 	}
-	ckey := cm.N.GetKeyNameStatic(orgCollectionKeyID)
-	clientcache.SaveItemsToCollection(ctx, cm, ObjectType{}, orgs, ckey, ckey, s, true, c.ttlP.TTL(orgTTL))
+	ckey := cm.N.GetKeyNameStatic(OrganizationCollectionKeyID)
+	clientcache.SaveItemsToCollection(ctx, cm, ObjectType{}, orgs, ckey, ckey, s, true, c.ttlP.TTL(OrganizationTTL))
 	return orgs, nil
 }
 
@@ -1403,7 +1412,7 @@ func (c *Client) GetOrganization(ctx context.Context, id uuid.UUID, opts ...Opti
 		var v *Organization
 		var err error
 
-		v, s, err = clientcache.GetItemFromCache[Organization](ctx, cm, cm.N.GetKeyNameWithID(orgKeyID, id), true, c.ttlP.TTL(orgTTL))
+		v, s, err = clientcache.GetItemFromCache[Organization](ctx, cm, cm.N.GetKeyNameWithID(OrganizationKeyID, id), true, c.ttlP.TTL(OrganizationTTL))
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}

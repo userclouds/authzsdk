@@ -81,7 +81,7 @@ type CacheProvider interface {
 	// ClearDependencies clears the dependencies of an item represented by key and removes all dependent keys from the cache
 	ClearDependencies(ctx context.Context, key shared.CacheKey, setTombstone bool) error
 	// Flush flushes the cache
-	Flush(ctx context.Context)
+	Flush(ctx context.Context, prefix string) error
 	// GetCacheName returns the global name of the cache if any
 	GetCacheName(ctx context.Context) string
 }
@@ -193,7 +193,7 @@ func takeLockWorker[item CacheSingleItem](ctx context.Context, c CacheManager, l
 
 	// If we are deleting, clear the dependencies and tombstone the dependency key prior to starting the delete
 	// to ensure that stale data is not returned after the server registers the delete
-	if lockType == shared.Delete && err == nil {
+	if lockType == shared.Delete && err == nil && i.GetDependenciesKey(c.N) != "" {
 		err = c.P.ClearDependencies(ctx, i.GetDependenciesKey(c.N), true)
 	}
 

@@ -87,7 +87,7 @@ func (g Transformer) extraValidate() error {
 	}
 
 	if err := validateJSHelper(g.Function, fmt.Sprintf("%v.js", g.ID)); err != nil {
-		return ucerr.Friendlyf(err, "Transformer validation - Javascript error: %v", err)
+		return ucerr.Friendlyf(err, "Transformer validation - Javascript error")
 	}
 
 	if g.OutputType != userstore.DataTypeInvalid {
@@ -170,7 +170,7 @@ func (a AccessPolicyTemplate) extraValidate() error {
 		return ucerr.Friendlyf(nil, `Access policy template name "%s" has invalid characters`, a.Name)
 	}
 	if err := validateJSHelper(a.Function, fmt.Sprintf("%v.js", a.ID)); err != nil {
-		return ucerr.Friendlyf(err, "Access policy template validation - Javascript error: %v", err)
+		return ucerr.Friendlyf(err, "Access policy template validation - Javascript error")
 	}
 
 	return nil

@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,9 +14,6 @@ import (
 )
 
 const (
-	// DefaultCacheTTL specifies the default item TTL for in memory cache
-	DefaultCacheTTL time.Duration = 30 * time.Second
-
 	defaultCacheTTL time.Duration = 5 * time.Minute
 	gcInterval      time.Duration = 5 * time.Minute
 )
@@ -33,7 +31,7 @@ type InMemoryClientCacheProvider struct {
 // NewInMemoryClientCacheProvider creates a new InMemoryClientCacheProvider
 func NewInMemoryClientCacheProvider(cacheName string) *InMemoryClientCacheProvider {
 	// TODO - Underlying library treats 0 and -1 as no expiration, so we need to set it to minimum value and not look up items from the cache, work around that
-	cacheEdges := cache.New(DefaultCacheTTL, gcInterval)
+	cacheEdges := cache.New(defaultCacheTTL, gcInterval)
 
 	return &InMemoryClientCacheProvider{cache: cacheEdges, sm: shared.NewWriteThroughCacheSentinelManager(), cacheName: cacheName}
 }
@@ -330,8 +328,16 @@ func (c *InMemoryClientCacheProvider) ClearDependencies(ctx context.Context, key
 }
 
 // Flush flushes the cache (applies only to the tenant for which the client was created)
-func (c *InMemoryClientCacheProvider) Flush(ctx context.Context) {
-	c.cache.Flush()
+func (c *InMemoryClientCacheProvider) Flush(ctx context.Context, prefix string) error {
+	c.keysMutex.Lock()
+	defer c.keysMutex.Unlock()
+
+	for k := range c.cache.Items() {
+		if strings.HasPrefix(k, prefix) {
+			c.cache.Delete(k)
+		}
+	}
+	return nil
 }
 
 // GetCacheName returns the name of the cache

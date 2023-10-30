@@ -113,7 +113,7 @@ func getValidatedStringKeysFromCacheKeys(keys []shared.CacheKey, prefix string) 
 }
 
 func getValidatedStringKeyFromCacheKey(key shared.CacheKey, prefix string) (string, error) {
-	if strings.HasPrefix(string(key), prefix) {
+	if strings.HasPrefix(string(key), prefix) || key == "" {
 		return string(key), nil
 	}
 	return "", ucerr.New(fmt.Sprintf("Key %v does not have prefix %v", key, prefix))
@@ -554,8 +554,19 @@ func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn 
 }
 
 // Flush flushes the cache (applies only to the tenant for which the client was created)
-func (c *RedisClientCacheProvider) Flush(ctx context.Context) {
-	c.rc.FlushAll(ctx)
+func (c *RedisClientCacheProvider) Flush(ctx context.Context, prefix string) error {
+	pipe := c.rc.Pipeline()
+	iter := c.rc.Scan(ctx, 0, prefix+"*", 0).Iterator()
+	for iter.Next(ctx) {
+		pipe.Del(ctx, iter.Val())
+	}
+	if iter.Err() != nil {
+		return ucerr.Wrap(iter.Err())
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		return ucerr.Wrap(err)
+	}
+	return nil
 }
 
 // GetCacheName returns the name of the cache
