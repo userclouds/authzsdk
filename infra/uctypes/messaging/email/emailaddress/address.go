@@ -23,7 +23,7 @@ func (a Address) Validate() error {
 func (a Address) Parse() (*mail.Address, error) {
 	parsedAddress, err := mail.ParseAddress(string(a))
 	if err != nil {
-		return nil, ucerr.Errorf("invalid email: %w", err)
+		return nil, ucerr.Friendlyf(err, "invalid email: %v", err) // lint-safe-wrap because this error is from net/mail
 	}
 	if parsedAddress.Name != "" {
 		return nil, ucerr.New("invalid email: no name allowed")

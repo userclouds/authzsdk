@@ -36,7 +36,7 @@ func (o OAuthError) Unwrap() error {
 func newWrappedOAuthError(err error, errorType string, code int) error {
 	return new(wrappedText, "", OAuthError{
 		ErrorType:  errorType,
-		ErrorDesc:  err.Error(),
+		ErrorDesc:  UserFriendlyMessage(err),
 		Code:       code,
 		underlying: err,
 	}, 2, nil)
