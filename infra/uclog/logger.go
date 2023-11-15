@@ -225,7 +225,7 @@ func Log(ctx context.Context, event LogEvent) {
 	}
 
 	// Get the tenant ID from the context if not passed in
-	if event.TenantID == uuid.Nil {
+	if event.TenantID.IsNil() {
 		event.TenantID = GetTenantID(ctx)
 	}
 

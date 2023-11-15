@@ -33,7 +33,7 @@ import (
 //
 //     FileTransport can process up to 1,5000,000 log lines a second without dropping any events. This translates to about 250MB a sec or
 //     15 Gb every minute. At this rate we would fill up the disk in a few minutes. It will start dropping events if we log them faster,
-//     than a single thread can wrire them to disk. If that ever becomes a problem we will need to make that transport multithreaded and
+//     than a single thread can write them to disk. If that ever becomes a problem we will need to make that transport multithreaded and
 //     stripe the file.
 //
 //     GoTransport is synchronous and can process about 100,000 log lines a second before blocking the calling code. We should
@@ -59,7 +59,7 @@ type logRecord struct {
 
 // wrappedIOTransport defines the interface for wrapped transport that performs IO on background thread
 type wrappedIOTransport interface {
-	init() (*uclog.TransportConfig, error)
+	init(ctx context.Context) (*uclog.TransportConfig, error)
 	writeMessages(ctx context.Context, logRecords *logRecord, startTime time.Time, count int)
 	getIOInterval() time.Duration
 	getMaxLogLevel() uclog.LogLevel
@@ -94,20 +94,17 @@ func newTransportBackgroundIOWrapper(w wrappedIOTransport) *transportBackgroundI
 }
 
 func (t *transportBackgroundIOWrapper) Init() (*uclog.TransportConfig, error) {
-	c, err := t.w.init()
+	ctx := context.Background() // TODO we may want to create unique context for background operations
+	c, err := t.w.init(ctx)
 	if err != nil {
 		return c, ucerr.Wrap(err)
 	}
-
-	// For
 	t.queueSize = 0
-
-	// Launch the file writer thread to prevent exessive disk seeks when many threads log at once
+	// Launch the file writer thread to prevent excessive disk seeks when many threads log at once
 	t.writeTicker = *time.NewTicker(t.w.getIOInterval())
 	t.done = make(chan bool)
 	t.exitBG = make(chan bool)
 	t.flushChan = make(chan bool)
-	ctx := context.Background() // TODO we may want to create unique context for background operations
 	go func() {
 		t.runningBGThread = true
 		for {
