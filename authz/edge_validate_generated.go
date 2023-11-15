@@ -3,8 +3,6 @@
 package authz
 
 import (
-	"github.com/gofrs/uuid"
-
 	"userclouds.com/infra/ucerr"
 )
 
@@ -13,13 +11,13 @@ func (o *Edge) Validate() error {
 	if err := o.BaseModel.Validate(); err != nil {
 		return ucerr.Wrap(err)
 	}
-	if o.EdgeTypeID == uuid.Nil {
+	if o.EdgeTypeID.IsNil() {
 		return ucerr.Friendlyf(nil, "Edge.EdgeTypeID (%v) can't be nil", o.ID)
 	}
-	if o.SourceObjectID == uuid.Nil {
+	if o.SourceObjectID.IsNil() {
 		return ucerr.Friendlyf(nil, "Edge.SourceObjectID (%v) can't be nil", o.ID)
 	}
-	if o.TargetObjectID == uuid.Nil {
+	if o.TargetObjectID.IsNil() {
 		return ucerr.Friendlyf(nil, "Edge.TargetObjectID (%v) can't be nil", o.ID)
 	}
 	return nil

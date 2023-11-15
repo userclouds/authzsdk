@@ -112,8 +112,11 @@ func getValidatedStringKeysFromCacheKeys(keys []shared.CacheKey, prefix string) 
 	return strKeys, nil
 }
 
-func getValidatedStringKeyFromCacheKey(key shared.CacheKey, prefix string) (string, error) {
-	if strings.HasPrefix(string(key), prefix) || key == "" {
+func getValidatedStringKeyFromCacheKey(key shared.CacheKey, prefix string, methodName string) (string, error) {
+	if key == "" {
+		return "", ucerr.New(fmt.Sprintf("Empty key provided to %s", methodName))
+	}
+	if strings.HasPrefix(string(key), prefix) {
 		return string(key), nil
 	}
 	return "", ucerr.New(fmt.Sprintf("Key %v does not have prefix %v", key, prefix))
@@ -208,7 +211,11 @@ func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.C
 		return false, false, ucerr.New("No keys provided to SetValue")
 	}
 
-	lkey := string(lkeyIn)
+	lkey, err := getValidatedStringKeyFromCacheKey(lkeyIn, c.prefix, "SetValue")
+	if err != nil {
+		return false, false, ucerr.Wrap(err)
+	}
+
 	conflictDetected := false
 	valueSet := false
 
@@ -277,12 +284,9 @@ func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.C
 
 // GetValue gets the value in CacheKey (if any) and tries to lock the key for Read is lockOnMiss = true
 func (c *RedisClientCacheProvider) GetValue(ctx context.Context, keyIn shared.CacheKey, lockOnMiss bool) (*string, shared.CacheSentinel, error) {
-	key, err := getValidatedStringKeyFromCacheKey(keyIn, c.prefix)
+	key, err := getValidatedStringKeyFromCacheKey(keyIn, c.prefix, "GetValue")
 	if err != nil {
 		return nil, "", ucerr.Wrap(err)
-	}
-	if key == "" {
-		return nil, "", ucerr.New("Empty key provided to GetValue")
 	}
 
 	value, err := c.rc.Get(ctx, key).Result()
@@ -491,7 +495,7 @@ func (c *RedisClientCacheProvider) AddDependency(ctx context.Context, keysIn []s
 
 // ClearDependencies clears the dependencies of an item represented by key and removes all dependent keys from the cache
 func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn shared.CacheKey, setTombstone bool) error {
-	key, err := getValidatedStringKeyFromCacheKey(keyIn, c.prefix)
+	key, err := getValidatedStringKeyFromCacheKey(keyIn, c.prefix, "ClearDependencies")
 	if err != nil {
 		return ucerr.Wrap(err)
 	}

@@ -3,8 +3,6 @@
 package authz
 
 import (
-	"github.com/gofrs/uuid"
-
 	"userclouds.com/infra/ucerr"
 )
 
@@ -13,7 +11,7 @@ func (o *Object) Validate() error {
 	if err := o.BaseModel.Validate(); err != nil {
 		return ucerr.Wrap(err)
 	}
-	if o.TypeID == uuid.Nil {
+	if o.TypeID.IsNil() {
 		return ucerr.Friendlyf(nil, "Object.TypeID (%v) can't be nil", o.ID)
 	}
 	return nil

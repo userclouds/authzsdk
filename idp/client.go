@@ -125,6 +125,8 @@ type UserAndAuthnResponse struct {
 	MFAChannels []UserMFAChannel `json:"mfa_channels"`
 }
 
+// AuthN user methods
+
 // CreateUser creates a user without authn. Profile is optional (okay to pass nil)
 func (c *Client) CreateUser(ctx context.Context, profile userstore.Record, opts ...Option) (uuid.UUID, error) {
 	// TODO: we don't validate the profile here, since we don't require email in this path
@@ -1075,6 +1077,38 @@ func (c *Client) DeletePurpose(ctx context.Context, purposeID uuid.UUID) error {
 	}
 
 	return nil
+}
+
+// Userstore User methods
+
+// CreateUserWithMutatorRequest is the request body for creating a new user with a mutator
+type CreateUserWithMutatorRequest struct {
+	MutatorID      uuid.UUID                   `json:"mutator_id"`      // ID of the mutator that specifies what columns to edit
+	Context        policy.ClientContext        `json:"context"`         // context that is provided to the mutator's Access Policy
+	RowData        map[string]ValueAndPurposes `json:"row_data"`        // the values to use for the users table row
+	OrganizationID uuid.UUID                   `json:"organization_id"` // the organization ID to use for the user
+}
+
+// CreateUserWithMutator creates a new user and initializes the user's data with the given mutator
+func (c *Client) CreateUserWithMutator(ctx context.Context, mutatorID uuid.UUID, clientContext policy.ClientContext, rowData map[string]ValueAndPurposes, opts ...Option) (uuid.UUID, error) {
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	req := CreateUserWithMutatorRequest{
+		MutatorID:      mutatorID,
+		Context:        clientContext,
+		RowData:        rowData,
+		OrganizationID: options.organizationID,
+	}
+
+	var res uuid.UUID
+	if err := c.client.Post(ctx, paths.CreateUserWithMutatorPath, req, &res); err != nil {
+		return uuid.Nil, ucerr.Wrap(err)
+	}
+
+	return res, nil
 }
 
 // GetConsentedPurposesForUserRequest is the request body for getting the purposes that are consented for a user

@@ -143,9 +143,12 @@ func (c *InMemoryClientCacheProvider) ReleaseSentinel(ctx context.Context, keysI
 func (c *InMemoryClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.CacheKey, keysToSet []shared.CacheKey, val string,
 	sentinel shared.CacheSentinel, ttl time.Duration) (bool, bool, error) {
 	keys := c.getStringKeysFromCacheKeys(keysToSet)
+	if len(keys) == 0 {
+		return false, false, ucerr.New("Expected at least one key passed to SetValue")
+	}
 
 	lkey := string(lkeyIn)
-	if len(keys) == 0 {
+	if lkey == "" {
 		return false, false, ucerr.New("Expected at least one key passed to SetValue")
 	}
 
@@ -180,6 +183,9 @@ func (c *InMemoryClientCacheProvider) SetValue(ctx context.Context, lkeyIn share
 // GetValue gets the value in CacheKey (if any) and tries to lock the key for Read is lockOnMiss = true
 func (c *InMemoryClientCacheProvider) GetValue(ctx context.Context, keyIn shared.CacheKey, lockOnMiss bool) (*string, shared.CacheSentinel, error) {
 	key := string(keyIn)
+	if key == "" {
+		return nil, shared.NoLockSentinel, ucerr.New("Expected at least one key passed to GetValue")
+	}
 
 	c.keysMutex.Lock()
 	defer c.keysMutex.Unlock()
@@ -199,8 +205,8 @@ func (c *InMemoryClientCacheProvider) GetValue(ctx context.Context, keyIn shared
 	}
 
 	if value, ok := x.(string); ok {
-		if c.sm.IsSentinelValue(value) {
-			uclog.Verbosef(ctx, "Cache[%v] key %v is locked for in progress op %v", c.cacheName, key, value)
+		if c.sm.IsSentinelValue(value) || shared.IsTombstoneSentinel(value) {
+			uclog.Verbosef(ctx, "Cache[%v] key %v is locked or tombstoned for in progress op %v", c.cacheName, key, value)
 			return nil, shared.NoLockSentinel, nil
 		}
 
@@ -220,11 +226,12 @@ func (c *InMemoryClientCacheProvider) DeleteValue(ctx context.Context, keysIn []
 
 	if force {
 		// Delete or tombstone regardless of value
-		c.inMemMultiDelete(keys)
 		if setTombstone {
 			c.inMemMultiSet(keys, string(shared.TombstoneSentinel), false, memSentinelTTL)
+			uclog.Verbosef(ctx, "Cache[%v] tombstoned keys %v", c.cacheName, keys)
 		} else {
 			c.inMemMultiDelete(keys)
+			uclog.Verbosef(ctx, "Cache[%v] deleted keys %v", c.cacheName, keys)
 		}
 	} else {
 		// Delete only unlocked keys
@@ -320,6 +327,10 @@ func (c *InMemoryClientCacheProvider) AddDependency(ctx context.Context, keysIn 
 
 // ClearDependencies clears the dependencies of an item represented by key and removes all dependent keys from the cache
 func (c *InMemoryClientCacheProvider) ClearDependencies(ctx context.Context, key shared.CacheKey, setTombstone bool) error {
+	if key == "" {
+		return ucerr.New("Expected at least one key passed to ClearDependencies")
+	}
+
 	c.keysMutex.Lock()
 	defer c.keysMutex.Unlock()
 

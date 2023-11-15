@@ -3,8 +3,6 @@
 package authz
 
 import (
-	"github.com/gofrs/uuid"
-
 	"userclouds.com/infra/ucerr"
 )
 
@@ -16,10 +14,10 @@ func (o *EdgeType) Validate() error {
 	if o.TypeName == "" {
 		return ucerr.Friendlyf(nil, "EdgeType.TypeName (%v) can't be empty", o.ID)
 	}
-	if o.SourceObjectTypeID == uuid.Nil {
+	if o.SourceObjectTypeID.IsNil() {
 		return ucerr.Friendlyf(nil, "EdgeType.SourceObjectTypeID (%v) can't be nil", o.ID)
 	}
-	if o.TargetObjectTypeID == uuid.Nil {
+	if o.TargetObjectTypeID.IsNil() {
 		return ucerr.Friendlyf(nil, "EdgeType.TargetObjectTypeID (%v) can't be nil", o.ID)
 	}
 	for i := range o.Attributes {

@@ -8,7 +8,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Verify sdkVersion
+    - name: Verify sdkVersion is not empty and is not existing tag
       shell: bash
       working-directory: ${{ inputs.repo-path }}
       run: |

@@ -53,9 +53,6 @@ func (t TestTransformerRequest) Validate() error {
 	if t.Transformer.Function == "" {
 		return ucerr.New("Transformer.Function can't be empty")
 	}
-	if t.Data == "" {
-		return ucerr.New("Data can't be empty")
-	}
 	return nil
 }
 

@@ -186,6 +186,9 @@ func (c *TokenizerClient) TestTransformer(ctx context.Context, data string, tran
 	if err := req.Validate(); err != nil {
 		return "", ucerr.Wrap(err)
 	}
+	if req.Data == "" {
+		req.Data = "{}"
+	}
 
 	var res tokenizer.TestTransformerResponse
 	if err := c.client.Post(ctx, paths.TestTransformer, req, &res); err != nil {

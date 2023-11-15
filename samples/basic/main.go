@@ -105,7 +105,7 @@ func initClients() (*idp.Client, *authz.Client, *ucjwt.Config) {
 	clientSecret := os.Getenv("CLIENT_SECRET")
 	tenantID := uuid.FromStringOrNil(os.Getenv("TENANT_ID"))
 
-	if tenantURL == "" || clientID == "" || clientSecret == "" || tenantID == uuid.Nil {
+	if tenantURL == "" || clientID == "" || clientSecret == "" || tenantID.IsNil() {
 		log.Fatal("missing one or more required environment variables: TENANT_URL, CLIENT_ID, CLIENT_SECRET, TENANT_ID")
 	}
 

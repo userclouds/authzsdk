@@ -187,7 +187,7 @@ func NewCustomClient(objTypeTTL time.Duration, edgeTypeTTL time.Duration, objTTL
 }
 
 func (c *Client) getCacheKeyNameProvider(orgID uuid.UUID) clientcache.CacheKeyNameProvider {
-	if orgID == uuid.Nil {
+	if orgID.IsNil() {
 		return NewCacheNameProvider(c.basePrefixWithOrg)
 	}
 	return NewCacheNameProvider(fmt.Sprintf("%s_%s", c.basePrefix, orgID.String()))
@@ -228,7 +228,7 @@ func (c *Client) CreateObjectType(ctx context.Context, id uuid.UUID, typeName st
 		BaseModel: ucdb.NewBase(),
 		TypeName:  typeName,
 	}
-	if id != uuid.Nil {
+	if !id.IsNil() {
 		req.ID = id
 	}
 
@@ -241,7 +241,7 @@ func (c *Client) CreateObjectType(ctx context.Context, id uuid.UUID, typeName st
 	defer clientcache.ReleaseItemLock(ctx, cm, cache.Create, req, s)
 
 	var resp ObjectType
-	if options.ifNotExists && id == uuid.Nil {
+	if options.ifNotExists && id.IsNil() {
 		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/objecttypes", req, &resp)
 		if err != nil {
 			return nil, ucerr.Wrap(err)
@@ -418,7 +418,7 @@ func (c *Client) CreateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectT
 		Attributes:         attributes,
 		OrganizationID:     options.organizationID,
 	}
-	if id != uuid.Nil {
+	if !id.IsNil() {
 		req.ID = id
 	}
 
@@ -431,7 +431,7 @@ func (c *Client) CreateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectT
 	defer clientcache.ReleaseItemLock(ctx, cm, cache.Create, req, s)
 
 	var resp EdgeType
-	if options.ifNotExists && id == uuid.Nil {
+	if options.ifNotExists && id.IsNil() {
 		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/edgetypes", req, &resp)
 		if err != nil {
 			return nil, ucerr.Wrap(err)
@@ -651,7 +651,7 @@ func (c *Client) CreateObject(ctx context.Context, id, typeID uuid.UUID, alias s
 		TypeID:         typeID,
 		OrganizationID: options.organizationID,
 	}
-	if id != uuid.Nil {
+	if !id.IsNil() {
 		obj.ID = id
 	}
 
@@ -668,7 +668,7 @@ func (c *Client) CreateObject(ctx context.Context, id, typeID uuid.UUID, alias s
 	defer clientcache.ReleaseItemLock(ctx, cm, cache.Create, obj, s)
 
 	var resp Object
-	if options.ifNotExists && id == uuid.Nil {
+	if options.ifNotExists && id.IsNil() {
 		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/objects", obj, &resp)
 		if err != nil {
 			return nil, ucerr.Wrap(err)
@@ -728,6 +728,10 @@ func (c *Client) GetObjectForName(ctx context.Context, typeID uuid.UUID, name st
 		return nil, ucerr.New("_user objects do not currently support lookup by alias")
 	}
 
+	if name == "" {
+		return nil, ucerr.New("name cannot be empty")
+	}
+
 	options := c.options
 	for _, opt := range opts {
 		opt.apply(&options)
@@ -739,7 +743,7 @@ func (c *Client) GetObjectForName(ctx context.Context, typeID uuid.UUID, name st
 		var v *Object
 		var err error
 
-		v, _, err = clientcache.GetItemFromCache[Object](ctx, cm, cm.N.GetKeyName(ObjAliasNameKeyID, []string{typeID.String(), name}), false, c.ttlP.TTL(ObjectTTL))
+		v, _, err = clientcache.GetItemFromCache[Object](ctx, cm, cm.N.GetKeyName(ObjAliasNameKeyID, []string{typeID.String(), name, options.organizationID.String()}), false, c.ttlP.TTL(ObjectTTL))
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
@@ -1140,7 +1144,7 @@ func (c *Client) CreateEdge(ctx context.Context, id, sourceObjectID, targetObjec
 		SourceObjectID: sourceObjectID,
 		TargetObjectID: targetObjectID,
 	}
-	if id != uuid.Nil {
+	if !id.IsNil() {
 		req.ID = id
 	}
 	cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
@@ -1152,7 +1156,7 @@ func (c *Client) CreateEdge(ctx context.Context, id, sourceObjectID, targetObjec
 	defer clientcache.ReleaseItemLock(ctx, cm, cache.Create, req, s)
 
 	var resp Edge
-	if options.ifNotExists && id == uuid.Nil {
+	if options.ifNotExists && id.IsNil() {
 		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/edges", req, &resp)
 		if err != nil {
 			return nil, ucerr.Wrap(err)
