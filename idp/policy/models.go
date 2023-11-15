@@ -42,8 +42,8 @@ type Transformer struct {
 	Name               string              `json:"name" validate:"length:1,128" required:"true"`
 	Description        string              `json:"description"`
 	InputType          userstore.DataType  `json:"input_type" required:"true"`
-	OutputType         userstore.DataType  `json:"output_type" required:"true" validate:"skip"`
-	ReuseExistingToken bool                `json:"reuse_existing_token" required:"true" validate:"skip" description:"Specifies if the tokenizing transfomer should return existing token instead of creating a new one."`
+	OutputType         userstore.DataType  `json:"output_type" validate:"skip"`
+	ReuseExistingToken bool                `json:"reuse_existing_token" validate:"skip" description:"Specifies if the tokenizing transfomer should return existing token instead of creating a new one."`
 	TransformType      TransformType       `json:"transform_type" required:"true"`
 	TagIDs             uuidarray.UUIDArray `json:"tag_ids" validate:"skip"`
 	Function           string              `json:"function" required:"true"`
@@ -105,7 +105,7 @@ func (g Transformer) extraValidate() error {
 
 // Equals returns true if the two policies are equal, ignoring the ID and description fields
 func (g *Transformer) Equals(other *Transformer) bool {
-	return (g.ID == other.ID || g.ID == uuid.Nil || other.ID == uuid.Nil) &&
+	return (g.ID == other.ID || g.ID.IsNil() || other.ID.IsNil()) &&
 		strings.EqualFold(g.Name, other.Name) &&
 		g.InputType == other.InputType &&
 		g.OutputType == other.OutputType &&
@@ -178,7 +178,7 @@ func (a AccessPolicyTemplate) extraValidate() error {
 
 // Equals returns true if the two templates are equal, ignoring the ID, description, and version fields
 func (a *AccessPolicyTemplate) Equals(other *AccessPolicyTemplate) bool {
-	return (a.ID == other.ID || a.ID == uuid.Nil || other.ID == uuid.Nil) &&
+	return (a.ID == other.ID || a.ID.IsNil() || other.ID.IsNil()) &&
 		strings.EqualFold(a.Name, other.Name) &&
 		a.Function == other.Function &&
 		a.IsSystem == other.IsSystem
@@ -191,7 +191,7 @@ type AccessPolicyComponent struct {
 	TemplateParameters string                `json:"template_parameters,omitempty"`
 }
 
-// Validate implments Validateable
+// Validate implements Validateable
 func (a AccessPolicyComponent) Validate() error {
 	policyValidErr := a.Policy.Validate()
 	templateValidErr := a.Template.Validate()

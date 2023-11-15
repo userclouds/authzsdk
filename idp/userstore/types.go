@@ -120,7 +120,7 @@ func (Column) GetPaginationKeys() pagination.KeyTypes {
 
 // Equals returns true if the two columns are equal
 func (c *Column) Equals(other *Column) bool {
-	return (c.ID == other.ID || c.ID == uuid.Nil || other.ID == uuid.Nil) &&
+	return (c.ID == other.ID || c.ID.IsNil() || other.ID.IsNil()) &&
 		strings.EqualFold(c.Name, other.Name) &&
 		c.Type == other.Type &&
 		c.IsArray == other.IsArray &&
@@ -172,7 +172,7 @@ type ResourceID struct {
 
 // Validate implements Validateable
 func (r ResourceID) Validate() error {
-	if r.ID == uuid.Nil && r.Name == "" {
+	if r.ID.IsNil() && r.Name == "" {
 		return ucerr.Friendlyf(nil, "either ID or Name must be set")
 	}
 	return nil
@@ -284,16 +284,16 @@ func (o *Accessor) extraValidate() error {
 	}
 
 	for _, ct := range o.Columns {
-		if ct.Column.ID == uuid.Nil && ct.Column.Name == "" {
+		if ct.Column.ID.IsNil() && ct.Column.Name == "" {
 			return ucerr.Friendlyf(nil, "Each element of Accessor.Columns (%v) must have a column ID or name", o.ID)
 		}
 
-		if ct.Transformer.ID == uuid.Nil && ct.Transformer.Name == "" {
+		if ct.Transformer.ID.IsNil() && ct.Transformer.Name == "" {
 			return ucerr.Friendlyf(nil, "Each element of Accessor.Columns (%v) must have a transformer ID or name", o.ID)
 		}
 	}
 
-	if o.AccessPolicy.ID == uuid.Nil && o.AccessPolicy.Name == "" {
+	if o.AccessPolicy.ID.IsNil() && o.AccessPolicy.Name == "" {
 		return ucerr.Friendlyf(nil, "Accessor.AccessPolicy (%v) must have an ID or name", o.ID)
 	}
 
@@ -358,16 +358,16 @@ func (o *Mutator) extraValidate() error {
 	}
 
 	for _, cv := range o.Columns {
-		if cv.Column.ID == uuid.Nil && cv.Column.Name == "" {
+		if cv.Column.ID.IsNil() && cv.Column.Name == "" {
 			return ucerr.Friendlyf(nil, "Mutator with ID (%v): each element of Columns must have a column ID or name", o.ID)
 		}
 
-		if cv.Validator.ID == uuid.Nil && cv.Validator.Name == "" {
+		if cv.Validator.ID.IsNil() && cv.Validator.Name == "" {
 			return ucerr.Friendlyf(nil, "Mutator with ID (%v): each element of Columns must have a validator ID or name", o.ID)
 		}
 	}
 
-	if o.AccessPolicy.ID == uuid.Nil && o.AccessPolicy.Name == "" {
+	if o.AccessPolicy.ID.IsNil() && o.AccessPolicy.Name == "" {
 		return ucerr.Friendlyf(nil, "Mutator with ID (%v): AccessPolicy must have an ID or name", o.ID)
 	}
 

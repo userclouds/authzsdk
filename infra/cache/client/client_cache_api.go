@@ -256,6 +256,19 @@ func GetItemFromCache[item any](ctx context.Context, c CacheManager, key shared.
 	return &i, "", nil
 }
 
+// DeleteItemFromCache deletes the the valuse stored in key assoicated with the item from the cache.
+func DeleteItemFromCache[item CacheSingleItem](ctx context.Context, c CacheManager, i item, sentinel shared.CacheSentinel) {
+	if sentinel == shared.NoLockSentinel {
+		return // nothing to clear if the lock wasn't acquired
+	}
+
+	keys := getItemLockKeys[item](ctx, shared.Delete, c.N, i)
+
+	if err := c.P.DeleteValue(ctx, keys, false, false); err != nil {
+		uclog.Warningf(ctx, "Failed to delete keys %v from cache: %v", keys, err)
+	}
+}
+
 // SaveItemToCache saves the given item to the cache
 func SaveItemToCache[item CacheSingleItem](ctx context.Context, c CacheManager, i item, sentinel shared.CacheSentinel,
 	clearCollection bool, additionalColKeys []shared.CacheKey) {
@@ -287,7 +300,7 @@ func saveItemToCacheWorker[item CacheSingleItem](ctx context.Context, c CacheMan
 		if err != nil {
 			uclog.Errorf(ctx, "Error saving item to cache: %v", err)
 		}
-		// Cleart all the collections that this item might appear in. This is needed for create/update operations that might change the collection
+		// Clear all the collections that this item might appear in. This is needed for create/update operations that might change the collection
 		ckeys := []shared.CacheKey{}
 		clearKeysOnError := false
 		if clearCollection && !conflict {

@@ -35,10 +35,18 @@ func (t *TransportConfigs) UnmarshalYAML(value *yaml.Node) error {
 	if err := value.Decode(&c); err != nil {
 		return ucerr.Wrap(err)
 	}
-	*t = make([]TransportConfig, len(c))
-	for i, v := range c {
-		(*t)[i] = v.c
+
+	// init if we're nil
+	if t == nil {
+		*t = make([]TransportConfig, 0, len(c))
 	}
+
+	// use append here to allow us to merge multiple transports across multiple files
+	// see config_test.go:MergeTest
+	for _, v := range c {
+		*t = append(*t, v.c)
+	}
+
 	return nil
 }
 
