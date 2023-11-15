@@ -74,7 +74,8 @@ var (
 	DeletePurposePath = singleConfigPurposePath
 	UpdatePurposePath = singleConfigPurposePath
 
-	GetConsentedPurposesForUserPath = fmt.Sprintf("%s/consentedpurposes", UserStoreBasePath)
+	CreateUserWithMutatorPath       = fmt.Sprintf("%s/users", BaseAPIPath)
+	GetConsentedPurposesForUserPath = fmt.Sprintf("%s/consentedpurposes", BaseAPIPath)
 
 	BaseAPIPath = fmt.Sprintf("%s/api", UserStoreBasePath)
 

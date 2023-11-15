@@ -52,7 +52,7 @@ func (b BaseModel) GetUpdated() time.Time {
 
 // Validate implements Validateable
 func (b BaseModel) Validate() error {
-	if b.ID == uuid.Nil {
+	if b.ID.IsNil() {
 		return ucerr.New("UCBase can't have nil ID")
 	}
 	if b.Updated.IsZero() && !b.Alive() {
@@ -86,7 +86,7 @@ type UserBaseModel struct {
 
 // Validate implements Validateable
 func (u UserBaseModel) Validate() error {
-	if u.UserID == uuid.Nil {
+	if u.UserID.IsNil() {
 		return ucerr.Errorf("UserBaseModel %v can't have nil UserID", u.ID)
 	}
 	return ucerr.Wrap(u.BaseModel.Validate())

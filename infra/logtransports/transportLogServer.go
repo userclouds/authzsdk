@@ -114,7 +114,7 @@ func newLogServerTransport(c *LogServerTransportConfig, auth *ucjwt.Config, name
 	return &t
 }
 
-func (t *logServerTransport) init() (*uclog.TransportConfig, error) {
+func (t *logServerTransport) init(ctx context.Context) (*uclog.TransportConfig, error) {
 	c := &uclog.TransportConfig{Required: t.config.Required, MaxLogLevel: t.config.MaxLogLevel}
 
 	// TODO: fix this pattern where we return an error and "valid" object
@@ -169,7 +169,7 @@ func (t *logServerTransport) writeMessages(ctx context.Context, logRecords *logR
 	for currRecords != nil {
 		event := currRecords.event
 
-		if event.TenantID == uuid.Nil {
+		if event.TenantID.IsNil() {
 			event.TenantID = t.defaultTenantID
 			currRecords.event.TenantID = t.defaultTenantID
 		}

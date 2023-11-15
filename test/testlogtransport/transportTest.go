@@ -64,6 +64,10 @@ func (tt *TransportTest) WriteCounter(ctx context.Context, event uclog.LogEvent)
 	tt.eventMutex.Lock()
 	tt.Events = append(tt.Events, lE)
 	tt.eventMutex.Unlock()
+
+	tt.logMutex.Lock()
+	tt.LogMessages[event.LogLevel] = append(tt.LogMessages[event.LogLevel], event.Message)
+	tt.logMutex.Unlock()
 }
 
 // GetEventsLoggedByName checks if a particular event has been logged

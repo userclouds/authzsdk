@@ -26,7 +26,7 @@ const (
 	edgeCollectionKeyString     = "EDGECOL"     // Global collection for edge
 	orgPrefix                   = "ORG"         // Primary key for organization
 	orgCollectionKeyString      = "ORGCOL"      // Global collection for organizations
-	dependencylPrefix           = "DEP"         // Share dependency key prefix among all items
+	dependencyPrefix            = "DEP"         // Share dependency key prefix among all items
 )
 
 // CacheNameProvider is the base implementation of the CacheNameProvider interface
@@ -111,7 +111,7 @@ func (c *CacheNameProvider) GetKeyName(id clientcache.CacheKeyNameID, components
 	case EdgeTypeNameKeyID:
 		return c.edgeTypeKeyName(components[0])
 	case ObjAliasNameKeyID:
-		return c.objAliasKeyName(components[0], components[1])
+		return c.objAliasKeyName(components[0], components[1], components[2])
 	case EdgesObjToObjID:
 		return c.edgesObjToObj(components[0], components[1])
 
@@ -178,8 +178,8 @@ func (c *CacheNameProvider) edgeTypeKeyName(typeName string) cache.CacheKey {
 }
 
 // objAliasKeyName returns key name for [TypeID + Alias] -> [Object] mapping
-func (c *CacheNameProvider) objAliasKeyName(typeID string, alias string) cache.CacheKey {
-	return cache.CacheKey(fmt.Sprintf("%v_%v_%v_%v", c.basePrefix, objPrefix, typeID, alias))
+func (c *CacheNameProvider) objAliasKeyName(typeID string, alias string, orgID string) cache.CacheKey {
+	return cache.CacheKey(fmt.Sprintf("%v_%v_%v_%v_%v", c.basePrefix, objPrefix, typeID, alias, orgID))
 }
 
 // edgesObjToObj returns key name for [SourceObjID _ TargetObjID] -> [Edge [] ] mapping
@@ -194,7 +194,7 @@ func (c *CacheNameProvider) edgeFullKeyNameFromIDs(sourceID string, targetID str
 
 // dependencyKey returns key name for dependency keys
 func (c *CacheNameProvider) dependencyKey(id string) cache.CacheKey {
-	return cache.CacheKey(fmt.Sprintf("%v_%v_%v", c.basePrefix, dependencylPrefix, id))
+	return cache.CacheKey(fmt.Sprintf("%v_%v_%v", c.basePrefix, dependencyPrefix, id))
 }
 
 // objTypeCollectionKey returns key name for object type collection
@@ -306,7 +306,7 @@ func (o Object) GetPrimaryKey(c clientcache.CacheKeyNameProvider) cache.CacheKey
 // GetSecondaryKeys returns the secondary cache key names for object
 func (o Object) GetSecondaryKeys(c clientcache.CacheKeyNameProvider) []cache.CacheKey {
 	if o.Alias != nil {
-		return []cache.CacheKey{c.GetKeyName(ObjAliasNameKeyID, []string{o.TypeID.String(), *o.Alias})}
+		return []cache.CacheKey{c.GetKeyName(ObjAliasNameKeyID, []string{o.TypeID.String(), *o.Alias, o.OrganizationID.String()})}
 	}
 	return []cache.CacheKey{}
 }

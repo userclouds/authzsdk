@@ -91,7 +91,7 @@ func newFileTransport(c *FileTransportConfig) *fileTransport {
 	return &t
 }
 
-func (t *fileTransport) init() (*uclog.TransportConfig, error) {
+func (t *fileTransport) init(ctx context.Context) (*uclog.TransportConfig, error) {
 	c := &uclog.TransportConfig{Required: t.config.Required, MaxLogLevel: t.config.MaxLogLevel}
 
 	// Extract data from the config object into the transport state

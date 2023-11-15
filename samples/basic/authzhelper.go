@@ -78,7 +78,7 @@ func mustID(id uuid.UUID, err error) uuid.UUID {
 	if err != nil {
 		log.Fatalf("mustID error: %v", err)
 	}
-	if id == uuid.Nil {
+	if id.IsNil() {
 		log.Fatal("mustID error: unexpected nil uuid")
 	}
 	return id
@@ -89,7 +89,7 @@ func mustEdge(edge *authz.Edge, err error) *authz.Edge {
 	if err != nil {
 		log.Fatalf("mustEdge error: %v", err)
 	}
-	if edge.ID == uuid.Nil {
+	if edge.ID.IsNil() {
 		log.Fatal("mustEdge error: unexpected nil uuid")
 	}
 	return edge

@@ -3,7 +3,7 @@ module userclouds.com
 go 1.20
 
 require (
-	github.com/gofrs/uuid v4.0.0+incompatible
+	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/google/go-cmp v0.5.9
 	github.com/joho/godotenv v1.4.0
