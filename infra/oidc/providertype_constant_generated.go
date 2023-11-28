@@ -15,6 +15,8 @@ func (t ProviderType) MarshalText() ([]byte, error) {
 		return []byte("google"), nil
 	case ProviderTypeLinkedIn:
 		return []byte("linkedin"), nil
+	case ProviderTypeMicrosoft:
+		return []byte("microsoft"), nil
 	case ProviderTypeNone:
 		return []byte("none"), nil
 	case ProviderTypeUnsupported:
@@ -36,6 +38,8 @@ func (t *ProviderType) UnmarshalText(b []byte) error {
 		*t = ProviderTypeGoogle
 	case "linkedin":
 		*t = ProviderTypeLinkedIn
+	case "microsoft":
+		*t = ProviderTypeMicrosoft
 	case "none":
 		*t = ProviderTypeNone
 	case "unsupported":
@@ -57,6 +61,8 @@ func (t *ProviderType) Validate() error {
 		return nil
 	case ProviderTypeLinkedIn:
 		return nil
+	case ProviderTypeMicrosoft:
+		return nil
 	case ProviderTypeNone:
 		return nil
 	case ProviderTypeUnsupported:
@@ -73,6 +79,7 @@ func (t ProviderType) Enum() []interface{} {
 		"facebook",
 		"google",
 		"linkedin",
+		"microsoft",
 		"none",
 		"unsupported",
 	}
@@ -84,6 +91,7 @@ var AllProviderTypes = []ProviderType{
 	ProviderTypeFacebook,
 	ProviderTypeGoogle,
 	ProviderTypeLinkedIn,
+	ProviderTypeMicrosoft,
 	ProviderTypeNone,
 	ProviderTypeUnsupported,
 }

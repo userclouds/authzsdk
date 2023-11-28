@@ -205,3 +205,13 @@ func (o Organization) extraValidate() error {
 	}
 	return nil
 }
+
+// GetPaginationKeys is part of the pagination.PageableType interface
+func (Organization) GetPaginationKeys() pagination.KeyTypes {
+	return pagination.KeyTypes{
+		"id":      pagination.UUIDKeyType,
+		"name":    pagination.StringKeyType,
+		"created": pagination.TimestampKeyType,
+		"updated": pagination.TimestampKeyType,
+	}
+}

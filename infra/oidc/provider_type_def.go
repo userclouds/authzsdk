@@ -14,10 +14,11 @@ const (
 	ProviderTypeNone ProviderType = 0
 
 	// valid OIDC providers are numbered starting with 1
-	ProviderTypeGoogle   ProviderType = 1
-	ProviderTypeFacebook ProviderType = 2
-	ProviderTypeLinkedIn ProviderType = 3
-	ProviderTypeCustom   ProviderType = 4
+	ProviderTypeGoogle    ProviderType = 1
+	ProviderTypeFacebook  ProviderType = 2
+	ProviderTypeLinkedIn  ProviderType = 3
+	ProviderTypeCustom    ProviderType = 4
+	ProviderTypeMicrosoft ProviderType = 5
 )
 
 //go:generate genconstant ProviderType

@@ -4,7 +4,14 @@ import (
 	"context"
 	"fmt"
 	"os"
+
+	"userclouds.com/infra/namespace/region"
 )
+
+// TODO (sgarrity 10/23): remove this when we're done with REGION
+func init() {
+	region.InitLogger(Warningf)
+}
 
 //  A set of wrappers that log messages at a pre-set level
 
