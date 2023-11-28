@@ -1435,6 +1435,28 @@ func (c *Client) GetOrganization(ctx context.Context, id uuid.UUID, opts ...Opti
 	return &resp, nil
 }
 
+// GetOrganizationForName retrieves a single organization by its name
+func (c *Client) GetOrganizationForName(ctx context.Context, name string, opts ...Option) (*Organization, error) {
+	pager, err := pagination.ApplyOptions(
+		pagination.Filter("('name',EQ,'testorg')"),
+	)
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	query := pager.Query()
+	orgs, err := c.ListOrganizationsFromQuery(ctx, query)
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	if len(orgs.Data) != 1 {
+		return nil, ucerr.Errorf("expected 1 organization from GetOrganizationForName, got %d", len(orgs.Data))
+	}
+
+	return &orgs.Data[0], nil
+}
+
 // CreateOrganizationRequest is the request struct to the CreateOrganization endpoint
 type CreateOrganizationRequest struct {
 	ID     uuid.UUID     `json:"id"`
@@ -1443,8 +1465,15 @@ type CreateOrganizationRequest struct {
 }
 
 // CreateOrganization creates an organization
-func (c *Client) CreateOrganization(ctx context.Context, id uuid.UUID, name string, region region.Region) (*Organization, error) {
+// Note that if the `IfNotExists` option is used, the organizations must match exactly (eg. name and region),
+// otherwise a 409 Conflict error will still be returned.
+func (c *Client) CreateOrganization(ctx context.Context, id uuid.UUID, name string, region region.Region, opts ...Option) (*Organization, error) {
 	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
 
 	req := CreateOrganizationRequest{
 		ID:     id,
@@ -1461,8 +1490,19 @@ func (c *Client) CreateOrganization(ctx context.Context, id uuid.UUID, name stri
 	defer clientcache.ReleaseItemLock(ctx, cm, cache.Create, org, s)
 
 	var resp Organization
-	if err := c.client.Post(ctx, "/authz/organizations", req, &resp); err != nil {
-		return nil, ucerr.Wrap(err)
+	if options.ifNotExists && id.IsNil() {
+		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/organizations", req, &resp)
+		if err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+		if exists {
+			resp = Organization{BaseModel: ucdb.NewBaseWithID(existingID), Name: name, Region: region}
+			resp.ID = existingID
+		}
+	} else {
+		if err := c.client.Post(ctx, "/authz/organizations", req, &resp); err != nil {
+			return nil, ucerr.Wrap(err)
+		}
 	}
 
 	clientcache.SaveItemToCache(ctx, cm, resp, s, true, nil)

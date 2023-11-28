@@ -53,7 +53,7 @@ func (b BaseModel) GetUpdated() time.Time {
 // Validate implements Validateable
 func (b BaseModel) Validate() error {
 	if b.ID.IsNil() {
-		return ucerr.New("UCBase can't have nil ID")
+		return ucerr.Friendlyf(nil, "Can't have nil ID")
 	}
 	if b.Updated.IsZero() && !b.Alive() {
 		return ucerr.Errorf("%v was soft-deleted before it was ever saved", b.ID)
