@@ -22,10 +22,11 @@ const memSentinelTTL = 70 * time.Second
 
 // InMemoryClientCacheProvider is the base implementation of the CacheProvider interface
 type InMemoryClientCacheProvider struct {
-	cache     *cache.Cache
-	keysMutex sync.Mutex
-	sm        *shared.WriteThroughCacheSentinelManager
-	cacheName string
+	cache        *cache.Cache
+	keysMutex    sync.Mutex
+	sm           *shared.WriteThroughCacheSentinelManager
+	cacheName    string
+	tombstoneTTL time.Duration
 }
 
 // NewInMemoryClientCacheProvider creates a new InMemoryClientCacheProvider
@@ -33,7 +34,13 @@ func NewInMemoryClientCacheProvider(cacheName string) *InMemoryClientCacheProvid
 	// TODO - Underlying library treats 0 and -1 as no expiration, so we need to set it to minimum value and not look up items from the cache, work around that
 	cacheEdges := cache.New(defaultCacheTTL, gcInterval)
 
-	return &InMemoryClientCacheProvider{cache: cacheEdges, sm: shared.NewWriteThroughCacheSentinelManager(), cacheName: cacheName}
+	return &InMemoryClientCacheProvider{
+		cache:     cacheEdges,
+		sm:        shared.NewWriteThroughCacheSentinelManager(),
+		cacheName: cacheName,
+		// TODO: get the value as an argument
+		tombstoneTTL: shared.InvalidationTombstoneTTL,
+	}
 }
 
 // inMemMultiSet sets all passed in keys to the same value with given TTL. Locking is left up to caller
@@ -164,7 +171,7 @@ func (c *InMemoryClientCacheProvider) SetValue(ctx context.Context, lkeyIn share
 				c.inMemMultiSet(keys, val, false, ttl)
 				return true, false, nil
 			} else if clear {
-				uclog.Verbosef(ctx, "Cache[%v] cleared on value mismatch or conflict sentinal key %v curr val %v would store %v", c.cacheName, keys, cV, val)
+				uclog.Verbosef(ctx, "Cache[%v] cleared on value mismatch or conflict sentinel key %v curr val %v would store %v", c.cacheName, keys, cV, val)
 				c.inMemMultiDelete(keys)
 				return false, false, nil
 			} else if conflict {
@@ -178,6 +185,36 @@ func (c *InMemoryClientCacheProvider) SetValue(ctx context.Context, lkeyIn share
 	}
 	uclog.Verbosef(ctx, "Cache[%v] not set key %v on sentinel %v key not found", c.cacheName, lkey, sentinel)
 	return false, false, nil
+}
+
+// GetValues gets the values in keys (if any) and tries to lock the key[i] for Read is lockOnMiss[i] = true
+func (c *InMemoryClientCacheProvider) GetValues(ctx context.Context, keys []shared.CacheKey, lockOnMiss []bool) ([]*string, []shared.CacheSentinel, error) {
+	val := make([]*string, len(keys))
+	sentinels := make([]shared.CacheSentinel, len(keys))
+
+	for i := range sentinels {
+		sentinels[i] = shared.NoLockSentinel
+	}
+
+	keysToGet := make(map[shared.CacheKey]int)
+
+	// Since we do this inmemory there is no roundtrip cost,  so we can do just loop and get each value
+	for i, k := range keys {
+		if _, ok := keysToGet[k]; !ok {
+			v, s, err := c.GetValue(ctx, k, lockOnMiss[i])
+			if err != nil {
+				return val, sentinels, ucerr.Wrap(err)
+			}
+			val[i] = v
+			sentinels[i] = s
+			keysToGet[k] = i // save the index for the key
+		} else {
+			// Duplicate key so copy the value from the first instance
+			val[i] = val[keysToGet[k]]
+			sentinels[i] = sentinels[keysToGet[k]]
+		}
+	}
+	return val, sentinels, nil
 }
 
 // GetValue gets the value in CacheKey (if any) and tries to lock the key for Read is lockOnMiss = true
@@ -219,6 +256,7 @@ func (c *InMemoryClientCacheProvider) GetValue(ctx context.Context, keyIn shared
 
 // DeleteValue deletes the value(s) in passed in keys
 func (c *InMemoryClientCacheProvider) DeleteValue(ctx context.Context, keysIn []shared.CacheKey, setTombstone bool, force bool) error {
+	setTombstone = setTombstone && c.tombstoneTTL > 0 // don't actually set tombstone if tombstoneTTL is 0
 	keys := c.getStringKeysFromCacheKeys(keysIn)
 
 	c.keysMutex.Lock()
@@ -227,7 +265,7 @@ func (c *InMemoryClientCacheProvider) DeleteValue(ctx context.Context, keysIn []
 	if force {
 		// Delete or tombstone regardless of value
 		if setTombstone {
-			c.inMemMultiSet(keys, string(shared.TombstoneSentinel), false, memSentinelTTL)
+			c.inMemMultiSet(keys, string(shared.TombstoneSentinel), false, c.tombstoneTTL)
 			uclog.Verbosef(ctx, "Cache[%v] tombstoned keys %v", c.cacheName, keys)
 		} else {
 			c.inMemMultiDelete(keys)
@@ -244,7 +282,7 @@ func (c *InMemoryClientCacheProvider) DeleteValue(ctx context.Context, keysIn []
 					}
 				}
 				if setTombstone {
-					c.cache.Set(k, string(shared.TombstoneSentinel), memSentinelTTL)
+					c.cache.Set(k, string(shared.TombstoneSentinel), c.tombstoneTTL)
 				} else {
 					c.cache.Delete(k)
 				}
@@ -300,7 +338,7 @@ func (c *InMemoryClientCacheProvider) deleteKeyArray(dkey string, setTombstone b
 		}
 	}
 	if setTombstone {
-		c.cache.Set(dkey, string(shared.TombstoneSentinel), memSentinelTTL)
+		c.cache.Set(dkey, string(shared.TombstoneSentinel), c.tombstoneTTL)
 	} else {
 		if !isTombstone {
 			c.cache.Delete(dkey)

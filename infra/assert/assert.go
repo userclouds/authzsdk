@@ -66,9 +66,10 @@ func NotNil(t testing.TB, got interface{}, opts ...Option) bool {
 }
 
 // NoErr is a shortcut for Nil(..., assert.Must())
-func NoErr(t testing.TB, err error) {
+func NoErr(t testing.TB, err error, opts ...Option) {
 	t.Helper()
-	IsNil(t, err, Must())
+	opts = append(opts, Must())
+	IsNil(t, err, opts...)
 }
 
 // Contains asserts that one string contains another
@@ -81,10 +82,16 @@ func Contains(t testing.TB, body, substr string, opts ...Option) bool {
 	return false
 }
 
-// Fail marks the test as failed, but continues execution
-func Fail(t testing.TB, fmt string, args ...interface{}) {
+// FailContinue marks the test as failed, but continues execution
+func FailContinue(t testing.TB, fmt string, args ...interface{}) {
 	t.Helper()
 	logFailure(t, nil, nil, []Option{Errorf(fmt, args...)})
+}
+
+// Fail marks the test as failed and stops execution
+func Fail(t testing.TB, fmt string, args ...interface{}) {
+	t.Helper()
+	logFailure(t, nil, nil, []Option{Must(), Errorf(fmt, args...)})
 }
 
 func isNil(got interface{}) bool {
@@ -103,10 +110,10 @@ func isNil(got interface{}) bool {
 }
 
 // ErrorIs asserts that error is not nil and it matches the expected error
-func ErrorIs(t testing.TB, got, expected error) {
+func ErrorIs(t testing.TB, got, expected error, opts ...Option) {
 	t.Helper()
-	NotNil(t, got)
-	True(t, errors.Is(got, expected))
+	NotNil(t, got, opts...)
+	True(t, errors.Is(got, expected), opts...)
 }
 
 func buildOpts(opts []Option) options {

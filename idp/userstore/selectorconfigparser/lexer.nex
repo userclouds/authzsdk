@@ -1,14 +1,18 @@
-/{[a-zA-Z0-9_-]+}(->>'[a-zA-Z0-9_-]+')?/        { return COLUMN_IDENTIFIER }
-/=|<=|>=|<|>|!=| LIKE | ILIKE | like | ilike /  { return OPERATOR }
-/IS|is/                                         { return IS }
-/NOT|not/                                       { return NOT }
-/NULL|null/                                     { return NULL }
-/\?/                                            { return VALUE_PLACEHOLDER }
-/ANY|any/                                       { return ANY }
-/ AND | OR | and | or /                         { return CONJUNCTION }
-/\(/                                            { return LEFT_PARENTHESIS }
-/\)/                                            { return RIGHT_PARENTHESIS }
-/[ \t\n]+/                                      { /* eat up whitespace */ }
-/./                                             { return UNKNOWN }
+/{[a-zA-Z0-9_-]+}(->>'[a-zA-Z0-9_-]+')?/                                                                                 { return COLUMN_IDENTIFIER }
+/=|<=|>=|<|>|!=| LIKE | ILIKE | like | ilike /                                                                           { return OPERATOR }
+/IS|is/                                                                                                                  { return IS }
+/NOT|not/                                                                                                                { return NOT }
+/NULL|null/                                                                                                              { return NULL }
+/\?/                                                                                                                     { return VALUE_PLACEHOLDER }
+/[0-9]+/                                                                                                                 { return INT_VALUE }
+/(ARRAY|array)[ \t]*\[[ \t]*[0-9]+([ \t]*,[ \t]*[0-9]+)*[ \t]*\]/                                                        { return INT_VALUE_LIST }
+/'[a-zA-Z0-9_-]+'(::[a-zA-Z0-9]+)?/                                                                                      { return QUOTED_VALUE }
+/(ARRAY|array)[ \t]*\[[ \t]*'[a-zA-Z0-9_-]+'(::[a-zA-Z0-9]+)?([ \t]*,[ \t]*'[a-zA-Z0-9_-]+'(::[a-zA-Z0-9]+)?)*[ \t]*\]/  { return QUOTED_VALUE_LIST }
+/ANY|any/                                                                                                                { return ANY }
+/ AND | OR | and | or /                                                                                                  { return CONJUNCTION }
+/\(/                                                                                                                     { return LEFT_PARENTHESIS }
+/\)/                                                                                                                     { return RIGHT_PARENTHESIS }
+/[ \t\n]+/                                                                                                               { /* eat up whitespace */ }
+/./                                                                                                                      { return UNKNOWN }
 //
 package selectorconfigparser

@@ -18,6 +18,7 @@ import (
 	"userclouds.com/infra/sdkclient"
 	"userclouds.com/infra/ucdb"
 	"userclouds.com/infra/ucerr"
+	"userclouds.com/infra/uclog"
 )
 
 const (
@@ -215,40 +216,49 @@ func (c *Client) FlushCacheObjectsAndEdges() error {
 	return ucerr.Wrap(c.cp.Flush(context.Background(), c.basePrefix))
 }
 
+// CreateObjectTypeRequest is the request body for creating an object type
+type CreateObjectTypeRequest struct {
+	ObjectType ObjectType `json:"object_type"`
+}
+
 // CreateObjectType creates a new type of object for the authz system.
 func (c *Client) CreateObjectType(ctx context.Context, id uuid.UUID, typeName string, opts ...Option) (*ObjectType, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	options := c.options
 	for _, opt := range opts {
 		opt.apply(&options)
 	}
 
-	req := ObjectType{
+	req := CreateObjectTypeRequest{ObjectType{
 		BaseModel: ucdb.NewBase(),
 		TypeName:  typeName,
-	}
+	}}
 	if !id.IsNil() {
-		req.ID = id
+		req.ObjectType.ID = id
 	}
 
 	cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(options.organizationID), c.ttlP)
 
-	s, err := clientcache.TakeItemLock(ctx, cache.Create, cm, req)
+	s, err := clientcache.TakeItemLock(ctx, cache.Create, cm, req.ObjectType)
 	if err != nil {
 		return nil, ucerr.Wrap(err)
 	}
-	defer clientcache.ReleaseItemLock(ctx, cm, cache.Create, req, s)
+	defer clientcache.ReleaseItemLock(ctx, cm, cache.Create, req.ObjectType, s)
 
 	var resp ObjectType
-	if options.ifNotExists && id.IsNil() {
+	if options.ifNotExists {
 		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/objecttypes", req, &resp)
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
 		if exists {
-			resp = req
-			resp.ID = existingID
+			if id.IsNil() || existingID == id {
+				resp = req.ObjectType
+				resp.ID = existingID
+			} else {
+				return nil, ucerr.Errorf("object type already exists with different ID: %s", existingID)
+			}
 		}
 	} else {
 		if err := c.client.Post(ctx, "/authz/objecttypes", req, &resp); err != nil {
@@ -263,7 +273,7 @@ func (c *Client) CreateObjectType(ctx context.Context, id uuid.UUID, typeName st
 
 // FindObjectTypeID resolves an object type name to an ID.
 func (c *Client) FindObjectTypeID(ctx context.Context, typeName string, opts ...Option) (uuid.UUID, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	options := c.options
 	for _, opt := range opts {
@@ -298,7 +308,7 @@ func (c *Client) FindObjectTypeID(ctx context.Context, typeName string, opts ...
 
 // GetObjectType returns an object type by ID.
 func (c *Client) GetObjectType(ctx context.Context, id uuid.UUID, opts ...Option) (*ObjectType, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	options := c.options
 	for _, opt := range opts {
@@ -312,9 +322,8 @@ func (c *Client) GetObjectType(ctx context.Context, id uuid.UUID, opts ...Option
 		var err error
 		v, s, err = clientcache.GetItemFromCache[ObjectType](ctx, cm, cm.N.GetKeyNameWithID(ObjectTypeKeyID, id), true, c.ttlP.TTL(ObjectTypeTTL))
 		if err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-		if v != nil {
+			uclog.Errorf(ctx, "GetItemFromCache failed to get item from cache: %v", err)
+		} else if v != nil {
 			return v, nil
 		}
 	}
@@ -335,7 +344,7 @@ type ListObjectTypesResponse struct {
 
 // ListObjectTypes lists all object types in the system
 func (c *Client) ListObjectTypes(ctx context.Context, opts ...Option) ([]ObjectType, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	options := c.options
 	for _, opt := range opts {
@@ -350,9 +359,8 @@ func (c *Client) ListObjectTypes(ctx context.Context, opts ...Option) ([]ObjectT
 		cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
 		v, s, err = clientcache.GetItemFromCache[[]ObjectType](ctx, cm, cm.N.GetKeyNameStatic(ObjectTypeCollectionKeyID), true, c.ttlP.TTL(ObjectTypeTTL))
 		if err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-		if v != nil {
+			uclog.Errorf(ctx, "ListObjectTypes failed to get item from cache: %v", err)
+		} else if v != nil {
 			return *v, nil
 		}
 	}
@@ -390,7 +398,7 @@ func (c *Client) ListObjectTypes(ctx context.Context, opts ...Option) ([]ObjectT
 
 // DeleteObjectType deletes an object type by ID.
 func (c *Client) DeleteObjectType(ctx context.Context, objectTypeID uuid.UUID) error {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	// We don't take a delete lock since we will flush the cache after the delete anyway
 	if err := c.client.Delete(ctx, fmt.Sprintf("/authz/objecttypes/%s", objectTypeID), nil); err != nil {
@@ -401,44 +409,53 @@ func (c *Client) DeleteObjectType(ctx context.Context, objectTypeID uuid.UUID) e
 	return ucerr.Wrap(c.FlushCache())
 }
 
+// CreateEdgeTypeRequest is the request body for creating an edge type
+type CreateEdgeTypeRequest struct {
+	EdgeType EdgeType `json:"edge_type"`
+}
+
 // CreateEdgeType creates a new type of edge for the authz system.
 func (c *Client) CreateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectTypeID, targetObjectTypeID uuid.UUID, typeName string, attributes Attributes, opts ...Option) (*EdgeType, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	options := c.options
 	for _, opt := range opts {
 		opt.apply(&options)
 	}
 
-	req := EdgeType{
+	req := CreateEdgeTypeRequest{EdgeType{
 		BaseModel:          ucdb.NewBase(),
 		TypeName:           typeName,
 		SourceObjectTypeID: sourceObjectTypeID,
 		TargetObjectTypeID: targetObjectTypeID,
 		Attributes:         attributes,
 		OrganizationID:     options.organizationID,
-	}
+	}}
 	if !id.IsNil() {
-		req.ID = id
+		req.EdgeType.ID = id
 	}
 
 	cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(options.organizationID), c.ttlP)
 
-	s, err := clientcache.TakeItemLock(ctx, cache.Create, cm, req)
+	s, err := clientcache.TakeItemLock(ctx, cache.Create, cm, req.EdgeType)
 	if err != nil {
 		return nil, ucerr.Wrap(err)
 	}
-	defer clientcache.ReleaseItemLock(ctx, cm, cache.Create, req, s)
+	defer clientcache.ReleaseItemLock(ctx, cm, cache.Create, req.EdgeType, s)
 
 	var resp EdgeType
-	if options.ifNotExists && id.IsNil() {
+	if options.ifNotExists {
 		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/edgetypes", req, &resp)
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
 		if exists {
-			resp = req
-			resp.ID = existingID
+			if id.IsNil() || existingID == id {
+				resp = req.EdgeType
+				resp.ID = existingID
+			} else {
+				return nil, ucerr.Errorf("edge type already exists with different ID: %s", existingID)
+			}
 		}
 	} else {
 		if err := c.client.Post(ctx, "/authz/edgetypes", req, &resp); err != nil {
@@ -459,7 +476,7 @@ type UpdateEdgeTypeRequest struct {
 
 // UpdateEdgeType updates an existing edge type in the authz system.
 func (c *Client) UpdateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectTypeID, targetObjectTypeID uuid.UUID, typeName string, attributes Attributes) (*EdgeType, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	req := UpdateEdgeTypeRequest{
 		TypeName:   typeName,
@@ -492,7 +509,7 @@ func (c *Client) UpdateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectT
 
 // GetEdgeType gets an edge type (relationship) by its type ID.
 func (c *Client) GetEdgeType(ctx context.Context, edgeTypeID uuid.UUID, opts ...Option) (*EdgeType, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	options := c.options
 	for _, opt := range opts {
@@ -507,9 +524,8 @@ func (c *Client) GetEdgeType(ctx context.Context, edgeTypeID uuid.UUID, opts ...
 
 		v, s, err = clientcache.GetItemFromCache[EdgeType](ctx, cm, cm.N.GetKeyNameWithID(EdgeTypeKeyID, edgeTypeID), true, c.ttlP.TTL(EdgeTypeTTL))
 		if err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-		if v != nil {
+			uclog.Errorf(ctx, "GetEdgeType failed to get item from cache: %v", err)
+		} else if v != nil {
 			return v, nil
 		}
 	}
@@ -524,7 +540,7 @@ func (c *Client) GetEdgeType(ctx context.Context, edgeTypeID uuid.UUID, opts ...
 
 // FindEdgeTypeID resolves an edge type name to an ID.
 func (c *Client) FindEdgeTypeID(ctx context.Context, typeName string, opts ...Option) (uuid.UUID, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	options := c.options
 	for _, opt := range opts {
@@ -535,9 +551,8 @@ func (c *Client) FindEdgeTypeID(ctx context.Context, typeName string, opts ...Op
 		cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
 		v, _, err := clientcache.GetItemFromCache[EdgeType](ctx, cm, cm.N.GetKeyNameWithString(EdgeTypeNameKeyID, typeName), false, c.ttlP.TTL(EdgeTypeTTL))
 		if err != nil {
-			return uuid.Nil, ucerr.Wrap(err)
-		}
-		if v != nil {
+			uclog.Errorf(ctx, "FindEdgeTypeID failed to get item from cache: %v", err)
+		} else if v != nil {
 			return v.ID, nil
 		}
 	}
@@ -569,7 +584,7 @@ func (r ListEdgeTypesResponse) Description() string {
 
 // ListEdgeTypes lists all available edge types
 func (c *Client) ListEdgeTypes(ctx context.Context, opts ...Option) ([]EdgeType, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	options := c.options
 	for _, opt := range opts {
@@ -583,9 +598,8 @@ func (c *Client) ListEdgeTypes(ctx context.Context, opts ...Option) ([]EdgeType,
 		var err error
 		v, s, err = clientcache.GetItemFromCache[[]EdgeType](ctx, cm, cm.N.GetKeyNameStatic(EdgeTypeCollectionKeyID), true, c.ttlP.TTL(EdgeTypeTTL))
 		if err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-		if v != nil {
+			uclog.Errorf(ctx, "ListEdgeTypes failed to get item from cache: %v", err)
+		} else if v != nil {
 			return *v, nil
 		}
 	}
@@ -626,7 +640,7 @@ func (c *Client) ListEdgeTypes(ctx context.Context, opts ...Option) ([]EdgeType,
 
 // DeleteEdgeType deletes an edge type by ID.
 func (c *Client) DeleteEdgeType(ctx context.Context, edgeTypeID uuid.UUID) error {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	// We don't take a delete lock since we will flush the cache after the delete anyway
 	if err := c.client.Delete(ctx, fmt.Sprintf("/authz/edgetypes/%s", edgeTypeID), nil); err != nil {
@@ -636,49 +650,58 @@ func (c *Client) DeleteEdgeType(ctx context.Context, edgeTypeID uuid.UUID) error
 	return ucerr.Wrap(c.FlushCache())
 }
 
+// CreateObjectRequest is the request body for creating an object
+type CreateObjectRequest struct {
+	Object Object `json:"object"`
+}
+
 // CreateObject creates a new object with a given ID, name, and type.
 func (c *Client) CreateObject(ctx context.Context, id, typeID uuid.UUID, alias string, opts ...Option) (*Object, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	options := c.options
 	for _, opt := range opts {
 		opt.apply(&options)
 	}
 
-	obj := Object{
+	req := CreateObjectRequest{Object{
 		BaseModel:      ucdb.NewBase(),
 		Alias:          &alias,
 		TypeID:         typeID,
 		OrganizationID: options.organizationID,
-	}
+	}}
 	if !id.IsNil() {
-		obj.ID = id
+		req.Object.ID = id
 	}
 
 	if alias == "" { // this allows storing multiple objects with "" alias
-		obj.Alias = nil
+		req.Object.Alias = nil
 	}
 
 	cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(options.organizationID), c.ttlP)
 
-	s, err := clientcache.TakeItemLock(ctx, cache.Create, cm, obj)
+	s, err := clientcache.TakeItemLock(ctx, cache.Create, cm, req.Object)
 	if err != nil {
 		return nil, ucerr.Wrap(err)
 	}
-	defer clientcache.ReleaseItemLock(ctx, cm, cache.Create, obj, s)
+	defer clientcache.ReleaseItemLock(ctx, cm, cache.Create, req.Object, s)
 
 	var resp Object
-	if options.ifNotExists && id.IsNil() {
-		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/objects", obj, &resp)
+	if options.ifNotExists {
+		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/objects", req, &resp)
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
 		if exists {
-			resp = obj
-			resp.ID = existingID
+			if id.IsNil() || existingID == id {
+				resp = req.Object
+				resp.ID = existingID
+			} else {
+				return nil, ucerr.Errorf("object already exists with different ID: %s", existingID)
+			}
 		}
 	} else {
-		if err := c.client.Post(ctx, "/authz/objects", obj, &resp); err != nil {
+		if err := c.client.Post(ctx, "/authz/objects", req, &resp); err != nil {
 			return nil, ucerr.Wrap(err)
 		}
 	}
@@ -689,7 +712,7 @@ func (c *Client) CreateObject(ctx context.Context, id, typeID uuid.UUID, alias s
 
 // GetObject returns an object by ID.
 func (c *Client) GetObject(ctx context.Context, id uuid.UUID, opts ...Option) (*Object, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	options := c.options
 	for _, opt := range opts {
@@ -704,9 +727,8 @@ func (c *Client) GetObject(ctx context.Context, id uuid.UUID, opts ...Option) (*
 		var err error
 		v, s, err = clientcache.GetItemFromCache[Object](ctx, cm, cm.N.GetKeyNameWithID(ObjectKeyID, id), true, c.ttlP.TTL(ObjectTTL))
 		if err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-		if v != nil {
+			uclog.Errorf(ctx, "GetObject failed to get item from cache: %v", err)
+		} else if v != nil {
 			return v, nil
 		}
 	}
@@ -722,7 +744,7 @@ func (c *Client) GetObject(ctx context.Context, id uuid.UUID, opts ...Option) (*
 
 // GetObjectForName returns an object with a given name.
 func (c *Client) GetObjectForName(ctx context.Context, typeID uuid.UUID, name string, opts ...Option) (*Object, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	if typeID == UserObjectTypeID {
 		return nil, ucerr.New("_user objects do not currently support lookup by alias")
@@ -745,9 +767,8 @@ func (c *Client) GetObjectForName(ctx context.Context, typeID uuid.UUID, name st
 
 		v, _, err = clientcache.GetItemFromCache[Object](ctx, cm, cm.N.GetKeyName(ObjAliasNameKeyID, []string{typeID.String(), name, options.organizationID.String()}), false, c.ttlP.TTL(ObjectTTL))
 		if err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-		if v != nil {
+			uclog.Errorf(ctx, "GetObjectForName failed to get item from cache: %v", err)
+		} else if v != nil {
 			return v, nil
 		}
 	}
@@ -773,7 +794,7 @@ func (c *Client) GetObjectForName(ctx context.Context, typeID uuid.UUID, name st
 
 // DeleteObject deletes an object by ID.
 func (c *Client) DeleteObject(ctx context.Context, id uuid.UUID) error {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
 	obj := &Object{BaseModel: ucdb.NewBaseWithID(id)}
@@ -800,7 +821,7 @@ func (c *Client) DeleteObject(ctx context.Context, id uuid.UUID) error {
 
 // DeleteEdgesByObject deletes all edges going in or  out of an object by ID.
 func (c *Client) DeleteEdgesByObject(ctx context.Context, id uuid.UUID) error {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
 	// Stop in flight reads of edges that include this object as source or target as well as paths starting from this object from committing to the cache
@@ -830,7 +851,7 @@ type ListObjectsResponse struct {
 
 // ListObjects lists `limit` objects in sorted order with pagination, starting after a given ID (or uuid.Nil to start from the beginning).
 func (c *Client) ListObjects(ctx context.Context, opts ...Option) (*ListObjectsResponse, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	options := c.options
 	for _, opt := range opts {
@@ -850,7 +871,7 @@ func (c *Client) ListObjects(ctx context.Context, opts ...Option) (*ListObjectsR
 
 // ListObjectsFromQuery takes in a query that can handle filters passed from console as well as the default method.
 func (c *Client) ListObjectsFromQuery(ctx context.Context, query url.Values, opts ...Option) (*ListObjectsResponse, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	options := c.options
 	for _, opt := range opts {
@@ -868,7 +889,7 @@ func (c *Client) ListObjectsFromQuery(ctx context.Context, query url.Values, opt
 		ckey := cm.N.GetKeyNameStatic(ObjectCollectionKeyID)
 		_, s, err := clientcache.GetItemFromCache[[]Object](ctx, cm, ckey, true, c.ttlP.TTL(ObjectTTL))
 		if err != nil {
-			return nil, ucerr.Wrap(err)
+			uclog.Errorf(ctx, "ListObjectsFromQuery failed to get item from cache: %v", err)
 		}
 		// Release the lock after the request is done since we are not writing to globabal collection
 		defer clientcache.ReleasePerItemCollectionLock[Object](ctx, cm, []cache.CacheKey{ckey}, Object{}, s)
@@ -892,13 +913,19 @@ type ListEdgesResponse struct {
 }
 
 // ListEdges lists `limit` edges.
-func (c *Client) ListEdges(ctx context.Context, opts ...pagination.Option) (*ListEdgesResponse, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+func (c *Client) ListEdges(ctx context.Context, opts ...Option) (*ListEdgesResponse, error) {
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	// TODO: this function doesn't support organizations yet, because I haven't figured out a performant way to
 	// do it.  The problem is that we need to filter by organization ID, but we don't have that information in
 	// the edges table, only on the objects they connect.
-	pager, err := pagination.ApplyOptions(opts...)
+
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	pager, err := pagination.ApplyOptions(options.paginationOptions...)
 	if err != nil {
 		return nil, ucerr.Wrap(err)
 	}
@@ -916,10 +943,15 @@ func (c *Client) ListEdges(ctx context.Context, opts ...pagination.Option) (*Lis
 }
 
 // ListEdgesOnObject lists `limit` edges (relationships) where the given object is a source or target.
-func (c *Client) ListEdgesOnObject(ctx context.Context, objectID uuid.UUID, opts ...pagination.Option) (*ListEdgesResponse, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+func (c *Client) ListEdgesOnObject(ctx context.Context, objectID uuid.UUID, opts ...Option) (*ListEdgesResponse, error) {
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
-	pager, err := pagination.ApplyOptions(opts...)
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	pager, err := pagination.ApplyOptions(options.paginationOptions...)
 	if err != nil {
 		return nil, ucerr.Wrap(err)
 	}
@@ -928,21 +960,23 @@ func (c *Client) ListEdgesOnObject(ctx context.Context, objectID uuid.UUID, opts
 
 	cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
 	obj := Object{BaseModel: ucdb.NewBaseWithID(objectID)}
+	s := cache.NoLockSentinel
+	var edges *[]Edge
+	if !options.bypassCache {
+		edges, s, err = clientcache.GetItemFromCache[[]Edge](ctx, cm, cm.N.GetKeyNameWithID(ObjEdgesKeyID, objectID), true, c.ttlP.TTL(EdgeTTL))
+		if err != nil {
+			uclog.Errorf(ctx, "ListEdgesOnObject failed to get item from cache: %v", err)
+		}
 
-	edges, s, err := clientcache.GetItemFromCache[[]Edge](ctx, cm, cm.N.GetKeyNameWithID(ObjEdgesKeyID, objectID), true, c.ttlP.TTL(EdgeTTL))
+		if edges != nil && len(*edges) <= pager.GetLimit() {
+			resp := ListEdgesResponse{Data: *edges, ResponseFields: pagination.ResponseFields{HasNext: false}}
+			return &resp, nil
+		}
 
-	if err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
-	if edges != nil && len(*edges) <= pager.GetLimit() {
-		resp := ListEdgesResponse{Data: *edges, ResponseFields: pagination.ResponseFields{HasNext: false}}
-		return &resp, nil
-	}
-
-	// Only release the sentinal if we didn't get the edges from the cache
-	if edges == nil {
-		defer clientcache.ReleasePerItemCollectionLock(ctx, cm, nil, obj, s)
+		// Only release the sentinel if we didn't get the edges from the cache
+		if edges == nil {
+			defer clientcache.ReleasePerItemCollectionLock(ctx, cm, nil, obj, s)
+		}
 	}
 
 	var resp ListEdgesResponse
@@ -960,7 +994,7 @@ func (c *Client) ListEdgesOnObject(ctx context.Context, objectID uuid.UUID, opts
 
 // ListEdgesBetweenObjects lists all edges (relationships) with a given source & target object.
 func (c *Client) ListEdgesBetweenObjects(ctx context.Context, sourceObjectID, targetObjectID uuid.UUID, opts ...Option) ([]Edge, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	options := c.options
 	for _, opt := range opts {
@@ -979,9 +1013,8 @@ func (c *Client) ListEdgesBetweenObjects(ctx context.Context, sourceObjectID, ta
 		// First try to read the all in/out edges from source object
 		cEdges, _, err = clientcache.GetItemFromCache[[]Edge](ctx, cm, cm.N.GetKeyNameWithID(ObjEdgesKeyID, sourceObjectID), false, c.ttlP.TTL(EdgeTTL))
 		if err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-		if cEdges != nil {
+			uclog.Errorf(ctx, "ListEdgesBetweenObjects failed to get item from cache: %v", err)
+		} else if cEdges != nil {
 			filteredEdges := make([]Edge, 0)
 			for _, edge := range *cEdges {
 				if edge.TargetObjectID == targetObjectID {
@@ -995,10 +1028,8 @@ func (c *Client) ListEdgesBetweenObjects(ctx context.Context, sourceObjectID, ta
 		// it is rare to traverse in both directions so those collections would be less likely to be cached.
 		cEdges, s, err = clientcache.GetItemFromCache[[]Edge](ctx, cm, ckey, true, c.ttlP.TTL(EdgeTTL))
 		if err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-
-		if cEdges != nil {
+			uclog.Errorf(ctx, "ListEdgesBetweenObjects failed to get item from cache: %v", err)
+		} else if cEdges != nil {
 			return *cEdges, nil
 		}
 
@@ -1026,7 +1057,7 @@ func (c *Client) ListEdgesBetweenObjects(ctx context.Context, sourceObjectID, ta
 
 // GetEdge returns an edge by ID.
 func (c *Client) GetEdge(ctx context.Context, id uuid.UUID, opts ...Option) (*Edge, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	options := c.options
 	for _, opt := range opts {
@@ -1042,9 +1073,8 @@ func (c *Client) GetEdge(ctx context.Context, id uuid.UUID, opts ...Option) (*Ed
 
 		edge, s, err = clientcache.GetItemFromCache[Edge](ctx, cm, cm.N.GetKeyNameWithID(EdgeKeyID, id), true, c.ttlP.TTL(EdgeTTL))
 		if err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-		if edge != nil {
+			uclog.Errorf(ctx, "GetEdge failed to get item from cache: %v", err)
+		} else if edge != nil {
 			return edge, nil
 		}
 	}
@@ -1060,7 +1090,7 @@ func (c *Client) GetEdge(ctx context.Context, id uuid.UUID, opts ...Option) (*Ed
 
 // FindEdge finds an existing edge (relationship) between two objects.
 func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, edgeTypeID uuid.UUID, opts ...Option) (*Edge, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	options := c.options
 	for _, opt := range opts {
@@ -1078,7 +1108,9 @@ func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, e
 		// Try to fetch the invidual edge first using secondary key  Source_Target_TypeID
 		edge, _, err = clientcache.GetItemFromCache[Edge](ctx, cm, cm.N.GetKeyName(EdgeFullKeyID, []string{sourceObjectID.String(), targetObjectID.String(), edgeTypeID.String()}), false, c.ttlP.TTL(EdgeTTL))
 		// Since we are not taking a lock we can ignore cache errors
-		if err == nil && edge != nil {
+		if err != nil {
+			uclog.Errorf(ctx, "FindEdge failed to get item from cache: %v", err)
+		} else if edge != nil {
 			return edge, nil
 		}
 		// If the edges are in the cache by source->target - iterate over that set first
@@ -1108,7 +1140,7 @@ func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, e
 		// If we still don't have the edge, try the server but we can't take a lock single edge lock since we don't know the primary key
 		_, s, err = clientcache.GetItemFromCache[[]Object](ctx, cm, cm.N.GetKeyNameStatic(EdgeCollectionKeyID), true, c.ttlP.TTL(ObjectTTL))
 		if err != nil {
-			return nil, ucerr.Wrap(err)
+			uclog.Errorf(ctx, "FindEdge failed to set lock in the cache: %v", err)
 		}
 	}
 	var resp ListEdgesResponse
@@ -1129,41 +1161,50 @@ func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, e
 	return &resp.Data[0], nil
 }
 
+// CreateEdgeRequest is the request body for creating an edge
+type CreateEdgeRequest struct {
+	Edge Edge `json:"edge"`
+}
+
 // CreateEdge creates an edge (relationship) between two objects.
 func (c *Client) CreateEdge(ctx context.Context, id, sourceObjectID, targetObjectID, edgeTypeID uuid.UUID, opts ...Option) (*Edge, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	options := c.options
 	for _, opt := range opts {
 		opt.apply(&options)
 	}
 
-	req := Edge{
+	req := CreateEdgeRequest{Edge{
 		BaseModel:      ucdb.NewBase(),
 		EdgeTypeID:     edgeTypeID,
 		SourceObjectID: sourceObjectID,
 		TargetObjectID: targetObjectID,
-	}
+	}}
 	if !id.IsNil() {
-		req.ID = id
+		req.Edge.ID = id
 	}
 	cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
 
-	s, err := clientcache.TakeItemLock(ctx, cache.Create, cm, req)
+	s, err := clientcache.TakeItemLock(ctx, cache.Create, cm, req.Edge)
 	if err != nil {
 		return nil, ucerr.Wrap(err)
 	}
-	defer clientcache.ReleaseItemLock(ctx, cm, cache.Create, req, s)
+	defer clientcache.ReleaseItemLock(ctx, cm, cache.Create, req.Edge, s)
 
 	var resp Edge
-	if options.ifNotExists && id.IsNil() {
+	if options.ifNotExists {
 		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/edges", req, &resp)
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
 		if exists {
-			resp = req
-			resp.ID = existingID
+			if id.IsNil() || existingID == id {
+				resp = req.Edge
+				resp.ID = existingID
+			} else {
+				return nil, ucerr.Errorf("edge already exists with different ID: %s", existingID)
+			}
 		}
 	} else {
 		if err := c.client.Post(ctx, "/authz/edges", req, &resp); err != nil {
@@ -1184,7 +1225,7 @@ func (c *Client) CreateEdge(ctx context.Context, id, sourceObjectID, targetObjec
 
 // DeleteEdge deletes an edge by ID.
 func (c *Client) DeleteEdge(ctx context.Context, edgeID uuid.UUID) error {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
 	edge, _, err := clientcache.GetItemFromCache[Edge](ctx, cm, cm.N.GetKeyNameWithID(EdgeKeyID, edgeID), false, c.ttlP.TTL(EdgeTTL))
@@ -1223,7 +1264,7 @@ type CheckAttributeResponse struct {
 
 // CheckAttribute returns true if the source object has the given attribute on the target object.
 func (c *Client) CheckAttribute(ctx context.Context, sourceObjectID, targetObjectID uuid.UUID, attributeName string, opts ...Option) (*CheckAttributeResponse, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	options := c.options
 	for _, opt := range opts {
@@ -1240,10 +1281,8 @@ func (c *Client) CheckAttribute(ctx context.Context, sourceObjectID, targetObjec
 
 		path, s, err = clientcache.GetItemFromCache[[]AttributePathNode](ctx, cm, ckey, true, c.ttlP.TTL(EdgeTTL))
 		if err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-
-		if path != nil {
+			uclog.Errorf(ctx, "CheckAttribute failed to get item from cache: %v", err)
+		} else if path != nil {
 			return &CheckAttributeResponse{HasAttribute: true, Path: *path}, nil
 		}
 	}
@@ -1271,7 +1310,7 @@ func (c *Client) CheckAttribute(ctx context.Context, sourceObjectID, targetObjec
 
 // ListAttributes returns a list of attributes that the source object has on the target object.
 func (c *Client) ListAttributes(ctx context.Context, sourceObjectID, targetObjectID uuid.UUID) ([]string, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	var resp []string
 	query := url.Values{}
@@ -1291,7 +1330,7 @@ type ListObjectsReachableWithAttributeResponse struct {
 
 // ListObjectsReachableWithAttribute returns a list of object IDs of a certain type that are reachable from the source object with the given attribute
 func (c *Client) ListObjectsReachableWithAttribute(ctx context.Context, sourceObjectID uuid.UUID, targetObjectTypeID uuid.UUID, attributeName string) ([]uuid.UUID, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	var resp ListObjectsReachableWithAttributeResponse
 	query := url.Values{}
@@ -1314,7 +1353,7 @@ type ListOrganizationsResponse struct {
 
 // ListOrganizationsFromQuery takes in a query that can handle filters passed from console as well as the default method.
 func (c *Client) ListOrganizationsFromQuery(ctx context.Context, query url.Values, opts ...Option) (*ListOrganizationsResponse, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	var options options
 	for _, opt := range opts {
@@ -1331,7 +1370,7 @@ func (c *Client) ListOrganizationsFromQuery(ctx context.Context, query url.Value
 
 // ListOrganizationsPaginated lists `limit` organizations in sorted order with pagination, starting after a given ID (or uuid.Nil to start from the beginning).
 func (c *Client) ListOrganizationsPaginated(ctx context.Context, opts ...Option) (*ListOrganizationsResponse, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	var options options
 	for _, opt := range opts {
@@ -1348,7 +1387,7 @@ func (c *Client) ListOrganizationsPaginated(ctx context.Context, opts ...Option)
 
 // ListOrganizations lists all organizations for a tenant
 func (c *Client) ListOrganizations(ctx context.Context, opts ...Option) ([]Organization, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	options := c.options
 	for _, opt := range opts {
@@ -1363,9 +1402,8 @@ func (c *Client) ListOrganizations(ctx context.Context, opts ...Option) ([]Organ
 		cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
 		v, s, err = clientcache.GetItemFromCache[[]Organization](ctx, cm, cm.N.GetKeyNameStatic(OrganizationCollectionKeyID), true, c.ttlP.TTL(OrganizationTTL))
 		if err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-		if v != nil {
+			uclog.Errorf(ctx, "ListOrganizations failed to get item from cache: %v", err)
+		} else if v != nil {
 			return *v, nil
 		}
 	}
@@ -1403,7 +1441,7 @@ func (c *Client) ListOrganizations(ctx context.Context, opts ...Option) ([]Organ
 
 // GetOrganization retrieves a single organization by its UUID
 func (c *Client) GetOrganization(ctx context.Context, id uuid.UUID, opts ...Option) (*Organization, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 
 	options := c.options
 	for _, opt := range opts {
@@ -1418,9 +1456,8 @@ func (c *Client) GetOrganization(ctx context.Context, id uuid.UUID, opts ...Opti
 
 		v, s, err = clientcache.GetItemFromCache[Organization](ctx, cm, cm.N.GetKeyNameWithID(OrganizationKeyID, id), true, c.ttlP.TTL(OrganizationTTL))
 		if err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-		if v != nil {
+			uclog.Errorf(ctx, "GetOrganization failed to get item from cache: %v", err)
+		} else if v != nil {
 			return v, nil
 		}
 	}
@@ -1459,16 +1496,15 @@ func (c *Client) GetOrganizationForName(ctx context.Context, name string, opts .
 
 // CreateOrganizationRequest is the request struct to the CreateOrganization endpoint
 type CreateOrganizationRequest struct {
-	ID     uuid.UUID     `json:"id"`
-	Name   string        `json:"name" validate:"notempty"`
-	Region region.Region `json:"region"` // this is a UC Region (not an AWS region)
+	Organization Organization `json:"organization"`
 }
 
 // CreateOrganization creates an organization
 // Note that if the `IfNotExists` option is used, the organizations must match exactly (eg. name and region),
 // otherwise a 409 Conflict error will still be returned.
 func (c *Client) CreateOrganization(ctx context.Context, id uuid.UUID, name string, region region.Region, opts ...Option) (*Organization, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
+	var err error
 
 	options := c.options
 	for _, opt := range opts {
@@ -1476,28 +1512,38 @@ func (c *Client) CreateOrganization(ctx context.Context, id uuid.UUID, name stri
 	}
 
 	req := CreateOrganizationRequest{
-		ID:     id,
-		Name:   name,
-		Region: region,
+		Organization: Organization{
+			BaseModel: ucdb.NewBase(),
+			Name:      name,
+			Region:    region,
+		},
+	}
+	if !id.IsNil() {
+		req.Organization.ID = id
 	}
 
 	cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
-	org := Organization{BaseModel: ucdb.NewBaseWithID(id)}
-	s, err := clientcache.TakeItemLock(ctx, cache.Create, cm, org)
-	if err != nil {
-		return nil, ucerr.Wrap(err)
+	s := cache.NoLockSentinel
+	if !options.bypassCache {
+		s, err = clientcache.TakeItemLock(ctx, cache.Create, cm, req.Organization)
+		if err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+		defer clientcache.ReleaseItemLock(ctx, cm, cache.Create, req.Organization, s)
 	}
-	defer clientcache.ReleaseItemLock(ctx, cm, cache.Create, org, s)
-
 	var resp Organization
-	if options.ifNotExists && id.IsNil() {
+	if options.ifNotExists {
 		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/organizations", req, &resp)
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
 		if exists {
-			resp = Organization{BaseModel: ucdb.NewBaseWithID(existingID), Name: name, Region: region}
-			resp.ID = existingID
+			if id.IsNil() || existingID == id {
+				resp = req.Organization
+				resp.ID = existingID
+			} else {
+				return nil, ucerr.Errorf("organization exists with different ID: %s", existingID)
+			}
 		}
 	} else {
 		if err := c.client.Post(ctx, "/authz/organizations", req, &resp); err != nil {
@@ -1517,8 +1563,14 @@ type UpdateOrganizationRequest struct {
 }
 
 // UpdateOrganization updates an organization
-func (c *Client) UpdateOrganization(ctx context.Context, id uuid.UUID, name string, region region.Region) (*Organization, error) {
-	ctx = request.SetRequestIDIfNotSet(ctx, uuid.Must(uuid.NewV4()))
+func (c *Client) UpdateOrganization(ctx context.Context, id uuid.UUID, name string, region region.Region, opts ...Option) (*Organization, error) {
+	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
+	var err error
+
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
 
 	req := UpdateOrganizationRequest{
 		Name:   name,
@@ -1527,11 +1579,13 @@ func (c *Client) UpdateOrganization(ctx context.Context, id uuid.UUID, name stri
 
 	cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
 	org := Organization{BaseModel: ucdb.NewBaseWithID(id)}
-	s, err := clientcache.TakeItemLock(ctx, cache.Update, cm, org)
-	if err != nil {
-		return nil, ucerr.Wrap(err)
+	s := cache.NoLockSentinel
+	if !options.bypassCache {
+		s, err = clientcache.TakeItemLock(ctx, cache.Update, cm, org)
+		if err != nil {
+			return nil, ucerr.Wrap(err)
+		}
 	}
-
 	var resp Organization
 	if err := c.client.Put(ctx, fmt.Sprintf("/authz/organizations/%s", id), req, &resp); err != nil {
 		return nil, ucerr.Wrap(err)

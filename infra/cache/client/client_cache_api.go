@@ -68,6 +68,8 @@ type CacheSingleItem interface {
 type CacheProvider interface {
 	// GetValue gets the value in cache key (if any) and tries to lock the key for Read is lockOnMiss = true
 	GetValue(ctx context.Context, key shared.CacheKey, lockOnMiss bool) (*string, shared.CacheSentinel, error)
+	// GetValues gets the value in cache key (if any) and tries to lock the key for Read is lockOnMiss = true
+	GetValues(ctx context.Context, keys []shared.CacheKey, lockOnMiss []bool) ([]*string, []shared.CacheSentinel, error)
 	// SetValue sets the value in cache key(s) to val with given expiration time if the sentinel matches lkey and returns true if the value was set
 	SetValue(ctx context.Context, lkey shared.CacheKey, keysToSet []shared.CacheKey, val string, sentinel shared.CacheSentinel, ttl time.Duration) (bool, bool, error)
 	// DeleteValue deletes the value(s) in passed in keys, force is true also deletes keys with sentinel or tombstone values
@@ -254,6 +256,35 @@ func GetItemFromCache[item any](ctx context.Context, c CacheManager, key shared.
 	}
 	metrics.RecordCacheHit(ctx, took)
 	return &i, "", nil
+}
+
+// GetItemsFromCache gets the the values stored in keys from the cache.
+func GetItemsFromCache[item any](ctx context.Context, c CacheManager, keys []shared.CacheKey, locksOnMiss []bool, ttl time.Duration) ([]*item, []shared.CacheSentinel, error) {
+	if ttl == SkipCacheTTL {
+		return nil, nil, nil
+	}
+	start := time.Now().UTC()
+	values, sentinels, err := c.P.GetValues(ctx, keys, locksOnMiss)
+	took := time.Now().UTC().Sub(start)
+	if err != nil {
+		return nil, nil, ucerr.Wrap(err)
+	}
+	items := make([]*item, len(keys))
+	for i, rawValue := range values {
+		if rawValue == nil {
+			metrics.RecordCacheMiss(ctx, took)
+			items[i] = nil
+		} else {
+			metrics.RecordCacheHit(ctx, took)
+			var loadedItem item
+			if err := json.Unmarshal([]byte(*rawValue), &loadedItem); err != nil {
+				// Should we do something else when we fail to unmarshal ?
+				return nil, nil, ucerr.Wrap(err)
+			}
+			items[i] = &loadedItem
+		}
+	}
+	return items, sentinels, nil
 }
 
 // DeleteItemFromCache deletes the the valuse stored in key assoicated with the item from the cache.

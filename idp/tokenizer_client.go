@@ -177,6 +177,22 @@ func (c *TokenizerClient) TestAccessPolicy(ctx context.Context, accessPolicy pol
 	return res.Allowed, nil
 }
 
+// TestAccessPolicyTemplate tests an access policy without saving it
+func (c *TokenizerClient) TestAccessPolicyTemplate(ctx context.Context, accessPolicyTemplate policy.AccessPolicyTemplate, context policy.AccessPolicyContext, params string) (bool, error) {
+	req := tokenizer.TestAccessPolicyTemplateRequest{
+		AccessPolicyTemplate: accessPolicyTemplate,
+		Context:              context,
+		Params:               params,
+	}
+
+	var res tokenizer.TestAccessPolicyResponse
+	if err := c.client.Post(ctx, paths.TestAccessPolicyTemplate, req, &res); err != nil {
+		return false, ucerr.Wrap(err)
+	}
+
+	return res.Allowed, nil
+}
+
 // TestTransformer tests an access policy without saving it
 func (c *TokenizerClient) TestTransformer(ctx context.Context, data string, transformer policy.Transformer) (string, error) {
 	req := tokenizer.TestTransformerRequest{

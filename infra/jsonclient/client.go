@@ -18,10 +18,13 @@ import (
 	"userclouds.com/infra/request"
 	"userclouds.com/infra/ucerr"
 	"userclouds.com/infra/ucjwt"
+	"userclouds.com/infra/uctrace"
 )
 
 const maxRetries = 3
 const backoff = time.Millisecond * 500
+
+var tracer = uctrace.NewTracer("jsonclient")
 
 // Error defines a jsonclient error for non-2XX/3XX status codes
 // TODO: decide how to handle 3XX results
@@ -258,7 +261,9 @@ func isNetworkError(err error) bool {
 }
 
 func (c *Client) makeRequest(ctx context.Context, method, path string, bs []byte, response interface{}, opts []Option) error {
-	return ucerr.Wrap(c.makeRequestRetry(ctx, method, path, bs, response, opts, 1))
+	return uctrace.Wrap0(ctx, tracer, fmt.Sprintf("%s %s%s", method, c.baseURL, path), true, func(ctx context.Context) error {
+		return ucerr.Wrap(c.makeRequestRetry(ctx, method, path, bs, response, opts, 1))
+	})
 }
 
 func (c *Client) makeRequestRetry(ctx context.Context,
@@ -276,126 +281,128 @@ func (c *Client) makeRequestRetry(ctx context.Context,
 		}
 	}()
 
-	// auto-refresh bearer token if needed
-	// do this before cloning (it's threadsafe) so we don't "lose" the refresh
-	if c.hasTokenSource() {
-		if err := c.refreshBearerToken(ctx); err != nil {
+	return uctrace.Wrap0(ctx, tracer, fmt.Sprintf("Client.makeRequestRetry retry %d", retries), true, func(ctx context.Context) error {
+		// auto-refresh bearer token if needed
+		// do this before cloning (it's threadsafe) so we don't "lose" the refresh
+		if c.hasTokenSource() {
+			if err := c.refreshBearerToken(ctx); err != nil {
+				return ucerr.Wrap(err)
+			}
+		}
+
+		// Always clone to minimize contention
+		c.optionsMutex.RLock()
+		options := c.options.clone()
+		c.optionsMutex.RUnlock()
+
+		// Concat per-request options
+		for _, opt := range opts {
+			if opt == nil {
+				return ucerr.New("nil option provided to jsonclient request")
+			}
+			opt.apply(options)
+		}
+
+		if options.decodeFunc != nil && response != nil {
+			return ucerr.New("`CustomDecoder` option should only be specified with a nil `response`")
+		}
+
+		client := uctrace.MakeHTTPClient()
+
+		reqURL := c.buildURL(path)
+		req, err := http.NewRequestWithContext(ctx, method, reqURL, bytes.NewReader(bs))
+		if err != nil {
 			return ucerr.Wrap(err)
 		}
-	}
 
-	// Always clone to minimize contention
-	c.optionsMutex.RLock()
-	options := c.options.clone()
-	c.optionsMutex.RUnlock()
+		req.Header = options.headers.Clone()
+		req.Header.Add("content-type", "application/json")
 
-	// Concat per-request options
-	for _, opt := range opts {
-		if opt == nil {
-			return ucerr.New("nil option provided to jsonclient request")
-		}
-		opt.apply(options)
-	}
-
-	if options.decodeFunc != nil && response != nil {
-		return ucerr.New("`CustomDecoder` option should only be specified with a nil `response`")
-	}
-
-	client := http.DefaultClient
-
-	reqURL := c.buildURL(path)
-	req, err := http.NewRequest(method, reqURL, bytes.NewReader(bs))
-	if err != nil {
-		return ucerr.Wrap(err)
-	}
-
-	req.Header = options.headers.Clone()
-	req.Header.Add("content-type", "application/json")
-
-	// add our per-request context headers
-	for _, fn := range options.perRequestHeaders {
-		k, v := fn(ctx)
-		if k != "" {
-			req.Header.Add(k, v)
-		}
-	}
-
-	for _, cookie := range options.cookies {
-		req.AddCookie(&cookie)
-	}
-
-	// https://github.com/golang/go/issues/29865
-	// Host header is ignored by http.Request.Write, but for test purposes
-	// it is very useful to override the Host header.
-	if req.Header.Get("Host") != "" {
-		req.Host = req.Header.Get("Host")
-	} else if !options.bypassRouting {
-		// this lets us inject service-dependent intra-datacenter rerouting logic as needed (implemented in internal/apiclient/routing)
-		Router.Reroute(ctx, req)
-	}
-
-	res, err := client.Do(req)
-	if err != nil {
-		if options.retryNetworkErrors && isNetworkError(err) {
-			if retries >= maxRetries {
-				return ucerr.Errorf("max retries exceeded: %v", err)
-			}
-
-			c.logError(ctx, req.Method, req.URL.String(), ucerr.Errorf("network error, retry %d: %v", retries, err).Error(), 0)
-
-			time.Sleep(backoff)
-			return ucerr.Wrap(c.makeRequestRetry(ctx, method, path, bs, response, opts, retries+1))
-		}
-		return ucerr.Wrap(err)
-	}
-	requestID = request.GetRequestIDFromHeader(res.Header)
-	defer res.Body.Close()
-
-	body := ""
-	// If the response was not an error OR if the caller specified UnmarshalOnError, try to deserialize
-	// the response into the provided struct.
-	if res.StatusCode < http.StatusBadRequest || options.unmarshalOnError {
-		if options.decodeFunc != nil {
-			if err := options.decodeFunc(ctx, res.Body); err != nil {
-				return ucerr.Wrap(err)
-			}
-		} else if response != nil {
-			if err := json.NewDecoder(res.Body).Decode(response); err != nil {
-				return ucerr.Wrap(err)
+		// add our per-request context headers
+		for _, fn := range options.perRequestHeaders {
+			k, v := fn(ctx)
+			if k != "" {
+				req.Header.Add(k, v)
 			}
 		}
-	} else {
-		// An error was returned and the caller is not intentionally capturing the body; log full error response for debugging purposes.
-		// TODO: hide behind a flag for perf / PII / etc reasons?
-		b, err := io.ReadAll(res.Body)
+
+		for _, cookie := range options.cookies {
+			req.AddCookie(&cookie)
+		}
+
+		// https://github.com/golang/go/issues/29865
+		// Host header is ignored by http.Request.Write, but for test purposes
+		// it is very useful to override the Host header.
+		if req.Header.Get("Host") != "" {
+			req.Host = req.Header.Get("Host")
+		} else if !options.bypassRouting {
+			// this lets us inject service-dependent intra-datacenter rerouting logic as needed (implemented in internal/apiclient/routing)
+			Router.Reroute(ctx, req)
+		}
+
+		res, err := client.Do(req)
 		if err != nil {
-			body = "<unable to decode response>"
-		} else {
-			body = string(b)
+			if options.retryNetworkErrors && isNetworkError(err) {
+				if retries >= maxRetries {
+					return ucerr.Errorf("max retries exceeded: %v", err)
+				}
+
+				c.logError(ctx, req.Method, req.URL.String(), ucerr.Errorf("network error, retry %d: %v", retries, err).Error(), 0)
+
+				time.Sleep(backoff)
+				return ucerr.Wrap(c.makeRequestRetry(ctx, method, path, bs, response, opts, retries+1))
+			}
+			return ucerr.Wrap(err)
 		}
+		requestID = request.GetRequestIDFromHeader(res.Header)
+		defer res.Body.Close()
 
-		c.logError(ctx, method, reqURL, body, res.StatusCode)
+		body := ""
+		// If the response was not an error OR if the caller specified UnmarshalOnError, try to deserialize
+		// the response into the provided struct.
+		if res.StatusCode < http.StatusBadRequest || options.unmarshalOnError {
+			if options.decodeFunc != nil {
+				if err := options.decodeFunc(ctx, res.Body); err != nil {
+					return ucerr.Wrap(err)
+				}
+			} else if response != nil {
+				if err := json.NewDecoder(res.Body).Decode(response); err != nil {
+					return ucerr.Wrap(err)
+				}
+			}
+		} else {
+			// An error was returned and the caller is not intentionally capturing the body; log full error response for debugging purposes.
+			// TODO: hide behind a flag for perf / PII / etc reasons?
+			b, err := io.ReadAll(res.Body)
+			if err != nil {
+				body = "<unable to decode response>"
+			} else {
+				body = string(b)
+			}
 
-		if options.parseOAuthError {
-			var oauthe oAuthError
-			// OAuth standard requires us to return a body with error descriptions
-			// in many cases, so try to decode response but ignore the error if it fails.
-			err = json.NewDecoder(bytes.NewReader(b)).Decode(&oauthe)
-			if err == nil {
-				// Ensure we use the actual code from the http response.
-				oauthe.Code = res.StatusCode
-				return ucerr.Wrap(oauthe)
+			c.logError(ctx, method, reqURL, body, res.StatusCode)
+
+			if options.parseOAuthError {
+				var oauthe oAuthError
+				// OAuth standard requires us to return a body with error descriptions
+				// in many cases, so try to decode response but ignore the error if it fails.
+				err = json.NewDecoder(bytes.NewReader(b)).Decode(&oauthe)
+				if err == nil {
+					// Ensure we use the actual code from the http response.
+					oauthe.Code = res.StatusCode
+					return ucerr.Wrap(oauthe)
+				}
 			}
 		}
-	}
 
-	// TODO: validate that 2xx is received, not 3xx or something else?
+		// TODO: validate that 2xx is received, not 3xx or something else?
 
-	if res.StatusCode >= http.StatusBadRequest {
-		return ucerr.Wrap(Error{res.StatusCode, body})
-	}
+		if res.StatusCode >= http.StatusBadRequest {
+			return ucerr.Wrap(Error{res.StatusCode, body})
+		}
 
-	return nil
+		return nil
+	})
 }
 
 // normalize trailing and leading slashes

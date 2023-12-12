@@ -2,6 +2,7 @@ package testlogtransport
 
 import (
 	"context"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -16,9 +17,13 @@ import (
 // TODO: is there a way to do this more automatically than per-test? TestMain doesn't have testing.T or .B
 // TODO: the fact that this returns a *bytes.Buffer representing the log is pretty icky
 func InitLoggerAndTransportsForTests(t *testing.T) *TransportTest {
+	logLevel, err := uclog.GetLogLevel(os.Getenv("TEST_LOG_LEVEL"))
+	if err != nil {
+		logLevel = uclog.LogLevelDebug
+	}
 	ttc := uclog.TransportConfig{
 		Required:    true,
-		MaxLogLevel: uclog.LogLevelDebug,
+		MaxLogLevel: logLevel,
 	}
 	tt := TransportTest{t: t, config: ttc}
 	transports := []uclog.Transport{&tt}
@@ -48,25 +53,22 @@ func (tt *TransportTest) Init() (*uclog.TransportConfig, error) {
 	return &tt.config, nil
 }
 
-// WriteMessage write a message
-func (tt *TransportTest) WriteMessage(ctx context.Context, message string, level uclog.LogLevel) {
+// Write writes an event
+func (tt *TransportTest) Write(ctx context.Context, event uclog.LogEvent) {
 	tt.t.Helper()
-	tt.t.Log(message)
 
-	tt.logMutex.Lock()
-	tt.LogMessages[level] = append(tt.LogMessages[level], message)
-	tt.logMutex.Unlock()
-}
-
-// WriteCounter writes an event
-func (tt *TransportTest) WriteCounter(ctx context.Context, event uclog.LogEvent) {
 	lE := testLogRecord{event: event, timestamp: time.Now().UTC()}
 	tt.eventMutex.Lock()
-	tt.Events = append(tt.Events, lE)
+	if event.Code != uclog.EventCodeNone {
+		tt.Events = append(tt.Events, lE)
+	}
 	tt.eventMutex.Unlock()
 
 	tt.logMutex.Lock()
-	tt.LogMessages[event.LogLevel] = append(tt.LogMessages[event.LogLevel], event.Message)
+	if event.Message != "" {
+		tt.LogMessages[event.LogLevel] = append(tt.LogMessages[event.LogLevel], event.Message)
+		tt.t.Log(event.Message)
+	}
 	tt.logMutex.Unlock()
 }
 

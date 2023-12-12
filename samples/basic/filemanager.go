@@ -185,7 +185,7 @@ func summarizePermissions(ctx context.Context, idpClient *idp.Client, authZClien
 
 	cursor := pagination.CursorBegin
 	for {
-		resp, err := authZClient.ListEdgesOnObject(ctx, f.id, pagination.StartingAfter(cursor))
+		resp, err := authZClient.ListEdgesOnObject(ctx, f.id, authz.Pagination(pagination.StartingAfter(cursor)))
 		if err != nil {
 			return "<error fetching edges>"
 		}
