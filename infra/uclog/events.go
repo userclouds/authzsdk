@@ -1,6 +1,7 @@
 package uclog
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/gofrs/uuid"
@@ -24,6 +25,50 @@ const (
 	LogLevelVerbose    LogLevel = 5
 )
 
+// String returns the string representation of the log level
+func (l LogLevel) String() string {
+	switch l {
+	case LogLevelNone:
+		return "none"
+	case LogLevelNonMessage:
+		return "nonMessage"
+	case LogLevelError:
+		return "error"
+	case LogLevelWarning:
+		return "warn"
+	case LogLevelInfo:
+		return "info"
+	case LogLevelDebug:
+		return "debug"
+	case LogLevelVerbose:
+		return "verbose"
+	default:
+		return fmt.Sprintf("unknown - %d", l)
+	}
+}
+
+// GetLogLevel returns the log level for a given string log level name
+func GetLogLevel(name string) (LogLevel, error) {
+	switch strings.ToLower(name) {
+	case "none":
+		return LogLevelNone, nil
+	case "nonmessage":
+		return LogLevelNonMessage, nil
+	case "error":
+		return LogLevelError, nil
+	case "warning":
+		return LogLevelWarning, nil
+	case "info":
+		return LogLevelInfo, nil
+	case "debug":
+		return LogLevelDebug, nil
+	case "verbose":
+		return LogLevelVerbose, nil
+	default:
+		return LogLevelNone, ucerr.Errorf("unknown log level %s", name)
+	}
+}
+
 // Two baseline events that have to be in the map
 const (
 	EventCodeNone    EventCode = 1
@@ -41,12 +86,13 @@ type EventCode int
 
 // LogEvent is a structured event that is passed to the logger to be recorded
 type LogEvent struct {
-	LogLevel LogLevel  // Level of logging Error - Warning - Debug - Info
-	Name     string    // String name of the event
-	Code     EventCode // Unique code for this event of this type
-	Count    int       // Reporting multiple events at once
-	Message  string    // Message associated with the event
-	Payload  string    // Optional payload associated with a counter event
+	LogLevel  LogLevel  // Level of logging Error - Warning - Debug - Info
+	Name      string    // String name of the event
+	Code      EventCode // Unique code for this event of this type
+	Count     int       // Reporting multiple events at once
+	Message   string    // Message associated with the event
+	Payload   string    // Optional payload associated with a counter event
+	RequestID uuid.UUID // Request ID if this event is associated with a request (nil otherwise)
 	// Identity of the sender
 	TenantID uuid.UUID
 	AppID    uuid.UUID

@@ -39,6 +39,7 @@ type GoTransportConfig struct {
 	uclog.TransportConfig `yaml:"transportconfig" json:"transportconfig"`
 	PrefixFlag            int  `yaml:"prefix_flag" json:"prefix_flag"`
 	SupportsColor         bool `yaml:"supports_color" json:"supports_color"`
+	NoRequestIDs          bool `yaml:"no_request_ids" json:"no_request_ids"`
 }
 
 // GetType implements TransportConfig
@@ -100,23 +101,29 @@ func (t *logTransport) Init() (*uclog.TransportConfig, error) {
 
 func (t *logTransport) Write(ctx context.Context, event uclog.LogEvent) {
 	// Go transport doesn't record counters or payloads so just record the message if there is one
-	if event.Message != "" && event.LogLevel <= t.config.MaxLogLevel {
+	if event.Message == "" || event.LogLevel > t.config.MaxLogLevel {
+		return
+	}
 
-		messageColor := defaultColor
+	messageColor := defaultColor
 
-		switch event.LogLevel {
-		case uclog.LogLevelError:
-			messageColor = errorColor
-		case uclog.LogLevelWarning:
-			messageColor = warningColor
-		}
+	switch event.LogLevel {
+	case uclog.LogLevelError:
+		messageColor = errorColor
+	case uclog.LogLevelWarning:
+		messageColor = warningColor
+	}
 
-		// TODO: there's a cleaner factoring here but
-		if messageColor != defaultColor && t.config.SupportsColor {
-			log.Printf("%s%s%s%s%s", color.ANSIEscapeColor, messageColor, event.Message, color.ANSIEscapeColor, defaultColor) // lint: ucwrapper-safe
-		} else {
-			log.Println(event.Message) // lint: ucwrapper-safe
-		}
+	message := event.Message
+	if !t.config.NoRequestIDs && !event.RequestID.IsNil() {
+		message = fmt.Sprintf("%v: %s", event.RequestID, message)
+	}
+
+	// TODO: there's a cleaner factoring here but
+	if messageColor != defaultColor && t.config.SupportsColor {
+		log.Printf("%s%s%s%s%s", color.ANSIEscapeColor, messageColor, message, color.ANSIEscapeColor, defaultColor) // lint: ucwrapper-safe
+	} else {
+		log.Println(message) // lint: ucwrapper-safe
 	}
 }
 

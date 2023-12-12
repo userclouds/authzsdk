@@ -185,7 +185,7 @@ func setup(ctx context.Context) (*idp.Client, uuid.UUID, uuid.UUID, uuid.UUID, u
 
 	// Define a transformer  that will transfomr phone number into a country code (i.e. phone number A -> country code)
 	phoneNumberTransformer := &policy.Transformer{
-		Name:        "TransformPhoneNumberToCountryName",
+		Name:        "TransformPhoneNumberToCountryNamev2",
 		Description: "This transformer gets the country name for the phone number",
 		InputType:   userstore.DataTypeString,
 		OutputType:  userstore.DataTypeString,
@@ -234,7 +234,7 @@ func setup(ctx context.Context) (*idp.Client, uuid.UUID, uuid.UUID, uuid.UUID, u
 
 	dsAccessor := &userstore.Accessor{
 		ID:                 uuid.Nil,
-		Name:               "AccessorForDataScience",
+		Name:               "AccessorForDataSciencev2",
 		DataLifeCycleState: userstore.DataLifeCycleStateLive,
 		SelectorConfig: userstore.UserSelectorConfig{
 			WhereClause: "{phone_number} != ?",
@@ -416,11 +416,28 @@ func example(ctx context.Context, idpc *idp.Client, accessorID, mutatorID, dsAcc
 	}
 }
 
+func cleanup(ctx context.Context, idpc *idp.Client, accessorID, mutatorID, dsAccessorID, logAccessor uuid.UUID) {
+	if err := idpc.DeleteAccessor(ctx, accessorID); err != nil {
+		panic(err)
+	}
+	if err := idpc.DeleteAccessor(ctx, dsAccessorID); err != nil {
+		panic(err)
+	}
+	if err := idpc.DeleteAccessor(ctx, logAccessor); err != nil {
+		panic(err)
+	}
+	if err := idpc.DeleteMutator(ctx, mutatorID); err != nil {
+		panic(err)
+	}
+}
+
 func main() {
 	ctx := context.Background()
 
-	idpc, accessorID, mutatorID, dsAccessorID, logAccesor := setup(ctx)
+	idpc, accessorID, mutatorID, dsAccessorID, logAccessor := setup(ctx)
 
-	example(ctx, idpc, accessorID, mutatorID, dsAccessorID, logAccesor)
+	example(ctx, idpc, accessorID, mutatorID, dsAccessorID, logAccessor)
+
+	cleanup(ctx, idpc, accessorID, mutatorID, dsAccessorID, logAccessor)
 
 }
