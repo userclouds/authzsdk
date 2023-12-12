@@ -36,6 +36,7 @@ func InitLoggerAndTransportsForTools(ctx context.Context, lScreen uclog.LogLevel
 		},
 		PrefixFlag:    NoPrefixVal,
 		SupportsColor: to.supportsColor,
+		NoRequestIDs:  true,
 	},
 	}
 
@@ -56,9 +57,10 @@ func InitLoggerAndTransportsForTools(ctx context.Context, lScreen uclog.LogLevel
 					Required:    true,
 					MaxLogLevel: lFile,
 				},
-				Filename:   to.filename,
-				Append:     true,
-				PrefixFlag: to.prefix,
+				Filename:     to.filename,
+				Append:       true,
+				PrefixFlag:   to.prefix,
+				NoRequestIDs: true,
 			})
 	}
 

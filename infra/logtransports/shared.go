@@ -1,6 +1,8 @@
 package logtransports
 
 import (
+	"fmt"
+
 	"github.com/gofrs/uuid"
 
 	"userclouds.com/infra/namespace/region"
@@ -22,7 +24,11 @@ func EncodeLogForTransfer(logRecords *logRecord, region region.Region, host stri
 
 	currRecord := logRecords
 	for currRecord != nil {
-		lRC := uclog.LogRecordContent{Message: currRecord.event.Message, Code: currRecord.event.Code, Payload: currRecord.event.Payload,
+		message := currRecord.event.Message
+		if message != "" {
+			message = fmt.Sprintf("%v: %s", currRecord.event.RequestID, message)
+		}
+		lRC := uclog.LogRecordContent{Message: message, Code: currRecord.event.Code, Payload: currRecord.event.Payload,
 			Timestamp: int(currRecord.timestamp.UnixMilli())}
 		rm, ok := recordsMap[currRecord.event.TenantID]
 

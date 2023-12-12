@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"regexp"
 	"sync"
@@ -42,6 +43,7 @@ type FileTransportConfig struct {
 	Filename              string `yaml:"filename" json:"filename"`
 	Append                bool   `yaml:"append" json:"append"`
 	PrefixFlag            int    `yaml:"prefix_flag" json:"prefix_flag"`
+	NoRequestIDs          bool   `yaml:"no_request_ids" json:"no_request_ids"`
 }
 
 // GetType implements TransportConfig
@@ -133,13 +135,17 @@ func (t *fileTransport) writeMessages(ctx context.Context, logRecords *logRecord
 	}
 
 	for ; logRecords != nil; logRecords = logRecords.next {
+		message := logRecords.event.Message
+		if !t.config.NoRequestIDs && !logRecords.event.RequestID.IsNil() {
+			message = fmt.Sprintf("%v: %s", logRecords.event.RequestID, message)
+		}
 		// Append the time to the messages
-		var recordBuffer = bytes.NewBuffer(make([]byte, 0, len(logRecords.event.Message)+21))
+		var recordBuffer = bytes.NewBuffer(make([]byte, 0, len(message)+21))
 		if t.prefix {
 			recordBuffer.WriteString(logRecords.timestamp.Format("Jan _2 15:04:05:00"))
 			recordBuffer.WriteString(" ")
 		}
-		recordBuffer.WriteString(t.re.ReplaceAllString(logRecords.event.Message, ""))
+		recordBuffer.WriteString(t.re.ReplaceAllString(message, ""))
 		recordBuffer.WriteString("\n")
 		// Write the message to the file
 		t.fileWriter.Write(recordBuffer.Bytes())

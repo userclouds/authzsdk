@@ -2,7 +2,6 @@ package uclog
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -37,7 +36,6 @@ type loggerData struct {
 	eventMetadata        map[uuid.UUID]EventMetadataMap
 	eventMetadataFetcher EventMetadataFetcher
 	registeredHandlers   []string
-	noRequestIDs         bool
 	serviceName          string
 }
 
@@ -46,24 +44,24 @@ var loggerInst = loggerData{loggerState: loggerNotInitialized}
 
 // PreInit sets up logging to the screen before config file was read
 func PreInit(transports []Transport) {
-	initialize("", loggerPreInitialized, true, transports, nil)
+	initialize("", loggerPreInitialized, transports, nil)
 }
 
 // InitForService sets up logging transports for long running serving
 func InitForService(name service.Service, transports []Transport, fetcher EventMetadataFetcher) {
-	initialize(string(name), loggerServiceMode, false, transports, fetcher)
+	initialize(string(name), loggerServiceMode, transports, fetcher)
 }
 
 // InitForTools configures logging to the screen and file if desired for a tool
 func InitForTools(ctx context.Context, toolName string, fileLogName string, transports []Transport) {
-	initialize(toolName, loggerToolMode, true, transports, nil)
+	initialize(toolName, loggerToolMode, transports, nil)
 	// Log basic debugging information that is useful across all tools
 	Debugf(ctx, "------------------------------------------------------") // Log a visual separator to make break out multi run logs
 	Debugf(ctx, "Command Line: \"%v\" Logfile - %s", os.Args, fileLogName)
 }
 
 // called with logging config to "really" init the logger
-func initialize(name string, l loggerStatus, noRequestIDs bool, transports []Transport, fetcher EventMetadataFetcher) {
+func initialize(name string, l loggerStatus, transports []Transport, fetcher EventMetadataFetcher) {
 	loggerInst.loggerConfigMutex.Lock()
 	defer loggerInst.loggerConfigMutex.Unlock()
 
@@ -97,7 +95,6 @@ func initialize(name string, l loggerStatus, noRequestIDs bool, transports []Tra
 			loggerInst.transportConfigs = append(loggerInst.transportConfigs, *c)
 		}
 	}
-	loggerInst.noRequestIDs = noRequestIDs
 }
 
 // This callback allows transport to tell logger which events they support and how to handle them
@@ -244,10 +241,7 @@ func Log(ctx context.Context, event LogEvent) {
 		event.Code = eventInfo.Code
 	}
 
-	if event.Message != "" && !loggerInst.noRequestIDs {
-		id := request.GetRequestID(ctx)
-		event.Message = fmt.Sprintf("%v: %s", id, event.Message)
-	}
+	event.RequestID = request.GetRequestID(ctx)
 
 	// if this is a multiline message, tab-indent the following lines to make them slightly easier to read
 	// TODO: there might be a better / more clever way to do this?
