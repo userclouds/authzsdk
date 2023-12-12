@@ -27,8 +27,7 @@ type LogTransportStats struct {
 // Transport defines the interface loggers implement
 type Transport interface {
 	Init() (*TransportConfig, error)
-	WriteMessage(ctx context.Context, message string, level LogLevel)
-	WriteCounter(ctx context.Context, event LogEvent)
+	Write(ctx context.Context, event LogEvent)
 	GetStats() LogTransportStats
 	GetName() string
 	Flush() error

@@ -67,6 +67,13 @@ type TestAccessPolicyRequest struct {
 	Context      policy.AccessPolicyContext `json:"context"`
 }
 
+// TestAccessPolicyTemplateRequest lets you run an unsaved policy template with a given context for testing
+type TestAccessPolicyTemplateRequest struct {
+	AccessPolicyTemplate policy.AccessPolicyTemplate `json:"access_policy_template"`
+	Context              policy.AccessPolicyContext  `json:"context"`
+	Params               string                      `json:"params"`
+}
+
 // TestAccessPolicyResponse is the response to a TestAccessPolicy call
 type TestAccessPolicyResponse struct {
 	Allowed bool `json:"allowed"`

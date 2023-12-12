@@ -190,7 +190,11 @@ func setup(ctx context.Context) (*idp.Client, uuid.UUID, uuid.UUID, uuid.UUID, u
 		InputType:   userstore.DataTypeString,
 		OutputType:  userstore.DataTypeString,
 		Function: `function transform(data, params) {
-			return getCountryNameForPhoneNumber(data);
+			try {
+				return getCountryNameForPhoneNumber(data);
+			} catch (e) {
+				return "";
+			}
 		}`,
 		Parameters:    ``,
 		TransformType: policy.TransformTypeTransform,
@@ -271,8 +275,8 @@ func setup(ctx context.Context) (*idp.Client, uuid.UUID, uuid.UUID, uuid.UUID, u
 	mutator := &userstore.Mutator{
 		ID: uuid.Nil,
 		Columns: []userstore.ColumnInputConfig{
-			{Column: userstore.ResourceID{Name: "phone_number"}, Validator: userstore.ResourceID{ID: policy.TransformerPassthrough.ID}},
-			{Column: userstore.ResourceID{Name: "home_addresses"}, Validator: userstore.ResourceID{ID: policy.TransformerPassthrough.ID}},
+			{Column: userstore.ResourceID{Name: "phone_number"}, Normalizer: userstore.ResourceID{ID: policy.TransformerPassthrough.ID}},
+			{Column: userstore.ResourceID{Name: "home_addresses"}, Normalizer: userstore.ResourceID{ID: policy.TransformerPassthrough.ID}},
 		},
 		Name:         "MutatorForSecurityTeam",
 		AccessPolicy: userstore.ResourceID{ID: apID},

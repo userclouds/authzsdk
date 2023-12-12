@@ -114,8 +114,6 @@ func (e *EdgeType) Equals(other *EdgeType) bool {
 
 //go:generate genvalidate EdgeType
 
-//go:generate genvalidate UpdateEdgeTypeRequest
-
 // GetPaginationKeys is part of the pagination.PageableType interface
 func (EdgeType) GetPaginationKeys() pagination.KeyTypes {
 	return pagination.KeyTypes{
@@ -215,3 +213,17 @@ func (Organization) GetPaginationKeys() pagination.KeyTypes {
 		"updated": pagination.TimestampKeyType,
 	}
 }
+
+//go:generate genvalidate CreateObjectTypeRequest
+
+//go:generate genvalidate CreateEdgeTypeRequest
+
+//go:generate genvalidate UpdateEdgeTypeRequest
+
+//go:generate genvalidate CreateObjectRequest
+
+//go:generate genvalidate CreateEdgeRequest
+
+//go:generate genvalidate CreateOrganizationRequest
+
+//go:generate genvalidate UpdateOrganizationRequest

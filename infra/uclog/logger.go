@@ -256,12 +256,8 @@ func Log(ctx context.Context, event LogEvent) {
 	// Send the raw event on all transports that are signed up for that event type and
 	// messages to transports that log at that log level
 	for i := range loggerInst.transports {
-		if event.Code == EventCodeNone {
-			if event.LogLevel <= loggerInst.transportConfigs[i].MaxLogLevel {
-				loggerInst.transports[i].WriteMessage(ctx, event.Message, event.LogLevel)
-			}
-		} else {
-			loggerInst.transports[i].WriteCounter(ctx, event)
+		if event.Code != EventCodeNone || event.LogLevel <= loggerInst.transportConfigs[i].MaxLogLevel {
+			loggerInst.transports[i].Write(ctx, event)
 		}
 	}
 

@@ -141,7 +141,7 @@ func (t *logServerTransport) init(ctx context.Context) (*uclog.TransportConfig, 
 	t.messageInterval = defaultMessageInterval
 
 	// Create client for calling log server
-	t.client, err = logServerInterface.NewClientForTenant(t.auth.TenantURL, t.auth.TenantID, t.auth.ClientID, t.auth.ClientSecret, jsonclient.StopLogging())
+	t.client, err = logServerInterface.NewClientForTenant(t.auth.TenantURL, t.auth.TenantID, t.auth.ClientID, t.auth.ClientSecret, jsonclient.StopLogging(), jsonclient.BypassRouting())
 	if err != nil {
 		return nil, ucerr.Wrap(err)
 	}

@@ -138,6 +138,7 @@ var (
 	DeleteAllAccessPolicyTemplateVersions = func(id uuid.UUID) string {
 		return fmt.Sprintf("%s/%s?template_version=all", BaseAccessPolicyTemplatePath, id)
 	}
+	TestAccessPolicyTemplate = fmt.Sprintf("%s/actions/test", BaseAccessPolicyTemplatePath)
 
 	BaseTransformerPath  = fmt.Sprintf("%s/transformation", BasePolicyPath)
 	ListTransformers     = BaseTransformerPath

@@ -284,17 +284,17 @@ func (o *Accessor) extraValidate() error {
 	}
 
 	for _, ct := range o.Columns {
-		if ct.Column.ID.IsNil() && ct.Column.Name == "" {
-			return ucerr.Friendlyf(nil, "Each element of Accessor.Columns (%v) must have a column ID or name", o.ID)
+		if err := ct.Column.Validate(); err != nil {
+			return ucerr.Friendlyf(err, "Each element of Accessor.Columns (%v) must have a column ID or name", o.ID)
 		}
 
-		if ct.Transformer.ID.IsNil() && ct.Transformer.Name == "" {
-			return ucerr.Friendlyf(nil, "Each element of Accessor.Columns (%v) must have a transformer ID or name", o.ID)
+		if err := ct.Transformer.Validate(); err != nil {
+			return ucerr.Friendlyf(err, "Each element of Accessor.Columns (%v) must have a transformer ID or name", o.ID)
 		}
 	}
 
-	if o.AccessPolicy.ID.IsNil() && o.AccessPolicy.Name == "" {
-		return ucerr.Friendlyf(nil, "Accessor.AccessPolicy (%v) must have an ID or name", o.ID)
+	if err := o.AccessPolicy.Validate(); err != nil {
+		return ucerr.Friendlyf(err, "Accessor.AccessPolicy (%v) must have an ID or name", o.ID)
 	}
 
 	if len(o.Purposes) == 0 {
@@ -316,9 +316,12 @@ func (Accessor) GetPaginationKeys() pagination.KeyTypes {
 	}
 }
 
-// ColumnInputConfig is a struct that contains a column and the validator to use for that column
+// ColumnInputConfig is a struct that contains a column and the normalizer to use for that column
 type ColumnInputConfig struct {
-	Column    ResourceID `json:"column"`
+	Column     ResourceID `json:"column"`
+	Normalizer ResourceID `json:"normalizer"`
+
+	// Validator is deprecated in favor of Normalizer
 	Validator ResourceID `json:"validator"`
 }
 
@@ -358,17 +361,21 @@ func (o *Mutator) extraValidate() error {
 	}
 
 	for _, cv := range o.Columns {
-		if cv.Column.ID.IsNil() && cv.Column.Name == "" {
-			return ucerr.Friendlyf(nil, "Mutator with ID (%v): each element of Columns must have a column ID or name", o.ID)
+		if err := cv.Column.Validate(); err != nil {
+			return ucerr.Friendlyf(err, "Mutator with ID (%v): each element of Columns must have a column ID or name", o.ID)
 		}
 
-		if cv.Validator.ID.IsNil() && cv.Validator.Name == "" {
-			return ucerr.Friendlyf(nil, "Mutator with ID (%v): each element of Columns must have a validator ID or name", o.ID)
+		if err := cv.Normalizer.Validate(); err != nil {
+			if err := cv.Validator.Validate(); err != nil {
+				return ucerr.Friendlyf(err, "Mutator with ID (%v): each element of Columns must have either a normalizer or validator ID or name", o.ID)
+			}
+		} else if err := cv.Validator.Validate(); err == nil {
+			return ucerr.Friendlyf(nil, "Mutator with ID (%v): each element of Columns must have either a normalizer or validator ID or name", o.ID)
 		}
 	}
 
-	if o.AccessPolicy.ID.IsNil() && o.AccessPolicy.Name == "" {
-		return ucerr.Friendlyf(nil, "Mutator with ID (%v): AccessPolicy must have an ID or name", o.ID)
+	if err := o.AccessPolicy.Validate(); err != nil {
+		return ucerr.Friendlyf(err, "Mutator with ID (%v): AccessPolicy must have an ID or name", o.ID)
 	}
 
 	return nil

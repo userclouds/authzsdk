@@ -98,28 +98,25 @@ func (t *logTransport) Init() (*uclog.TransportConfig, error) {
 	return &uclog.TransportConfig{Required: t.config.Required, MaxLogLevel: t.config.MaxLogLevel}, nil
 }
 
-func (t *logTransport) WriteMessage(ctx context.Context, message string, level uclog.LogLevel) {
-	messageColor := defaultColor
-
-	switch level {
-	case uclog.LogLevelError:
-		messageColor = errorColor
-	case uclog.LogLevelWarning:
-		messageColor = warningColor
-	}
-
-	// TODO: there's a cleaner factoring here but
-	if messageColor != defaultColor && t.config.SupportsColor {
-		log.Printf("%s%s%s%s%s", color.ANSIEscapeColor, messageColor, message, color.ANSIEscapeColor, defaultColor) // lint: ucwrapper-safe
-	} else {
-		log.Println(message) // lint: ucwrapper-safe
-	}
-}
-
-func (t *logTransport) WriteCounter(ctx context.Context, event uclog.LogEvent) {
+func (t *logTransport) Write(ctx context.Context, event uclog.LogEvent) {
 	// Go transport doesn't record counters or payloads so just record the message if there is one
 	if event.Message != "" && event.LogLevel <= t.config.MaxLogLevel {
-		t.WriteMessage(ctx, event.Message, event.LogLevel)
+
+		messageColor := defaultColor
+
+		switch event.LogLevel {
+		case uclog.LogLevelError:
+			messageColor = errorColor
+		case uclog.LogLevelWarning:
+			messageColor = warningColor
+		}
+
+		// TODO: there's a cleaner factoring here but
+		if messageColor != defaultColor && t.config.SupportsColor {
+			log.Printf("%s%s%s%s%s", color.ANSIEscapeColor, messageColor, event.Message, color.ANSIEscapeColor, defaultColor) // lint: ucwrapper-safe
+		} else {
+			log.Println(event.Message) // lint: ucwrapper-safe
+		}
 	}
 }
 

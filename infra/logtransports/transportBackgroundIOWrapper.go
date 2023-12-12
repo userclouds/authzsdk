@@ -202,14 +202,11 @@ func (t *transportBackgroundIOWrapper) writeLogRecord(ctx context.Context, event
 	t.postMutext.Unlock()
 }
 
-func (t *transportBackgroundIOWrapper) WriteMessage(ctx context.Context, message string, level uclog.LogLevel) {
-	t.writeLogRecord(ctx, &uclog.LogEvent{Message: message, Code: uclog.EventCodeNone, Count: 1, LogLevel: level})
-}
-func (t *transportBackgroundIOWrapper) WriteCounter(ctx context.Context, event uclog.LogEvent) {
+func (t *transportBackgroundIOWrapper) Write(ctx context.Context, event uclog.LogEvent) {
 	if t.w.supportsCounters() {
 		t.writeLogRecord(ctx, &event)
 	} else if event.Message != "" && event.LogLevel <= t.w.getMaxLogLevel() {
-		t.WriteMessage(ctx, event.Message, event.LogLevel)
+		t.writeLogRecord(ctx, &event)
 	}
 }
 
