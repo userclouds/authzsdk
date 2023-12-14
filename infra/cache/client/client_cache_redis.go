@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -101,7 +100,7 @@ func (c *RedisClientCacheProvider) WriteSentinel(ctx context.Context, stype shar
 		return shared.NoLockSentinel, ucerr.Wrap(err)
 	}
 
-	uclog.Debugf(ctx, fmt.Sprintf("WriteSentinel - reached maximum number of retries on keys %v skipping cache", keys))
+	uclog.Debugf(ctx, "WriteSentinel - reached maximum number of retries on keys %v skipping cache", keys)
 	return shared.NoLockSentinel, ucerr.New("WriteSentinel reached maximum number of retries")
 }
 
@@ -186,7 +185,7 @@ func (c *RedisClientCacheProvider) ReleaseSentinel(ctx context.Context, keysIn [
 			continue
 		}
 		// Return any other error.
-		uclog.Debugf(ctx, fmt.Sprintf("ReleaseSentinel - failed on keys %v with %v skipping cache. Keys maybe locked until sentinel expires", keys, err))
+		uclog.Debugf(ctx, "ReleaseSentinel - failed on keys %v with %v skipping cache. Keys maybe locked until sentinel expires", keys, err)
 		return
 	}
 }
@@ -286,14 +285,18 @@ func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.C
 		// Return any other error.
 		return false, false, ucerr.Wrap(err)
 	}
-	uclog.Debugf(ctx, fmt.Sprintf("SetValue - hit too many retries %v skipping cache.", keys))
+	uclog.Debugf(ctx, "SetValue - hit too many retries %v skipping cache.", keys)
 	return false, false, ucerr.New("SetValue hit too many retries")
 }
 
 // GetValues gets the value in cache keys (if any) and tries to lock the keys[i] for Read is lockOnMiss[i] = true
 func (c *RedisClientCacheProvider) GetValues(ctx context.Context, keysIn []shared.CacheKey, lockOnMiss []bool) ([]*string, []shared.CacheSentinel, error) {
-	if len(keysIn) != len(lockOnMiss) || len(keysIn) == 0 {
-		return nil, nil, ucerr.New("Number of keys provided to GetValues has to be equal to number of lockOnMiss values and at least 1")
+	if len(keysIn) == 0 && len(lockOnMiss) == 0 {
+		uclog.Errorf(ctx, "Cache[%v] GetValues called with no keys", c.cacheName)
+		return nil, nil, nil
+	}
+	if len(keysIn) != len(lockOnMiss) {
+		return nil, nil, ucerr.Errorf("Number of keys provided to GetValues has to be equal to number of lockOnMiss, keys: %d lockOnMiss: %d", len(keysIn), len(lockOnMiss))
 	}
 	// Create arrays for output values and sentinels
 	val := make([]*string, len(keysIn))
@@ -471,7 +474,7 @@ func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []sha
 				return ucerr.Wrap(err)
 			}
 			if !success {
-				uclog.Warningf(ctx, fmt.Sprintf("Failed delete values - reached maximum number of retries on keys %v", keys))
+				uclog.Warningf(ctx, "Failed delete values - reached maximum number of retries on keys %v", keys)
 				return ucerr.New("Failed to DeleteValue reached maximum number of retries")
 			}
 		}
@@ -567,7 +570,7 @@ func (c *RedisClientCacheProvider) AddDependency(ctx context.Context, keysIn []s
 			return ucerr.Wrap(err)
 		}
 		if !success {
-			uclog.Warningf(ctx, fmt.Sprintf("Failed to add dependencies - reached maximum number of retries on keys %v", keys))
+			uclog.Warningf(ctx, "Failed to add dependencies - reached maximum number of retries on keys %v", keys)
 			return ucerr.New("Add dependencies reached maximum number of retries")
 		}
 	}
@@ -635,7 +638,7 @@ func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn 
 		// Return any other error.
 		return ucerr.Wrap(err)
 	}
-	uclog.Warningf(ctx, fmt.Sprintf("Failed to clear dependencies - reached maximum number of retries on keys %v", key))
+	uclog.Warningf(ctx, "Failed to clear dependencies - reached maximum number of retries on keys %v", key)
 	return ucerr.New("Clear dependencies reached maximum number of retries")
 }
 

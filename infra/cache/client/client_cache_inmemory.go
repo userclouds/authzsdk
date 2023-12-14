@@ -189,6 +189,13 @@ func (c *InMemoryClientCacheProvider) SetValue(ctx context.Context, lkeyIn share
 
 // GetValues gets the values in keys (if any) and tries to lock the key[i] for Read is lockOnMiss[i] = true
 func (c *InMemoryClientCacheProvider) GetValues(ctx context.Context, keys []shared.CacheKey, lockOnMiss []bool) ([]*string, []shared.CacheSentinel, error) {
+	if len(keys) == 0 && len(lockOnMiss) == 0 {
+		uclog.Errorf(ctx, "Cache[%v] GetValues called with no keys", c.cacheName)
+		return nil, nil, nil
+	}
+	if len(keys) != len(lockOnMiss) {
+		return nil, nil, ucerr.Errorf("Number of keys provided to GetValues has to be equal to number of lockOnMiss, keys: %d lockOnMiss: %d", len(keys), len(lockOnMiss))
+	}
 	val := make([]*string, len(keys))
 	sentinels := make([]shared.CacheSentinel, len(keys))
 

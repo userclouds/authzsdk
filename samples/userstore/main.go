@@ -206,11 +206,12 @@ func setup(ctx context.Context) (*idp.Client, uuid.UUID, uuid.UUID, uuid.UUID, u
 	}
 
 	addressTransformer := &policy.Transformer{
-		Name:        "AddressCountryOnly",
+		Name:        "AddressCountryOnlyV2",
 		Description: "This transformer returns just the zip code of the address.",
-		InputType:   userstore.DataTypeString,
+		InputType:   userstore.DataTypeAddress,
+		OutputType:  userstore.DataTypeString,
 		Function: `function transform(data, params) {
-			return data.map((d) => d.country);
+			return data.country;
 		}`,
 		Parameters:    ``,
 		TransformType: policy.TransformTypeTransform,
@@ -234,7 +235,7 @@ func setup(ctx context.Context) (*idp.Client, uuid.UUID, uuid.UUID, uuid.UUID, u
 
 	dsAccessor := &userstore.Accessor{
 		ID:                 uuid.Nil,
-		Name:               "AccessorForDataSciencev2",
+		Name:               "AccessorForDataScienceV3",
 		DataLifeCycleState: userstore.DataLifeCycleStateLive,
 		SelectorConfig: userstore.UserSelectorConfig{
 			WhereClause: "{phone_number} != ?",

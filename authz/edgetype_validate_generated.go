@@ -7,7 +7,7 @@ import (
 )
 
 // Validate implements Validateable
-func (o *EdgeType) Validate() error {
+func (o EdgeType) Validate() error {
 	if err := o.BaseModel.Validate(); err != nil {
 		return ucerr.Wrap(err)
 	}

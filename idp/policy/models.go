@@ -124,9 +124,6 @@ type UserstoreDataProvenance struct {
 
 //go:generate genvalidate UserstoreDataProvenance
 
-// Validator is used to validate a data type
-type Validator Transformer // TODO: define separate Validator, just piggybacking on Transformer for now
-
 // PolicyType describes the type of an access policy
 type PolicyType string //revive:disable-line:exported
 

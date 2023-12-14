@@ -8,6 +8,7 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	"userclouds.com/infra"
 	"userclouds.com/infra/cache/shared"
 	"userclouds.com/infra/cache/shared/metrics"
 	"userclouds.com/infra/jsonclient"
@@ -62,6 +63,8 @@ type CacheSingleItem interface {
 	GetDependencyKeys(c CacheKeyNameProvider) []shared.CacheKey
 	// TTL returns the TTL for the item
 	TTL(c CacheTTLProvider) time.Duration
+	// Validate method is used to validate the item. Every CacheSingleItem is expected to implement Validatable interface
+	infra.Validateable
 }
 
 // CacheProvider is the interface for the cache backend for a given tenant which can be implemented by in-memory, redis, memcache, etc
@@ -233,29 +236,87 @@ func ReleasePerItemCollectionLock[item CacheSingleItem](ctx context.Context, c C
 	c.P.ReleaseSentinel(ctx, keys, sentinel)
 }
 
-// GetItemFromCache gets the the value stored in key from the cache. The value could a single item or an array of items
+// GetItemsArrayFromCache gets the value stored in key from the cache. The value should be an array of items
+func GetItemsArrayFromCache[item any](ctx context.Context, c CacheManager, key shared.CacheKey, lockOnMiss bool, ttl time.Duration) (*[]item, shared.CacheSentinel, error) {
+	items, sentinel, err := getItemFromCacheWorker[[]item](ctx, c, key, lockOnMiss, ttl)
+	if err != nil || items == nil {
+		return items, sentinel, ucerr.Wrap(err)
+	}
+
+	for _, cachedItem := range *items {
+		// Have to do this workaround because to allow casting.
+		//we can't make the item in the function definition by CacheSingleItem (instead of any) because that will cause the call to loose type info and unmarshaling would fail
+		var temp interface{} = cachedItem
+		vl, ok := temp.(CacheSingleItem)
+		if !ok {
+			uclog.Errorf(ctx, "GetItemsArrayFromCache: Item loaded doesn't implement CacheSingleItem : %T %v", cachedItem, cachedItem)
+			return nil, "", nil
+		}
+		if err := vl.Validate(); err != nil {
+			uclog.Errorf(ctx, "GetItemsArrayFromCache: Failed to validate item %v of type %T: %v", cachedItem, cachedItem, err)
+			if err := c.P.DeleteValue(ctx, []shared.CacheKey{key}, false, true); err != nil {
+				uclog.Warningf(ctx, "GetItemFromCache: Failed to delete keys %v from cache: %v", key, err)
+			}
+			return nil, "", nil
+		}
+	}
+	return items, sentinel, ucerr.Wrap(err)
+}
+
+// GetItemFromCache gets the the value stored in key from the cache. The value should be single item
 func GetItemFromCache[item any](ctx context.Context, c CacheManager, key shared.CacheKey, lockOnMiss bool, ttl time.Duration) (*item, shared.CacheSentinel, error) {
+	cachedItem, s, err := getItemFromCacheWorker[item](ctx, c, key, lockOnMiss, ttl)
+	if err != nil || cachedItem == nil {
+		return cachedItem, s, ucerr.Wrap(err)
+	}
+	if !validateItem(ctx, c, cachedItem, key) {
+		return nil, "", nil
+	}
+
+	return cachedItem, s, ucerr.Wrap(err)
+}
+func validateItem[item any](ctx context.Context, c CacheManager, cachedItem *item, key shared.CacheKey) bool {
+	// Have to do this workaround because to allow casting.
+	//we can't make the item in the function definition by CacheSingleItem (instead of any) because that will cause the call to loose type info and unmarshaling would fail
+	var temp interface{} = *cachedItem
+	ci, ok := temp.(CacheSingleItem)
+	if !ok {
+		uclog.Errorf(ctx, "GetItemFromCache: Item loaded doesn't implement CacheSingleItem : %T %v", cachedItem, cachedItem)
+		return false
+	}
+	if err := ci.Validate(); err != nil {
+		uclog.Errorf(ctx, "GetItemFromCache: Failed to validate item %v of type %T: %v", cachedItem, cachedItem, err)
+		if err := c.P.DeleteValue(ctx, []shared.CacheKey{key}, false, true); err != nil {
+			uclog.Warningf(ctx, "GetItemFromCache: Failed to delete keys %v from cache: %v", key, err)
+		}
+		return false
+	}
+	return true
+}
+
+func getItemFromCacheWorker[item any](ctx context.Context, c CacheManager, key shared.CacheKey, lockOnMiss bool, ttl time.Duration) (*item, shared.CacheSentinel, error) {
 	if ttl == SkipCacheTTL {
 		return nil, "", nil
 	}
 	start := time.Now().UTC()
-	value, s, err := c.P.GetValue(ctx, key, lockOnMiss)
+	rawValue, s, err := c.P.GetValue(ctx, key, lockOnMiss)
 	took := time.Now().UTC().Sub(start)
 	if err != nil {
 		return nil, "", ucerr.Wrap(err)
 	}
-	if value == nil {
+	if rawValue == nil {
 		metrics.RecordCacheMiss(ctx, took)
 		return nil, s, nil
 	}
 
-	var i item
+	var loadedItem item
 
-	if err := json.Unmarshal([]byte(*value), &i); err != nil {
+	if err := json.Unmarshal([]byte(*rawValue), &loadedItem); err != nil {
+		uclog.Errorf(ctx, "GetItemFromCache: Failed to unmarshal data %v for item of type %T from cache: %v", rawValue, loadedItem, err)
 		return nil, "", nil
 	}
 	metrics.RecordCacheHit(ctx, took)
-	return &i, "", nil
+	return &loadedItem, "", nil
 }
 
 // GetItemsFromCache gets the the values stored in keys from the cache.
@@ -275,13 +336,18 @@ func GetItemsFromCache[item any](ctx context.Context, c CacheManager, keys []sha
 			metrics.RecordCacheMiss(ctx, took)
 			items[i] = nil
 		} else {
-			metrics.RecordCacheHit(ctx, took)
 			var loadedItem item
 			if err := json.Unmarshal([]byte(*rawValue), &loadedItem); err != nil {
 				// Should we do something else when we fail to unmarshal ?
+				uclog.Errorf(ctx, "GetItemsFromCache: Failed to unmarshal data %v for item of type %T from cache: %v", rawValue, loadedItem, err)
 				return nil, nil, ucerr.Wrap(err)
 			}
-			items[i] = &loadedItem
+			if validateItem(ctx, c, &loadedItem, keys[i]) {
+				metrics.RecordCacheHit(ctx, took)
+				items[i] = &loadedItem
+			} else {
+				items[i] = nil
+			}
 		}
 	}
 	return items, sentinels, nil
