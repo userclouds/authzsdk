@@ -357,7 +357,7 @@ func (c *Client) ListObjectTypes(ctx context.Context, opts ...Option) ([]ObjectT
 		var v *[]ObjectType
 		var err error
 		cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
-		v, s, err = clientcache.GetItemFromCache[[]ObjectType](ctx, cm, cm.N.GetKeyNameStatic(ObjectTypeCollectionKeyID), true, c.ttlP.TTL(ObjectTypeTTL))
+		v, s, err = clientcache.GetItemsArrayFromCache[ObjectType](ctx, cm, cm.N.GetKeyNameStatic(ObjectTypeCollectionKeyID), true, c.ttlP.TTL(ObjectTypeTTL))
 		if err != nil {
 			uclog.Errorf(ctx, "ListObjectTypes failed to get item from cache: %v", err)
 		} else if v != nil {
@@ -596,7 +596,7 @@ func (c *Client) ListEdgeTypes(ctx context.Context, opts ...Option) ([]EdgeType,
 	if !options.bypassCache {
 		var v *[]EdgeType
 		var err error
-		v, s, err = clientcache.GetItemFromCache[[]EdgeType](ctx, cm, cm.N.GetKeyNameStatic(EdgeTypeCollectionKeyID), true, c.ttlP.TTL(EdgeTypeTTL))
+		v, s, err = clientcache.GetItemsArrayFromCache[EdgeType](ctx, cm, cm.N.GetKeyNameStatic(EdgeTypeCollectionKeyID), true, c.ttlP.TTL(EdgeTypeTTL))
 		if err != nil {
 			uclog.Errorf(ctx, "ListEdgeTypes failed to get item from cache: %v", err)
 		} else if v != nil {
@@ -887,7 +887,7 @@ func (c *Client) ListObjectsFromQuery(ctx context.Context, query url.Values, opt
 	if !options.bypassCache {
 		var err error
 		ckey := cm.N.GetKeyNameStatic(ObjectCollectionKeyID)
-		_, s, err := clientcache.GetItemFromCache[[]Object](ctx, cm, ckey, true, c.ttlP.TTL(ObjectTTL))
+		_, s, err := clientcache.GetItemsArrayFromCache[Object](ctx, cm, ckey, true, c.ttlP.TTL(ObjectTTL))
 		if err != nil {
 			uclog.Errorf(ctx, "ListObjectsFromQuery failed to get item from cache: %v", err)
 		}
@@ -963,7 +963,7 @@ func (c *Client) ListEdgesOnObject(ctx context.Context, objectID uuid.UUID, opts
 	s := cache.NoLockSentinel
 	var edges *[]Edge
 	if !options.bypassCache {
-		edges, s, err = clientcache.GetItemFromCache[[]Edge](ctx, cm, cm.N.GetKeyNameWithID(ObjEdgesKeyID, objectID), true, c.ttlP.TTL(EdgeTTL))
+		edges, s, err = clientcache.GetItemsArrayFromCache[Edge](ctx, cm, cm.N.GetKeyNameWithID(ObjEdgesKeyID, objectID), true, c.ttlP.TTL(EdgeTTL))
 		if err != nil {
 			uclog.Errorf(ctx, "ListEdgesOnObject failed to get item from cache: %v", err)
 		}
@@ -1011,7 +1011,7 @@ func (c *Client) ListEdgesBetweenObjects(ctx context.Context, sourceObjectID, ta
 		var err error
 
 		// First try to read the all in/out edges from source object
-		cEdges, _, err = clientcache.GetItemFromCache[[]Edge](ctx, cm, cm.N.GetKeyNameWithID(ObjEdgesKeyID, sourceObjectID), false, c.ttlP.TTL(EdgeTTL))
+		cEdges, _, err = clientcache.GetItemsArrayFromCache[Edge](ctx, cm, cm.N.GetKeyNameWithID(ObjEdgesKeyID, sourceObjectID), false, c.ttlP.TTL(EdgeTTL))
 		if err != nil {
 			uclog.Errorf(ctx, "ListEdgesBetweenObjects failed to get item from cache: %v", err)
 		} else if cEdges != nil {
@@ -1026,7 +1026,7 @@ func (c *Client) ListEdgesBetweenObjects(ctx context.Context, sourceObjectID, ta
 
 		// Next try to read the edges between target object and source object. We could also try to read the edges from target object but in authz graph
 		// it is rare to traverse in both directions so those collections would be less likely to be cached.
-		cEdges, s, err = clientcache.GetItemFromCache[[]Edge](ctx, cm, ckey, true, c.ttlP.TTL(EdgeTTL))
+		cEdges, s, err = clientcache.GetItemsArrayFromCache[Edge](ctx, cm, ckey, true, c.ttlP.TTL(EdgeTTL))
 		if err != nil {
 			uclog.Errorf(ctx, "ListEdgesBetweenObjects failed to get item from cache: %v", err)
 		} else if cEdges != nil {
@@ -1114,7 +1114,7 @@ func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, e
 			return edge, nil
 		}
 		// If the edges are in the cache by source->target - iterate over that set first
-		edges, _, err = clientcache.GetItemFromCache[[]Edge](ctx, cm, cm.N.GetKeyName(EdgesObjToObjID, []string{sourceObjectID.String(), targetObjectID.String()}), false, c.ttlP.TTL(EdgeTTL))
+		edges, _, err = clientcache.GetItemsArrayFromCache[Edge](ctx, cm, cm.N.GetKeyName(EdgesObjToObjID, []string{sourceObjectID.String(), targetObjectID.String()}), false, c.ttlP.TTL(EdgeTTL))
 		// Since we are not taking a lock we can ignore cache errors
 		if err == nil && edges != nil {
 			for _, edge := range *edges {
@@ -1125,7 +1125,7 @@ func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, e
 			// In theory we could return NotFound here but this is a rare enough case that it makes sense to try the server
 		}
 		// If there is a cache miss, try to get the edges from all in/out edges on the source object
-		edges, _, err = clientcache.GetItemFromCache[[]Edge](ctx, cm, cm.N.GetKeyNameWithID(ObjEdgesKeyID, sourceObjectID), false, c.ttlP.TTL(EdgeTTL))
+		edges, _, err = clientcache.GetItemsArrayFromCache[Edge](ctx, cm, cm.N.GetKeyNameWithID(ObjEdgesKeyID, sourceObjectID), false, c.ttlP.TTL(EdgeTTL))
 		// Since we are not taking a lock we can ignore cache errors
 		if err == nil && edges != nil {
 			for _, edge := range *edges {
@@ -1138,7 +1138,7 @@ func (c *Client) FindEdge(ctx context.Context, sourceObjectID, targetObjectID, e
 		// We could also try all in/out edges from targetObjectID collection
 
 		// If we still don't have the edge, try the server but we can't take a lock single edge lock since we don't know the primary key
-		_, s, err = clientcache.GetItemFromCache[[]Object](ctx, cm, cm.N.GetKeyNameStatic(EdgeCollectionKeyID), true, c.ttlP.TTL(ObjectTTL))
+		_, s, err = clientcache.GetItemsArrayFromCache[Object](ctx, cm, cm.N.GetKeyNameStatic(EdgeCollectionKeyID), true, c.ttlP.TTL(ObjectTTL))
 		if err != nil {
 			uclog.Errorf(ctx, "FindEdge failed to set lock in the cache: %v", err)
 		}
@@ -1252,9 +1252,11 @@ func (c *Client) DeleteEdge(ctx context.Context, edgeID uuid.UUID) error {
 
 // AttributePathNode is a node in a path list from source to target, if CheckAttribute succeeds.
 type AttributePathNode struct {
-	ObjectID uuid.UUID `json:"object_id"`
+	ObjectID uuid.UUID `json:"object_id" validate:"notnil"`
 	EdgeID   uuid.UUID `json:"edge_id"`
 }
+
+//go:generate genvalidate AttributePathNode
 
 // CheckAttributeResponse is returned by the checkattribute endpoint.
 type CheckAttributeResponse struct {
@@ -1279,7 +1281,7 @@ func (c *Client) CheckAttribute(ctx context.Context, sourceObjectID, targetObjec
 		var path *[]AttributePathNode
 		var err error
 
-		path, s, err = clientcache.GetItemFromCache[[]AttributePathNode](ctx, cm, ckey, true, c.ttlP.TTL(EdgeTTL))
+		path, s, err = clientcache.GetItemsArrayFromCache[AttributePathNode](ctx, cm, ckey, true, c.ttlP.TTL(EdgeTTL))
 		if err != nil {
 			uclog.Errorf(ctx, "CheckAttribute failed to get item from cache: %v", err)
 		} else if path != nil {
@@ -1400,7 +1402,7 @@ func (c *Client) ListOrganizations(ctx context.Context, opts ...Option) ([]Organ
 		var v *[]Organization
 		var err error
 		cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(uuid.Nil), c.ttlP)
-		v, s, err = clientcache.GetItemFromCache[[]Organization](ctx, cm, cm.N.GetKeyNameStatic(OrganizationCollectionKeyID), true, c.ttlP.TTL(OrganizationTTL))
+		v, s, err = clientcache.GetItemsArrayFromCache[Organization](ctx, cm, cm.N.GetKeyNameStatic(OrganizationCollectionKeyID), true, c.ttlP.TTL(OrganizationTTL))
 		if err != nil {
 			uclog.Errorf(ctx, "ListOrganizations failed to get item from cache: %v", err)
 		} else if v != nil {

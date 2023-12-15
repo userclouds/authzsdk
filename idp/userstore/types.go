@@ -356,22 +356,29 @@ func (o *Mutator) extraValidate() error {
 		return ucerr.Friendlyf(nil, `"%s" is not a valid mutator name`, o.Name)
 	}
 
-	if len(o.Columns) == 0 && !o.IsSystem {
+	totalColumns := len(o.Columns)
+	if totalColumns == 0 && !o.IsSystem {
 		return ucerr.Friendlyf(nil, "Mutator with ID (%v) can't have empty Columns", o.ID)
 	}
 
+	totalValidNormalizers := 0
+	totalValidValidators := 0
 	for _, cv := range o.Columns {
 		if err := cv.Column.Validate(); err != nil {
 			return ucerr.Friendlyf(err, "Mutator with ID (%v): each element of Columns must have a column ID or name", o.ID)
 		}
 
-		if err := cv.Normalizer.Validate(); err != nil {
-			if err := cv.Validator.Validate(); err != nil {
-				return ucerr.Friendlyf(err, "Mutator with ID (%v): each element of Columns must have either a normalizer or validator ID or name", o.ID)
-			}
-		} else if err := cv.Validator.Validate(); err == nil {
-			return ucerr.Friendlyf(nil, "Mutator with ID (%v): each element of Columns must have either a normalizer or validator ID or name", o.ID)
+		if err := cv.Normalizer.Validate(); err == nil {
+			totalValidNormalizers++
 		}
+
+		if err := cv.Validator.Validate(); err == nil {
+			totalValidValidators++
+		}
+	}
+
+	if totalValidNormalizers != totalColumns && totalValidValidators != totalColumns {
+		return ucerr.Friendlyf(nil, "Mutator with ID (%v): each element of Columns must have either a normalizer or validator ID or name", o.ID)
 	}
 
 	if err := o.AccessPolicy.Validate(); err != nil {
