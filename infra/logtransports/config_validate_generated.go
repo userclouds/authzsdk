@@ -7,7 +7,7 @@ import (
 )
 
 // Validate implements Validateable
-func (o *Config) Validate() error {
+func (o Config) Validate() error {
 	for i := range o.Transports {
 		if err := o.Transports[i].Validate(); err != nil {
 			return ucerr.Wrap(err)

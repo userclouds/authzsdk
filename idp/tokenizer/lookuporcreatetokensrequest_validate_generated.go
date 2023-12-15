@@ -7,7 +7,7 @@ import (
 )
 
 // Validate implements Validateable
-func (o *LookupOrCreateTokensRequest) Validate() error {
+func (o LookupOrCreateTokensRequest) Validate() error {
 	for i := range o.TransformerRIDs {
 		if err := o.TransformerRIDs[i].Validate(); err != nil {
 			return ucerr.Wrap(err)

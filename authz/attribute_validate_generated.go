@@ -7,7 +7,7 @@ import (
 )
 
 // Validate implements Validateable
-func (o *Attribute) Validate() error {
+func (o Attribute) Validate() error {
 	if o.Name == "" {
 		return ucerr.Friendlyf(nil, "Attribute.Name can't be empty")
 	}
