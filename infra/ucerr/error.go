@@ -216,7 +216,7 @@ func (e ucError) Friendly() string {
 }
 
 // FriendlyStructure returns something that can be marshaled to JSON for the client to
-// access programatically
+// access programmatically
 func (e ucError) FriendlyStructure() interface{} {
 	if e.structure != nil {
 		return e.structure

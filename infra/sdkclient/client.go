@@ -1,8 +1,11 @@
 package sdkclient
 
 import (
+	"fmt"
+	"strings"
+
 	"userclouds.com/infra/jsonclient"
-	"userclouds.com/infra/uclog"
+	"userclouds.com/infra/logutils"
 )
 
 // Client represents a jsonclient that communicates with the UserClouds API
@@ -11,9 +14,12 @@ type Client struct {
 }
 
 // New constructs a new UserClouds SDK client
-func New(url string, opts ...jsonclient.Option) *Client {
-	opts = append(opts, jsonclient.Header(uclog.HeaderSDKVersion, sdkVersion))
+func New(url, clientName string, opts ...jsonclient.Option) *Client {
+	url = strings.TrimSuffix(url, "/")
+	opts = append(opts,
+		jsonclient.Header(logutils.HeaderSDKVersion, sdkVersion),
+		jsonclient.HeaderUserAgent(fmt.Sprintf("UserClouds %s Go SDK %s", clientName, sdkVersion)),
+	)
 	c := jsonclient.New(url, opts...)
-
 	return &Client{c}
 }

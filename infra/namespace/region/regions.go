@@ -36,8 +36,9 @@ func Current() Region {
 	}
 
 	// TODO (sgarrity 10/23): remove this once we're sure we don't hit it anymore
-	r = os.Getenv("REGION")
-	if logger != nil {
+	oldRegion, defined := os.LookupEnv("REGION")
+	if defined && logger != nil {
+		r = oldRegion
 		// this is super janky, but transportLogServer.go calls `region.Current()` during init
 		// and this callback then deadlocks. Rather than rewrite our logging to fix this
 		// (we should just queue messages during init, or write them only to already-inited
@@ -45,7 +46,7 @@ func Current() Region {
 		// init finish and then log the warning.
 		go func() {
 			time.Sleep(5 * time.Second)
-			logger(context.Background(), "using old REGION env var: %v", r)
+			logger(context.Background(), "using old REGION env var: '%v'", oldRegion)
 		}()
 	}
 

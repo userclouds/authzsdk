@@ -90,7 +90,7 @@ func NewClient(url string, opts ...Option) (*Client, error) {
 	}
 
 	c := &Client{
-		client:  sdkclient.New(strings.TrimSuffix(url, "/"), options.jsonclientOptions...),
+		client:  sdkclient.New(url, "idp", options.jsonclientOptions...),
 		options: options,
 	}
 	tc := &TokenizerClient{client: c.client, options: options}

@@ -40,9 +40,10 @@ type structuredError struct {
 
 // SDKStructuredError is the standard structured error returned by our APIs for SDK clients to handle
 type SDKStructuredError struct {
-	Error     string    `json:"error"`
-	ID        uuid.UUID `json:"id"`
-	Identical bool      `json:"identical"`
+	Error       string    `json:"error"`
+	ID          uuid.UUID `json:"id"`
+	SecondaryID uuid.UUID `json:"secondary_id"`
+	Identical   bool      `json:"identical"`
 }
 
 type sdkStructuredErrorBody struct {

@@ -14,7 +14,10 @@ import (
 	"userclouds.com/infra/jsonclient"
 	"userclouds.com/infra/ucerr"
 	"userclouds.com/infra/uclog"
+	"userclouds.com/infra/uctrace"
 )
+
+var tracer = uctrace.NewTracer("infra/cache/client")
 
 // The client cache API is designed to support a consistent, write-through (i.e. values on create/update are written to the cache and a cache client is guaranteed
 // read after write consistency). Each item in the cache is stored under its primary key (i.e. itemID -> itemValue). All operations are supported on the primary key.
@@ -31,7 +34,7 @@ import (
 
 //
 // The cache is also designed to support secondary keys for an item (ie. itemAlias -> itemID). For simplicity, the secondary keys are only used for Read operations
-// (ie you can't update/delete an item using a secondary key). While the the items are always stored under their primary key and secondary key(s) (ie the item is
+// (ie you can't update/delete an item using a secondary key). While the items are always stored under their primary key and secondary key(s) (ie the item is
 // never stored under the secondary key alone), we can't guarantee that the primary key will always expire at same time as secondary key. We need to invalidate inflight
 // reads via secondary keys (ie GetItemByName()), during delete operations via a primary key (our delete operation doesn't return the item that has been deleted so secondary key
 // can't be calculated) and also invalidate value stored under secondary key prior to start of the delete. We handle it in two different ways depending on type of the item,
@@ -70,9 +73,9 @@ type CacheSingleItem interface {
 // CacheProvider is the interface for the cache backend for a given tenant which can be implemented by in-memory, redis, memcache, etc
 type CacheProvider interface {
 	// GetValue gets the value in cache key (if any) and tries to lock the key for Read is lockOnMiss = true
-	GetValue(ctx context.Context, key shared.CacheKey, lockOnMiss bool) (*string, shared.CacheSentinel, error)
+	GetValue(ctx context.Context, key shared.CacheKey, lockOnMiss bool) (*string, *string, shared.CacheSentinel, error)
 	// GetValues gets the value in cache key (if any) and tries to lock the key for Read is lockOnMiss = true
-	GetValues(ctx context.Context, keys []shared.CacheKey, lockOnMiss []bool) ([]*string, []shared.CacheSentinel, error)
+	GetValues(ctx context.Context, keys []shared.CacheKey, lockOnMiss []bool) ([]*string, []*string, []shared.CacheSentinel, error)
 	// SetValue sets the value in cache key(s) to val with given expiration time if the sentinel matches lkey and returns true if the value was set
 	SetValue(ctx context.Context, lkey shared.CacheKey, keysToSet []shared.CacheKey, val string, sentinel shared.CacheSentinel, ttl time.Duration) (bool, bool, error)
 	// DeleteValue deletes the value(s) in passed in keys, force is true also deletes keys with sentinel or tombstone values
@@ -86,7 +89,7 @@ type CacheProvider interface {
 	// ClearDependencies clears the dependencies of an item represented by key and removes all dependent keys from the cache
 	ClearDependencies(ctx context.Context, key shared.CacheKey, setTombstone bool) error
 	// Flush flushes the cache
-	Flush(ctx context.Context, prefix string) error
+	Flush(ctx context.Context, prefix string, flushTombstones bool) error
 	// GetCacheName returns the global name of the cache if any
 	GetCacheName(ctx context.Context) string
 }
@@ -165,20 +168,24 @@ func getItemLockKeys[item CacheSingleItem](ctx context.Context, lockType shared.
 
 // TakeItemLock takes a lock for the given item. Typically used for Create, Update, Delete operations on an item
 func TakeItemLock[item CacheSingleItem](ctx context.Context, lockType shared.SentinelType, c CacheManager, i item) (shared.CacheSentinel, error) {
-	return takeLockWorker(ctx, c, lockType, i, getItemLockKeys[item](ctx, lockType, c.N, i))
+	return uctrace.Wrap1(ctx, tracer, "TakeItemLock", true, func(ctx context.Context) (shared.CacheSentinel, error) {
+		return takeLockWorker(ctx, c, lockType, i, getItemLockKeys[item](ctx, lockType, c.N, i))
+	})
 }
 
 // TakePerItemCollectionLock takes a lock for the collection associated with a given item
 func TakePerItemCollectionLock[item CacheSingleItem](ctx context.Context, lockType shared.SentinelType, c CacheManager, additionalColKeys []shared.CacheKey, i item) (shared.CacheSentinel, error) {
-	if lockType != shared.Delete && lockType != shared.Read {
-		return shared.NoLockSentinel, ucerr.New("Unexpected lock type for collection lock")
-	}
+	return uctrace.Wrap1(ctx, tracer, "TakePerItemCollectionLock", true, func(ctx context.Context) (shared.CacheSentinel, error) {
+		if lockType != shared.Delete && lockType != shared.Read {
+			return shared.NoLockSentinel, ucerr.New("Unexpected lock type for collection lock")
+		}
 
-	// Lock the primary per item collection and any sub collections that are passed in
-	keys := []shared.CacheKey{i.GetPerItemCollectionKey(c.N)}
-	keys = append(keys, additionalColKeys...)
+		// Lock the primary per item collection and any sub collections that are passed in
+		keys := []shared.CacheKey{i.GetPerItemCollectionKey(c.N)}
+		keys = append(keys, additionalColKeys...)
 
-	return takeLockWorker(ctx, c, lockType, i, keys)
+		return takeLockWorker(ctx, c, lockType, i, keys)
+	})
 }
 
 func takeLockWorker[item CacheSingleItem](ctx context.Context, c CacheManager, lockType shared.SentinelType, i item, keys []shared.CacheKey) (shared.CacheSentinel, error) {
@@ -214,6 +221,10 @@ func takeLockWorker[item CacheSingleItem](ctx context.Context, c CacheManager, l
 
 // ReleaseItemLock releases the lock for the given item
 func ReleaseItemLock[item CacheSingleItem](ctx context.Context, c CacheManager, lockType shared.SentinelType, i item, sentinel shared.CacheSentinel) {
+	var span uctrace.Span
+	ctx, span = tracer.StartSpan(ctx, "ReleaseItemLock", true)
+	defer span.End()
+
 	if sentinel == shared.NoLockSentinel {
 		return // nothing to clear if the lock wasn't acquired
 	}
@@ -225,6 +236,10 @@ func ReleaseItemLock[item CacheSingleItem](ctx context.Context, c CacheManager, 
 
 // ReleasePerItemCollectionLock releases the lock for the collection associated with a given item
 func ReleasePerItemCollectionLock[item CacheSingleItem](ctx context.Context, c CacheManager, additionalColKeys []shared.CacheKey, i item, sentinel shared.CacheSentinel) {
+	var span uctrace.Span
+	ctx, span = tracer.StartSpan(ctx, "ReleasePerItemCollectionLock", true)
+	defer span.End()
+
 	if sentinel == shared.NoLockSentinel {
 		return // nothing to clear if the lock wasn't acquired
 	}
@@ -237,131 +252,128 @@ func ReleasePerItemCollectionLock[item CacheSingleItem](ctx context.Context, c C
 }
 
 // GetItemsArrayFromCache gets the value stored in key from the cache. The value should be an array of items
-func GetItemsArrayFromCache[item any](ctx context.Context, c CacheManager, key shared.CacheKey, lockOnMiss bool, ttl time.Duration) (*[]item, shared.CacheSentinel, error) {
-	items, sentinel, err := getItemFromCacheWorker[[]item](ctx, c, key, lockOnMiss, ttl)
-	if err != nil || items == nil {
-		return items, sentinel, ucerr.Wrap(err)
-	}
+func GetItemsArrayFromCache[item CacheSingleItem](ctx context.Context, c CacheManager, key shared.CacheKey, lockOnMiss bool, ttl time.Duration) (*[]item, shared.CacheSentinel, shared.CacheSentinel, error) {
+	return uctrace.Wrap3(ctx, tracer, "GetItemsArrayFromCache", true, func(ctx context.Context) (*[]item, shared.CacheSentinel, shared.CacheSentinel, error) {
+		items, conflict, sentinel, err := getItemFromCacheWorker[[]item](ctx, c, key, lockOnMiss, ttl)
+		if err != nil || items == nil {
+			return items, conflict, sentinel, ucerr.Wrap(err)
+		}
 
-	for _, cachedItem := range *items {
-		// Have to do this workaround because to allow casting.
-		//we can't make the item in the function definition by CacheSingleItem (instead of any) because that will cause the call to loose type info and unmarshaling would fail
-		var temp interface{} = cachedItem
-		vl, ok := temp.(CacheSingleItem)
-		if !ok {
-			uclog.Errorf(ctx, "GetItemsArrayFromCache: Item loaded doesn't implement CacheSingleItem : %T %v", cachedItem, cachedItem)
-			return nil, "", nil
-		}
-		if err := vl.Validate(); err != nil {
-			uclog.Errorf(ctx, "GetItemsArrayFromCache: Failed to validate item %v of type %T: %v", cachedItem, cachedItem, err)
-			if err := c.P.DeleteValue(ctx, []shared.CacheKey{key}, false, true); err != nil {
-				uclog.Warningf(ctx, "GetItemFromCache: Failed to delete keys %v from cache: %v", key, err)
+		for _, cachedItem := range *items {
+			if !validateItem(ctx, "GetItemsArrayFromCache", c, cachedItem, key) {
+				return nil, "", "", nil
 			}
-			return nil, "", nil
 		}
-	}
-	return items, sentinel, ucerr.Wrap(err)
+		return items, conflict, sentinel, ucerr.Wrap(err)
+	})
 }
 
 // GetItemFromCache gets the the value stored in key from the cache. The value should be single item
-func GetItemFromCache[item any](ctx context.Context, c CacheManager, key shared.CacheKey, lockOnMiss bool, ttl time.Duration) (*item, shared.CacheSentinel, error) {
-	cachedItem, s, err := getItemFromCacheWorker[item](ctx, c, key, lockOnMiss, ttl)
-	if err != nil || cachedItem == nil {
-		return cachedItem, s, ucerr.Wrap(err)
-	}
-	if !validateItem(ctx, c, cachedItem, key) {
-		return nil, "", nil
-	}
+func GetItemFromCache[item CacheSingleItem](ctx context.Context, c CacheManager, key shared.CacheKey, lockOnMiss bool, ttl time.Duration) (*item, shared.CacheSentinel, shared.CacheSentinel, error) {
+	return uctrace.Wrap3(ctx, tracer, "GetItemFromCache", true, func(ctx context.Context) (*item, shared.CacheSentinel, shared.CacheSentinel, error) {
+		cachedItem, conflict, s, err := getItemFromCacheWorker[item](ctx, c, key, lockOnMiss, ttl)
+		if err != nil || cachedItem == nil {
+			return cachedItem, conflict, s, ucerr.Wrap(err)
+		}
 
-	return cachedItem, s, ucerr.Wrap(err)
+		if !validateItem(ctx, "GetItemFromCache", c, *cachedItem, key) {
+			return nil, "", "", nil
+		}
+
+		return cachedItem, conflict, s, ucerr.Wrap(err)
+	})
 }
-func validateItem[item any](ctx context.Context, c CacheManager, cachedItem *item, key shared.CacheKey) bool {
-	// Have to do this workaround because to allow casting.
-	//we can't make the item in the function definition by CacheSingleItem (instead of any) because that will cause the call to loose type info and unmarshaling would fail
-	var temp interface{} = *cachedItem
-	ci, ok := temp.(CacheSingleItem)
-	if !ok {
-		uclog.Errorf(ctx, "GetItemFromCache: Item loaded doesn't implement CacheSingleItem : %T %v", cachedItem, cachedItem)
-		return false
-	}
-	if err := ci.Validate(); err != nil {
-		uclog.Errorf(ctx, "GetItemFromCache: Failed to validate item %v of type %T: %v", cachedItem, cachedItem, err)
+
+func validateItem[item CacheSingleItem](ctx context.Context, apiName string, c CacheManager, cachedItem item, key shared.CacheKey) bool {
+	if err := cachedItem.Validate(); err != nil {
+		uclog.Errorf(ctx, "%s: Failed to validate item %v of type %T: %v", apiName, cachedItem, cachedItem, err)
 		if err := c.P.DeleteValue(ctx, []shared.CacheKey{key}, false, true); err != nil {
-			uclog.Warningf(ctx, "GetItemFromCache: Failed to delete keys %v from cache: %v", key, err)
+			uclog.Warningf(ctx, "%s: Failed to delete keys %v from cache: %v", apiName, key, err)
 		}
 		return false
 	}
 	return true
 }
 
-func getItemFromCacheWorker[item any](ctx context.Context, c CacheManager, key shared.CacheKey, lockOnMiss bool, ttl time.Duration) (*item, shared.CacheSentinel, error) {
+func getItemFromCacheWorker[item any](ctx context.Context, c CacheManager, key shared.CacheKey, lockOnMiss bool, ttl time.Duration) (*item, shared.CacheSentinel, shared.CacheSentinel, error) {
 	if ttl == SkipCacheTTL {
-		return nil, "", nil
+		return nil, "", "", nil
 	}
 	start := time.Now().UTC()
-	rawValue, s, err := c.P.GetValue(ctx, key, lockOnMiss)
+	rawValue, conflictValue, s, err := c.P.GetValue(ctx, key, lockOnMiss)
 	took := time.Now().UTC().Sub(start)
+	conflict := shared.NoLockSentinel
+
 	if err != nil {
-		return nil, "", ucerr.Wrap(err)
+		return nil, "", "", ucerr.Wrap(err)
+	}
+	if conflictValue != nil {
+		conflict = shared.CacheSentinel(*conflictValue)
 	}
 	if rawValue == nil {
 		metrics.RecordCacheMiss(ctx, took)
-		return nil, s, nil
+		return nil, conflict, s, nil
 	}
 
 	var loadedItem item
 
 	if err := json.Unmarshal([]byte(*rawValue), &loadedItem); err != nil {
 		uclog.Errorf(ctx, "GetItemFromCache: Failed to unmarshal data %v for item of type %T from cache: %v", rawValue, loadedItem, err)
-		return nil, "", nil
+		return nil, "", "", nil
 	}
 	metrics.RecordCacheHit(ctx, took)
-	return &loadedItem, "", nil
+	return &loadedItem, "", "", nil
 }
 
 // GetItemsFromCache gets the the values stored in keys from the cache.
-func GetItemsFromCache[item any](ctx context.Context, c CacheManager, keys []shared.CacheKey, locksOnMiss []bool, ttl time.Duration) ([]*item, []shared.CacheSentinel, error) {
-	if ttl == SkipCacheTTL {
-		return nil, nil, nil
-	}
-	start := time.Now().UTC()
-	values, sentinels, err := c.P.GetValues(ctx, keys, locksOnMiss)
-	took := time.Now().UTC().Sub(start)
-	if err != nil {
-		return nil, nil, ucerr.Wrap(err)
-	}
-	items := make([]*item, len(keys))
-	for i, rawValue := range values {
-		if rawValue == nil {
-			metrics.RecordCacheMiss(ctx, took)
-			items[i] = nil
-		} else {
-			var loadedItem item
-			if err := json.Unmarshal([]byte(*rawValue), &loadedItem); err != nil {
-				// Should we do something else when we fail to unmarshal ?
-				uclog.Errorf(ctx, "GetItemsFromCache: Failed to unmarshal data %v for item of type %T from cache: %v", rawValue, loadedItem, err)
-				return nil, nil, ucerr.Wrap(err)
-			}
-			if validateItem(ctx, c, &loadedItem, keys[i]) {
-				metrics.RecordCacheHit(ctx, took)
-				items[i] = &loadedItem
-			} else {
+func GetItemsFromCache[item CacheSingleItem](ctx context.Context, c CacheManager, keys []shared.CacheKey, locksOnMiss []bool, ttl time.Duration) ([]*item, []shared.CacheSentinel, error) {
+	return uctrace.Wrap2(ctx, tracer, "GetItemsFromCache", true, func(ctx context.Context) ([]*item, []shared.CacheSentinel, error) {
+		if ttl == SkipCacheTTL {
+			return nil, nil, nil
+		}
+		start := time.Now().UTC()
+		values, _, sentinels, err := c.P.GetValues(ctx, keys, locksOnMiss)
+		took := time.Now().UTC().Sub(start)
+		if err != nil {
+			return nil, nil, ucerr.Wrap(err)
+		}
+		items := make([]*item, len(keys))
+		for i, rawValue := range values {
+			if rawValue == nil {
+				metrics.RecordCacheMiss(ctx, took)
 				items[i] = nil
+			} else {
+				var loadedItem item
+				if err := json.Unmarshal([]byte(*rawValue), &loadedItem); err != nil {
+					// Should we do something else when we fail to unmarshal ?
+					uclog.Errorf(ctx, "GetItemsFromCache: Failed to unmarshal data %v for item of type %T from cache: %v", rawValue, loadedItem, err)
+					return nil, nil, ucerr.Wrap(err)
+				}
+				if validateItem(ctx, "GetItemsFromCache", c, loadedItem, keys[i]) {
+					metrics.RecordCacheHit(ctx, took)
+					items[i] = &loadedItem
+				} else {
+					items[i] = nil
+				}
 			}
 		}
-	}
-	return items, sentinels, nil
+		return items, sentinels, nil
+	})
 }
 
-// DeleteItemFromCache deletes the the valuse stored in key assoicated with the item from the cache.
+// DeleteItemFromCache deletes the values stored in key associated with the item from the cache.
 func DeleteItemFromCache[item CacheSingleItem](ctx context.Context, c CacheManager, i item, sentinel shared.CacheSentinel) {
+	var span uctrace.Span
+	ctx, span = tracer.StartSpan(ctx, "DeleteItemFromCache", true)
+	defer span.End()
+
 	if sentinel == shared.NoLockSentinel {
 		return // nothing to clear if the lock wasn't acquired
 	}
 
 	keys := getItemLockKeys[item](ctx, shared.Delete, c.N, i)
 
-	if err := c.P.DeleteValue(ctx, keys, false, false); err != nil {
+	if err := c.P.DeleteValue(ctx, keys, true, true); err != nil {
 		uclog.Warningf(ctx, "Failed to delete keys %v from cache: %v", keys, err)
 	}
 }
@@ -369,11 +381,19 @@ func DeleteItemFromCache[item CacheSingleItem](ctx context.Context, c CacheManag
 // SaveItemToCache saves the given item to the cache
 func SaveItemToCache[item CacheSingleItem](ctx context.Context, c CacheManager, i item, sentinel shared.CacheSentinel,
 	clearCollection bool, additionalColKeys []shared.CacheKey) {
+	var span uctrace.Span
+	ctx, span = tracer.StartSpan(ctx, "SaveItemToCache", true)
+	defer span.End()
+
 	saveItemToCacheWorker(ctx, c, i, i.GetPrimaryKey(c.N), sentinel, clearCollection, additionalColKeys)
 }
 
 // SaveItemsFromCollectionToCache saves the items from a given collection into their separate keys
 func SaveItemsFromCollectionToCache[item CacheSingleItem](ctx context.Context, c CacheManager, items []item, sentinel shared.CacheSentinel) {
+	var span uctrace.Span
+	ctx, span = tracer.StartSpan(ctx, "SaveItemsFromCollectionToCache", true)
+	defer span.End()
+
 	for _, i := range items {
 		saveItemToCacheWorker(ctx, c, i, i.GetGlobalCollectionKey(c.N), sentinel, false, nil)
 	}
@@ -409,7 +429,7 @@ func saveItemToCacheWorker[item CacheSingleItem](ctx context.Context, c CacheMan
 			if len(additionalColKeys) > 0 {
 				ckeys = append(ckeys, additionalColKeys...)
 			}
-			if err := c.P.DeleteValue(ctx, ckeys, false, true /* force delete regardless of value */); err != nil {
+			if err := c.P.DeleteValue(ctx, ckeys, true, true /* force delete regardless of value */); err != nil {
 				uclog.Errorf(ctx, "Error clearing collection keys from cache: %v", err)
 				clearKeysOnError = true
 				keyset = false
@@ -445,7 +465,7 @@ func saveItemToCacheWorker[item CacheSingleItem](ctx context.Context, c CacheMan
 		}
 		// Cache is still in consistent state in this case, we just failed to add the cache the item to do contention
 		if clearKeysOnError {
-			if err := c.P.DeleteValue(ctx, keyNames, false, false); err != nil {
+			if err := c.P.DeleteValue(ctx, keyNames, true, true); err != nil {
 				uclog.Warningf(ctx, "Failed to delete secondary key after dependency failure %v: %v", i.GetSecondaryKeys(c.N), err)
 			}
 		}
@@ -457,6 +477,10 @@ func saveItemToCacheWorker[item CacheSingleItem](ctx context.Context, c CacheMan
 // to be stored.
 func SaveItemsToCollection[item CacheSingleItem, cItem CacheSingleItem](ctx context.Context, c CacheManager,
 	i item, colItems []cItem, lockKey shared.CacheKey, colKey shared.CacheKey, sentinel shared.CacheSentinel, isGlobal bool, ttl time.Duration) {
+	var span uctrace.Span
+	ctx, span = tracer.StartSpan(ctx, "SaveItemsToCollection", true)
+	defer span.End()
+
 	if ttl == SkipCacheTTL {
 		return
 	}
