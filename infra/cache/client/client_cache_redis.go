@@ -19,6 +19,8 @@ const (
 	maxRdConflictRetries = 15
 	// RegionalRedisCacheName is default name of the regional redis cache
 	RegionalRedisCacheName = "redisRegionalCache"
+	// flushBatchSize is the number of keys to flush at a time
+	flushBatchSize = 100
 )
 
 // RedisClientCacheProvider is the base implementation of the CacheProvider interface
@@ -33,11 +35,10 @@ type RedisClientCacheProvider struct {
 // NewRedisClientCacheProvider creates a new RedisClientCacheProvider
 func NewRedisClientCacheProvider(rc *redis.Client, prefix string, cacheName string) *RedisClientCacheProvider {
 	return &RedisClientCacheProvider{
-		rc:        rc,
-		prefix:    prefix,
-		sm:        shared.NewWriteThroughCacheSentinelManager(),
-		cacheName: cacheName,
-		// TODO: get the value as an argument
+		rc:           rc,
+		prefix:       prefix,
+		sm:           shared.NewWriteThroughCacheSentinelManager(),
+		cacheName:    cacheName,
 		tombstoneTTL: shared.InvalidationTombstoneTTL,
 	}
 }
@@ -94,13 +95,14 @@ func (c *RedisClientCacheProvider) WriteSentinel(ctx context.Context, stype shar
 		}
 		if errors.Is(err, redis.TxFailedErr) {
 			// Optimistic lock lost. Retry.
+			uclog.Verbosef(ctx, "Cache[%v] WriteSentinel - retry on keys %v", c.cacheName, keys)
 			continue
 		}
 		// Return any other error.
 		return shared.NoLockSentinel, ucerr.Wrap(err)
 	}
 
-	uclog.Debugf(ctx, "WriteSentinel - reached maximum number of retries on keys %v skipping cache", keys)
+	uclog.Debugf(ctx, "Cache[%v] WriteSentinel - reached maximum number of retries on keys %v skipping cache", c.cacheName, keys)
 	return shared.NoLockSentinel, ucerr.New("WriteSentinel reached maximum number of retries")
 }
 
@@ -164,7 +166,7 @@ func (c *RedisClientCacheProvider) ReleaseSentinel(ctx context.Context, keysIn [
 		_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
 			if len(keysToClear) > 0 {
 				if err := pipe.Del(ctx, keysToClear...).Err(); err != nil && err != redis.Nil {
-					uclog.Errorf(ctx, "Error clearing key(s) %v sentinel  %v", keysToClear, err)
+					uclog.Errorf(ctx, "Cache[%v] error clearing key(s) %v sentinel  %v", c.cacheName, keysToClear, err)
 				}
 				uclog.Verbosef(ctx, "Cache[%v] cleared key(s) %v sentinel %v", c.cacheName, keysToClear, s)
 			}
@@ -182,10 +184,11 @@ func (c *RedisClientCacheProvider) ReleaseSentinel(ctx context.Context, keysIn [
 		}
 		if errors.Is(err, redis.TxFailedErr) {
 			// Optimistic lock lost. Retry.
+			uclog.Verbosef(ctx, "Cache[%v] ReleaseSentinel - retry on keys %v", c.cacheName, keys)
 			continue
 		}
 		// Return any other error.
-		uclog.Debugf(ctx, "ReleaseSentinel - failed on keys %v with %v skipping cache. Keys maybe locked until sentinel expires", keys, err)
+		uclog.Debugf(ctx, "Cache[%v] - ReleaseSentinel - failed on keys %v with %v skipping cache. Keys maybe locked until sentinel expires", c.cacheName, keys, err)
 		return
 	}
 }
@@ -243,7 +246,7 @@ func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.C
 			set, clear, conflict := c.sm.CanSetValue(cV, val, sentinel)
 
 			if set { // Value can be set
-				uclog.Verbosef(ctx, "Cache[%v] set key %v", c.cacheName, keys)
+				uclog.Verbosef(ctx, "Cache[%v] set key %v ttl %v", c.cacheName, keys, ttl)
 				if err := multiSetWithPipe(ctx, pipe, keys, val, ttl); err != nil {
 					return ucerr.Wrap(err)
 				}
@@ -252,7 +255,7 @@ func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.C
 			} else if clear { // Intermediate state detected so clear the cache
 				uclog.Verbosef(ctx, "Cache[%v] cleared on value mismatch or conflict sentinel key %v curr var %v would store %v", c.cacheName, keys, cV, val)
 				if err := pipe.Del(ctx, keys...).Err(); err != nil && err != redis.Nil {
-					uclog.Errorf(ctx, "Error clearing key(s) %v mismatch -  %v", keys, err)
+					uclog.Errorf(ctx, "Cache[%v] - error clearing key(s) %v mismatch -  %v", c.cacheName, keys, err)
 				}
 				return nil
 			} else if conflict { // Conflict detected so upgrade the lock to conflict
@@ -280,26 +283,28 @@ func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.C
 		}
 		if errors.Is(err, redis.TxFailedErr) {
 			// Optimistic lock lost. Retry.
+			uclog.Verbosef(ctx, "Cache[%v] SetValue - retry on keys %v", c.cacheName, keys)
 			continue
 		}
 		// Return any other error.
 		return false, false, ucerr.Wrap(err)
 	}
-	uclog.Debugf(ctx, "SetValue - hit too many retries %v skipping cache.", keys)
+	uclog.Debugf(ctx, "Cache[%v] SetValue - hit too many retries %v skipping cache.", c.cacheName, keys)
 	return false, false, ucerr.New("SetValue hit too many retries")
 }
 
 // GetValues gets the value in cache keys (if any) and tries to lock the keys[i] for Read is lockOnMiss[i] = true
-func (c *RedisClientCacheProvider) GetValues(ctx context.Context, keysIn []shared.CacheKey, lockOnMiss []bool) ([]*string, []shared.CacheSentinel, error) {
+func (c *RedisClientCacheProvider) GetValues(ctx context.Context, keysIn []shared.CacheKey, lockOnMiss []bool) ([]*string, []*string, []shared.CacheSentinel, error) {
 	if len(keysIn) == 0 && len(lockOnMiss) == 0 {
 		uclog.Errorf(ctx, "Cache[%v] GetValues called with no keys", c.cacheName)
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	if len(keysIn) != len(lockOnMiss) {
-		return nil, nil, ucerr.Errorf("Number of keys provided to GetValues has to be equal to number of lockOnMiss, keys: %d lockOnMiss: %d", len(keysIn), len(lockOnMiss))
+		return nil, nil, nil, ucerr.Errorf("Number of keys provided to GetValues has to be equal to number of lockOnMiss, keys: %d lockOnMiss: %d", len(keysIn), len(lockOnMiss))
 	}
 	// Create arrays for output values and sentinels
 	val := make([]*string, len(keysIn))
+	conflicts := make([]*string, len(keysIn))
 	sentinels := make([]shared.CacheSentinel, len(keysIn))
 
 	// Initialize sentinels to NoLockSentinel
@@ -310,12 +315,12 @@ func (c *RedisClientCacheProvider) GetValues(ctx context.Context, keysIn []share
 	// Validate that all the keys have the correct prefix and filter out any empty keys
 	keys, err := getValidatedStringKeysFromCacheKeys(keysIn, c.prefix)
 	if err != nil {
-		return val, sentinels, ucerr.Wrap(err)
+		return val, conflicts, sentinels, ucerr.Wrap(err)
 	}
 
 	// For now fail on empty keys to make code easier to reason about
 	if len(keys) != len(keysIn) {
-		return val, sentinels, ucerr.New("Blank keys are not allowed in GetValues")
+		return val, conflicts, sentinels, ucerr.New("Blank keys are not allowed in GetValues")
 	}
 
 	// Get all the values from cache
@@ -323,7 +328,7 @@ func (c *RedisClientCacheProvider) GetValues(ctx context.Context, keysIn []share
 
 	// If we failed on the read return the error
 	if err != nil && err != redis.Nil {
-		return val, sentinels, ucerr.Wrap(err)
+		return val, conflicts, sentinels, ucerr.Wrap(err)
 	}
 
 	// Check if we need to lock any keys (handles err == redis.Nil)
@@ -360,7 +365,7 @@ func (c *RedisClientCacheProvider) GetValues(ctx context.Context, keysIn []share
 			_, err = pipe.Exec(ctx)
 			if err != nil {
 				uclog.Verbosef(ctx, "Cache[%v] miss on keys %v lock fail %v", c.cacheName, keysToLock, err)
-				return val, sentinels, ucerr.Wrap(err)
+				return val, conflicts, sentinels, ucerr.Wrap(err)
 			}
 		}
 		if v, err := r.Result(); v && err == nil {
@@ -376,31 +381,36 @@ func (c *RedisClientCacheProvider) GetValues(ctx context.Context, keysIn []share
 	// Only copy the keys that are not locked by other operations into output array
 	for i, v := range valuesOut {
 		if v != nil {
-			if vS, ok := v.(string); ok && !c.sm.IsSentinelValue(vS) && !shared.IsTombstoneSentinel(vS) {
-				val[i] = &vS
-				uclog.Verbosef(ctx, "Cache[%v] hit key %v", c.cacheName, keys[i])
-				continue
+			if vS, ok := v.(string); ok {
+				if !c.sm.IsSentinelValue(vS) && !shared.IsTombstoneSentinel(vS) {
+					val[i] = &vS
+					uclog.Verbosef(ctx, "Cache[%v] hit key %v", c.cacheName, keys[i])
+					continue
+				}
+				conflicts[i] = &vS
 			}
 			uclog.Verbosef(ctx, "Cache[%v] key %v is locked for in progress op %v", c.cacheName, keys[i], v)
 			continue
 		}
 
 	}
-	return val, sentinels, nil
+	return val, conflicts, sentinels, nil
 }
 
 // GetValue gets the value in CacheKey (if any) and tries to lock the key for Read is lockOnMiss = true
-func (c *RedisClientCacheProvider) GetValue(ctx context.Context, keyIn shared.CacheKey, lockOnMiss bool) (*string, shared.CacheSentinel, error) {
-	v, s, err := c.GetValues(ctx, []shared.CacheKey{keyIn}, []bool{lockOnMiss})
+func (c *RedisClientCacheProvider) GetValue(ctx context.Context, keyIn shared.CacheKey, lockOnMiss bool) (*string, *string, shared.CacheSentinel, error) {
+	v, conflicts, s, err := c.GetValues(ctx, []shared.CacheKey{keyIn}, []bool{lockOnMiss})
 
 	var value *string
 	lock := shared.NoLockSentinel
+	var conflict *string
 
 	if err == nil && len(v) > 0 {
 		value = v[0]
 		lock = s[0]
+		conflict = conflicts[0]
 	}
-	return value, lock, ucerr.Wrap(err)
+	return value, conflict, lock, ucerr.Wrap(err)
 }
 
 // DeleteValue deletes the value(s) in passed in keys
@@ -429,7 +439,12 @@ func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []sha
 				// Operation is committed only if the watched keys remain unchanged.
 				_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
 					if force {
-						return ucerr.Wrap(multiSetWithPipe(ctx, pipe, keys, string(shared.TombstoneSentinel), c.tombstoneTTL))
+						if err := multiSetWithPipe(ctx, pipe, keys, string(shared.TombstoneSentinel), c.tombstoneTTL); err != nil {
+							uclog.Errorf(ctx, "Cache[%v] error setting tombstone on key(s) %v -  %v", c.cacheName, keys, err)
+							return ucerr.Wrap(err)
+						}
+						uclog.Verbosef(ctx, "Cache[%v] DeleteValue - tombstoned keys %v", c.cacheName, keys)
+						return nil
 					}
 					values, err := c.rc.MGet(ctx, keys...).Result()
 					if err != nil && err != redis.Nil {
@@ -445,11 +460,17 @@ func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []sha
 
 					if len(keysToDelete) > 0 {
 						if setTombstone {
-							return ucerr.Wrap(multiSetWithPipe(ctx, pipe, keysToDelete, string(shared.TombstoneSentinel), c.tombstoneTTL))
+							if err := multiSetWithPipe(ctx, pipe, keysToDelete, string(shared.TombstoneSentinel), c.tombstoneTTL); err != nil {
+								uclog.Errorf(ctx, "Cache[%v] error setting tombstone on key(s) %v -  %v", c.cacheName, keysToDelete, err)
+								return ucerr.Wrap(err)
+							}
+							uclog.Verbosef(ctx, "Cache[%v] DeleteValue - tombstoned keys %v", c.cacheName, keysToDelete)
+							return nil
 						}
 						if err := pipe.Del(ctx, keysToDelete...).Err(); err != nil {
 							return ucerr.Wrap(err)
 						}
+						uclog.Verbosef(ctx, "Cache[%v] DeleteValue - deleted keys %v", c.cacheName, keysToDelete)
 					}
 
 					return nil
@@ -468,13 +489,14 @@ func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []sha
 				}
 				if errors.Is(err, redis.TxFailedErr) {
 					// Optimistic lock lost. Retry.
+					uclog.Verbosef(ctx, "Cache[%v] DeleteValue - retry on keys %v", c.cacheName, keys)
 					continue
 				}
 				// Return any other error.
 				return ucerr.Wrap(err)
 			}
 			if !success {
-				uclog.Warningf(ctx, "Failed delete values - reached maximum number of retries on keys %v", keys)
+				uclog.Warningf(ctx, "Cache[%v] Failed delete values - reached maximum number of retries on keys %v", c.cacheName, keys)
 				return ucerr.New("Failed to DeleteValue reached maximum number of retries")
 			}
 		}
@@ -564,6 +586,7 @@ func (c *RedisClientCacheProvider) AddDependency(ctx context.Context, keysIn []s
 			}
 			if errors.Is(err, redis.TxFailedErr) {
 				// Optimistic lock lost. Retry.
+				uclog.Verbosef(ctx, "Cache[%v] AddDependencies - retry on keys %v", c.cacheName, keys)
 				continue
 			}
 			// Return any other error.
@@ -607,17 +630,18 @@ func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn 
 				if err := pipe.Del(ctx, keys...).Err(); err != nil && err != redis.Nil {
 					return ucerr.Wrap(err)
 				}
-				uclog.Verbosef(ctx, "Cache[%v] cleared dependencies %v keys", c.cacheName, keys)
+				uclog.Verbosef(ctx, "Cache[%v] cleared dependencies (deleted) %v keys", c.cacheName, keys)
 			}
 			if setTombstone {
 				if err := pipe.Set(ctx, key, string(shared.TombstoneSentinel), c.tombstoneTTL).Err(); err != nil {
 					return ucerr.Wrap(err)
 				}
-				uclog.Verbosef(ctx, "Cache[%v] set tombstone for %v", c.cacheName, key)
+				uclog.Verbosef(ctx, "Cache[%v] ClearDependencies set tombstone for %v", c.cacheName, key)
 			} else if !isTombstone {
 				if err := pipe.Del(ctx, key).Err(); err != nil && err != redis.Nil {
 					return ucerr.Wrap(err)
 				}
+				uclog.Verbosef(ctx, "Cache[%v] cleared dependency key %v", c.cacheName, key)
 			}
 			return nil
 		})
@@ -633,6 +657,7 @@ func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn 
 		}
 		if errors.Is(err, redis.TxFailedErr) {
 			// Optimistic lock lost. Retry.
+			uclog.Verbosef(ctx, "Cache[%v] ClearDependencies - retry on key %v", c.cacheName, key)
 			continue
 		}
 		// Return any other error.
@@ -643,16 +668,71 @@ func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn 
 }
 
 // Flush flushes the cache (applies only to the tenant for which the client was created)
-func (c *RedisClientCacheProvider) Flush(ctx context.Context, prefix string) error {
+func (c *RedisClientCacheProvider) Flush(ctx context.Context, prefix string, flushTombstones bool) error {
 	pipe := c.rc.Pipeline()
 	iter := c.rc.Scan(ctx, 0, prefix+"*", 0).Iterator()
-	for iter.Next(ctx) {
-		pipe.Del(ctx, iter.Val())
-	}
-	if iter.Err() != nil {
-		return ucerr.Wrap(iter.Err())
-	}
-	if _, err := pipe.Exec(ctx); err != nil {
+
+	uclog.Verbosef(ctx, "Cache[%v] flushing prefix %v", c.cacheName, prefix)
+
+	_, err := pipe.Pipelined(ctx, func(pipe redis.Pipeliner) error {
+		keysIn := make([]string, 0, flushBatchSize)
+		keysToDelete := make([]string, 0, flushBatchSize)
+		for iter.Next(ctx) {
+			keysIn = append(keysIn, iter.Val())
+			if len(keysIn) == flushBatchSize {
+				if !flushTombstones {
+					// We are doing the mgets outside the pipe and then pipelining deletes
+					values, err := c.rc.MGet(ctx, keysIn...).Result()
+					if err != nil && err != redis.Nil {
+						return ucerr.Wrap(err)
+					}
+
+					for i, v := range values {
+						vS, ok := v.(string)
+						if ok && !shared.IsTombstoneSentinel(vS) {
+							keysToDelete = append(keysToDelete, keysIn[i])
+						}
+					}
+				} else {
+					keysToDelete = append(keysToDelete, keysIn...)
+				}
+				if len(keysToDelete) > 0 {
+					pipe.Del(ctx, keysToDelete...)
+				}
+				keysToDelete = keysToDelete[:0]
+				keysIn = keysIn[:0]
+			}
+		}
+
+		if len(keysIn) != 0 {
+			if !flushTombstones {
+				values, err := c.rc.MGet(ctx, keysIn...).Result()
+				if err != nil && err != redis.Nil {
+					return ucerr.Wrap(err)
+				}
+
+				for i, v := range values {
+					vS, ok := v.(string)
+					if ok && !shared.IsTombstoneSentinel(vS) {
+						keysToDelete = append(keysToDelete, keysIn[i])
+					}
+				}
+			} else {
+				keysToDelete = append(keysToDelete, keysIn...)
+			}
+			if len(keysToDelete) > 0 {
+				pipe.Del(ctx, keysToDelete...)
+			}
+		}
+
+		if iter.Err() != nil {
+			return ucerr.Wrap(iter.Err())
+		}
+
+		return nil
+	})
+
+	if err != nil {
 		return ucerr.Wrap(err)
 	}
 	return nil

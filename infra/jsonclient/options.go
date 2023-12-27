@@ -77,6 +77,11 @@ func Header(k, v string) Option {
 	})
 }
 
+// HeaderUserAgent allows you to add a User-Agent header to jsonclient requests
+func HeaderUserAgent(ua string) Option {
+	return Header("User-Agent", ua)
+}
+
 // HeaderHost allows you to add a Host header to jsonclient requests
 func HeaderHost(host string) Option {
 	return Header("Host", host)

@@ -30,7 +30,7 @@ func NewTokenizerClient(url string, opts ...Option) *TokenizerClient {
 		opt.apply(&options)
 	}
 
-	return &TokenizerClient{client: sdkclient.New(url, options.jsonclientOptions...), options: options}
+	return &TokenizerClient{client: sdkclient.New(url, "tokenizer", options.jsonclientOptions...), options: options}
 }
 
 // CreateToken creates a token

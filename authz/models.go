@@ -97,8 +97,8 @@ type EdgeType struct {
 }
 
 // Equals returns true if the two edges are equal, ignoring the ID field
-func (e *EdgeType) Equals(other *EdgeType) bool {
-	if e.TypeName == other.TypeName && e.SourceObjectTypeID == other.SourceObjectTypeID && e.TargetObjectTypeID == other.TargetObjectTypeID && e.OrganizationID == other.OrganizationID {
+func (e *EdgeType) Equals(other *EdgeType, includeOrg bool) bool {
+	if e.TypeName == other.TypeName && e.SourceObjectTypeID == other.SourceObjectTypeID && e.TargetObjectTypeID == other.TargetObjectTypeID && (!includeOrg || e.OrganizationID == other.OrganizationID) {
 		if len(e.Attributes) != len(other.Attributes) {
 			return false
 		}
@@ -137,14 +137,14 @@ type Object struct {
 }
 
 // Equals returns true if the two objects are equal, ignoring the ID field
-func (o *Object) Equals(other *Object) bool {
+func (o *Object) Equals(other *Object, includeOrg bool) bool {
 	if o.Alias == nil && other.Alias == nil {
-		return o.TypeID == other.TypeID && o.OrganizationID == other.OrganizationID
+		return o.TypeID == other.TypeID && (!includeOrg || o.OrganizationID == other.OrganizationID)
 	}
 	if o.Alias == nil || other.Alias == nil {
 		return false
 	}
-	return *o.Alias == *other.Alias && o.TypeID == other.TypeID && o.OrganizationID == other.OrganizationID
+	return *o.Alias == *other.Alias && o.TypeID == other.TypeID && (!includeOrg || o.OrganizationID == other.OrganizationID)
 }
 
 //go:generate genvalidate Object

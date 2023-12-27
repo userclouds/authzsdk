@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"userclouds.com/infra/assert"
 	"userclouds.com/infra/uclog"
 )
 
@@ -25,9 +26,14 @@ func InitLoggerAndTransportsForTests(t *testing.T) *TransportTest {
 		Required:    true,
 		MaxLogLevel: logLevel,
 	}
-	tt := TransportTest{t: t, config: ttc}
+	tt := TransportTest{
+		t:         t,
+		config:    ttc,
+		testEnded: false,
+	}
 	transports := []uclog.Transport{&tt}
 	uclog.PreInit(transports)
+	t.Cleanup(tt.Close)
 	return &tt
 }
 
@@ -44,6 +50,7 @@ type TransportTest struct {
 	logMutex    sync.Mutex
 	Events      []testLogRecord
 	LogMessages map[uclog.LogLevel][]string
+	testEnded   bool
 }
 
 // Init initializes the test transport
@@ -65,7 +72,7 @@ func (tt *TransportTest) Write(ctx context.Context, event uclog.LogEvent) {
 	tt.eventMutex.Unlock()
 
 	tt.logMutex.Lock()
-	if event.Message != "" {
+	if !tt.testEnded && event.Message != "" {
 		tt.LogMessages[event.LogLevel] = append(tt.LogMessages[event.LogLevel], event.Message)
 		tt.t.Log(event.Message)
 	}
@@ -91,6 +98,14 @@ func (tt *TransportTest) GetLogMessagesByLevel(level uclog.LogLevel) []string {
 	mA := tt.LogMessages[level]
 	tt.logMutex.Unlock()
 	return mA
+}
+
+// AssertMessagesByLogLevel asserts that the number of messages logged at a particular level is as expected
+func (tt *TransportTest) AssertMessagesByLogLevel(level uclog.LogLevel, expected int, opts ...assert.Option) {
+	tt.t.Helper()
+	got := len(tt.GetLogMessagesByLevel(level))
+	opts = append(opts, assert.Errorf("Expected %d messages at level %s, got %d", expected, level, got))
+	assert.Equal(tt.t, got, expected, opts...)
 }
 
 // LogsContainString returns whether any of the logged messages contain the given string
@@ -129,5 +144,10 @@ func (tt *TransportTest) Flush() error {
 	return nil
 }
 
-// Close does nothing
-func (tt *TransportTest) Close() {}
+// Close prevents writing to the transport after a test ends
+// see https://github.com/golang/go/issues/40343
+func (tt *TransportTest) Close() {
+	tt.logMutex.Lock()
+	defer tt.logMutex.Unlock()
+	tt.testEnded = true
+}

@@ -93,6 +93,7 @@ type LogEvent struct {
 	Message   string    // Message associated with the event
 	Payload   string    // Optional payload associated with a counter event
 	RequestID uuid.UUID // Request ID if this event is associated with a request (nil otherwise)
+	UserAgent string    // User-Agent header from the request
 	// Identity of the sender
 	TenantID uuid.UUID
 	AppID    uuid.UUID

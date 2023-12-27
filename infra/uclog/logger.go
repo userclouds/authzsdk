@@ -221,6 +221,10 @@ func Log(ctx context.Context, event LogEvent) {
 		return
 	}
 
+	if event.UserAgent == "" {
+		event.UserAgent = request.GetUserAgent(ctx)
+	}
+
 	// Get the tenant ID from the context if not passed in
 	if event.TenantID.IsNil() {
 		event.TenantID = GetTenantID(ctx)
