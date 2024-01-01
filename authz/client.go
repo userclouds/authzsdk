@@ -951,7 +951,7 @@ func (c *Client) ListObjectsFromQuery(ctx context.Context, query url.Values, opt
 	if !options.bypassCache {
 		var err error
 		ckey := cm.N.GetKeyNameStatic(ObjectCollectionKeyID)
-		_, _, s, err := clientcache.GetItemsArrayFromCache[Object](ctx, cm, ckey, true, c.ttlP.TTL(ObjectTTL))
+		_, _, s, err = clientcache.GetItemsArrayFromCache[Object](ctx, cm, ckey, true, c.ttlP.TTL(ObjectTTL))
 		if err != nil {
 			uclog.Errorf(ctx, "ListObjectsFromQuery failed to get item from cache: %v", err)
 		}
