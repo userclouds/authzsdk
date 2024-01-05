@@ -19,8 +19,8 @@ type LocalStatus struct {
 	LastErrorCode      int       `json:"lasterror_code"`      // last error code
 	ComputeTime        int       `json:"computetime"`         // amount of time spent in handlers
 
-	Hostname string        `json:"hostname"` // for understanding the response
-	Region   region.Region `json:"region"`
+	Hostname string               `json:"hostname"` // for understanding the response
+	Region   region.MachineRegion `json:"region"`
 
 	LoggerStats []LogTransportStats `json:"loggerstats"`
 }

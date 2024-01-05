@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/go-http-utils/headers"
+
 	"userclouds.com/infra/ucerr"
 )
 
@@ -37,7 +39,7 @@ func (ccts ClientCredentialsTokenSource) GetToken() (string, error) {
 	if err != nil {
 		return "", ucerr.Wrap(err)
 	}
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add(headers.ContentType, "application/x-www-form-urlencoded")
 	// TODO: re-use client?
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -45,7 +47,7 @@ func (ccts ClientCredentialsTokenSource) GetToken() (string, error) {
 	}
 	if resp.StatusCode >= http.StatusBadRequest {
 		var oauthe ucerr.OAuthError
-		if resp.Header.Get("Content-Type") == "application/json" {
+		if resp.Header.Get(headers.ContentType) == "application/json" {
 			if err := json.NewDecoder(resp.Body).Decode(&oauthe); err != nil {
 				return "", ucerr.Wrap(err)
 			}

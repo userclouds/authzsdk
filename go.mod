@@ -3,6 +3,7 @@ module userclouds.com
 go 1.20
 
 require (
+	github.com/go-http-utils/headers v0.0.0-20181008091004-fed159eddc2a
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/google/go-cmp v0.5.9
@@ -15,6 +16,7 @@ require (
 require (
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
+	github.com/stretchr/testify v1.8.4 // indirect
 )
 
 retract (

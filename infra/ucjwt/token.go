@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-http-utils/headers"
 	"github.com/gofrs/uuid"
 	"github.com/golang-jwt/jwt"
 
@@ -96,7 +97,7 @@ func IsExpired(jwt string) (bool, error) {
 // if none is found or if it's malformed.
 // NOTE: this doesn't enforce that it's a JWT, much less a valid one.
 func ExtractBearerToken(h *http.Header) (string, error) {
-	bearerToken := h.Get("Authorization")
+	bearerToken := h.Get(headers.Authorization)
 	if bearerToken == "" {
 		return "", ucerr.New("authorization header required")
 	}

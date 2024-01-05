@@ -521,21 +521,18 @@ func (c *RedisClientCacheProvider) AddDependency(ctx context.Context, keysIn []s
 		return ucerr.New("No key provided to AddDependency")
 	}
 
-	if len(keysAll) > 100 {
+	if len(keysAll) > 500 {
 		return ucerr.Errorf("Too many keys %v provided to to AddDependency", len(keysAll))
 	}
 
 	if len(i) == 0 {
 		return ucerr.New("No non blank values provided to AddDependency")
 	}
-	// Using optimistic concurrency control to ensure we only add a new dependency if the key is not tombstoned.
 
-	// There is a tradeoff between the number of calls we make to the cache and the probability of collision.
-	// The collision is least likely if we update a single dependency least at a time but that would require
-	// sequential N calls to the cache. The probability of collision is highest if we update all dependencies at once, but that
-	// may lead to a lot of retries and possibly failure under high contention.
+	// We are using redis's WRONGTYPE error to detect when a key has been tomstoned. This depends on ClearDependencies using a transaction to detect modification to the
+	// set of dependencies and restarting if a new dependency has been added by AddDependencies.
 
-	batchSize := 2
+	batchSize := 100
 	var end int
 	for start := 0; start < len(keysAll); start += batchSize {
 		end += batchSize
@@ -545,56 +542,29 @@ func (c *RedisClientCacheProvider) AddDependency(ctx context.Context, keysIn []s
 
 		keys := keysAll[start:end]
 
-		// Transactional function to check if key is not tombstoned and add the dependency.
-		txf := func(tx *redis.Tx) error {
-			// Operation is committed only if the watched keys remain unchanged.
-			_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
-				values, err := c.rc.MGet(ctx, keys...).Result()
-				if err != nil && err != redis.Nil {
+		pipe := c.rc.Pipeline()
+		_, err := pipe.Pipelined(ctx, func(pipe redis.Pipeliner) error {
+			for _, key := range keys {
+				if err := pipe.SAdd(ctx, key, i...).Err(); err != nil {
 					return ucerr.Wrap(err)
 				}
-
-				for _, v := range values {
-					vS, ok := v.(string)
-					if ok && shared.IsTombstoneSentinel(vS) {
-						return ucerr.New("Can't add dependency: key is tombstoned")
-					}
+				// Bump expiration which mean that the expired member accumulate in the set and we need to clean them up. Using ZSET sorted by timestamps may be a better option
+				if err := pipe.Expire(ctx, key, ttl).Err(); err != nil {
+					return ucerr.Wrap(err)
 				}
-
-				for _, key := range keys {
-					if err := pipe.SAdd(ctx, key, i...).Err(); err != nil {
-						return ucerr.Wrap(err)
-					}
-					// Bump expiration which mean that the expired member accumulate in the set and we need to clean them up. Using ZSET sorted by timestamps may be a better option
-					if err := pipe.Expire(ctx, key, ttl).Err(); err != nil {
-						return ucerr.Wrap(err)
-					}
-				}
-				return nil
-			})
-			return ucerr.Wrap(err)
-		}
-
-		// Retry if the key has been changed.
-		success := false
-		for i := 0; i < maxRdConflictRetries; i++ {
-			err := c.rc.Watch(ctx, txf, keys...)
-			if err == nil {
-				// Success.
-				success = true
-				break
 			}
-			if errors.Is(err, redis.TxFailedErr) {
-				// Optimistic lock lost. Retry.
-				uclog.Verbosef(ctx, "Cache[%v] AddDependencies - retry on keys %v", c.cacheName, keys)
-				continue
+			return nil
+		})
+
+		if err != nil {
+
+			// Check for "WRONGTYPE Operation against a key holding the wrong kind of value" in this case the set has been replaced by a tombstone
+			if redis.HasErrorPrefix(err, "WRONGTYPE") {
+				uclog.Verbosef(ctx, "Cache[%v] AddDependency - key is tombstoned %v", c.cacheName, keys)
+				return ucerr.New("Can't add dependency: key is tombstoned")
 			}
-			// Return any other error.
+			uclog.Warningf(ctx, "Cache[%v] AddDependency - Failed to add dependencies - on keys %v with err %v", c.cacheName, keys, err)
 			return ucerr.Wrap(err)
-		}
-		if !success {
-			uclog.Warningf(ctx, "Failed to add dependencies - reached maximum number of retries on keys %v", keys)
-			return ucerr.New("Add dependencies reached maximum number of retries")
 		}
 	}
 

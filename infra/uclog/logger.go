@@ -39,6 +39,16 @@ type loggerData struct {
 	serviceName          string
 }
 
+func init() {
+	// this needs to get initialized here (without relying on PreInit being called)
+	// because otherwise we crash when we access uclog without first importing logtransports
+	// (specifically this now happens in authz tests after I pulled the config into its own
+	// package, which happened to be the only place we imported logtransports)
+	// We still need a lot of simplification / refactoring here but this keeps
+	// reducing uclog accidental dependencies
+	initialize("", loggerPreInitialized, nil, nil)
+}
+
 // Global instance of the logger shared for the process
 var loggerInst = loggerData{loggerState: loggerNotInitialized}
 

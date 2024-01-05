@@ -18,7 +18,7 @@ const maxLogRecordPerTransferRecord = 1000
 // For now we unify up to 1001 (maxLogRecordPerKinesisRecord) log messages/events into a single LogRecordArray to be sent as
 // a single Kinesis record. Each Kinesis record is limited to 1MB so we are staying well under that.
 // Each LogRecordArray has same service/region/host/tenant and then a set of log message/event contents
-func EncodeLogForTransfer(logRecords *logRecord, region region.Region, host string, service service.Service) []*uclog.LogRecordArray {
+func EncodeLogForTransfer(logRecords *logRecord, region region.MachineRegion, host string, service service.Service) []*uclog.LogRecordArray {
 	recordsMap := make(map[uuid.UUID]*uclog.LogRecordArray)
 	recordsReady := []*uclog.LogRecordArray{}
 

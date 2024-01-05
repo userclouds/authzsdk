@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"userclouds.com/infra/jsonclient"
-	"userclouds.com/infra/logutils"
+	"userclouds.com/infra/request"
 )
 
 // Client represents a jsonclient that communicates with the UserClouds API
@@ -17,7 +17,7 @@ type Client struct {
 func New(url, clientName string, opts ...jsonclient.Option) *Client {
 	url = strings.TrimSuffix(url, "/")
 	opts = append(opts,
-		jsonclient.Header(logutils.HeaderSDKVersion, sdkVersion),
+		jsonclient.Header(request.HeaderSDKVersion, sdkVersion),
 		jsonclient.HeaderUserAgent(fmt.Sprintf("UserClouds %s Go SDK %s", clientName, sdkVersion)),
 	)
 	c := jsonclient.New(url, opts...)

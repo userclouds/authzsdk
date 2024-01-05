@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-http-utils/headers"
 	"github.com/gofrs/uuid"
 
 	"userclouds.com/infra/request"
@@ -181,7 +182,7 @@ func (c *Client) refreshBearerTokenRetry(ctx context.Context, retries int) error
 			return ucerr.Wrap(err)
 		}
 
-		c.Apply(Header("Authorization", fmt.Sprintf("Bearer %s", accessToken)))
+		c.Apply(HeaderAuthBearer(accessToken))
 	}
 	return nil
 }
@@ -317,7 +318,7 @@ func (c *Client) makeRequestRetry(ctx context.Context,
 		}
 
 		req.Header = options.headers.Clone()
-		req.Header.Add("content-type", "application/json")
+		req.Header.Add(headers.ContentType, "application/json")
 
 		// add our per-request context headers
 		for _, fn := range options.perRequestHeaders {
