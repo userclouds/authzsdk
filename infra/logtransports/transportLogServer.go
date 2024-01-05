@@ -81,7 +81,7 @@ type logServerTransport struct {
 	config          LogServerTransportConfig
 	service         service.Service
 	host            string
-	region          region.Region
+	region          region.MachineRegion
 	sendRawData     bool
 	defaultTenantID uuid.UUID
 	instanceID      uuid.UUID

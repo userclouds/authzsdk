@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/go-http-utils/headers"
 	"github.com/gofrs/uuid"
 
 	clientcache "userclouds.com/infra/cache/client"
@@ -98,7 +99,7 @@ func CacheProvider(cp clientcache.CacheProvider) Option {
 func PassthroughAuthorization() Option {
 	return optFunc(func(opts *options) {
 		opts.jsonclientOptions = append(opts.jsonclientOptions, jsonclient.PerRequestHeader(func(ctx context.Context) (string, string) {
-			return "Authorization", request.GetAuthHeader(ctx)
+			return headers.Authorization, request.GetAuthHeader(ctx)
 		}))
 		opts.bypassAuthHeaderCheck = true
 	})
@@ -1582,7 +1583,7 @@ type CreateOrganizationRequest struct {
 // CreateOrganization creates an organization
 // Note that if the `IfNotExists` option is used, the organizations must match exactly (eg. name and region),
 // otherwise a 409 Conflict error will still be returned.
-func (c *Client) CreateOrganization(ctx context.Context, id uuid.UUID, name string, region region.Region, opts ...Option) (*Organization, error) {
+func (c *Client) CreateOrganization(ctx context.Context, id uuid.UUID, name string, region region.DataRegion, opts ...Option) (*Organization, error) {
 	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 	var err error
 
@@ -1638,12 +1639,12 @@ func (c *Client) CreateOrganization(ctx context.Context, id uuid.UUID, name stri
 
 // UpdateOrganizationRequest is the request struct to the UpdateOrganization endpoint
 type UpdateOrganizationRequest struct {
-	Name   string        `json:"name" validate:"notempty"`
-	Region region.Region `json:"region"` // this is a UC Region (not an AWS region)
+	Name   string            `json:"name" validate:"notempty"`
+	Region region.DataRegion `json:"region"` // this is a UC Region (not an AWS region)
 }
 
 // UpdateOrganization updates an organization
-func (c *Client) UpdateOrganization(ctx context.Context, id uuid.UUID, name string, region region.Region, opts ...Option) (*Organization, error) {
+func (c *Client) UpdateOrganization(ctx context.Context, id uuid.UUID, name string, region region.DataRegion, opts ...Option) (*Organization, error) {
 	ctx = request.SetRequestData(ctx, nil, uuid.Must(uuid.NewV4()))
 	var err error
 

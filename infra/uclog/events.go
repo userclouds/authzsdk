@@ -199,11 +199,11 @@ func (e LogEvent) Validate() error {
 // LogRecordArray represents a set of log messages/events from a same service/tenant/region/host combination
 // It is used for on the wire representation
 type LogRecordArray struct {
-	Service  service.Service    `json:"s"`
-	TenantID uuid.UUID          `json:"t"`
-	Region   region.Region      `json:"r"`
-	Host     string             `json:"h"`
-	Records  []LogRecordContent `json:"c"`
+	Service  service.Service      `json:"s"`
+	TenantID uuid.UUID            `json:"t"`
+	Region   region.MachineRegion `json:"r"`
+	Host     string               `json:"h"`
+	Records  []LogRecordContent   `json:"c"`
 }
 
 // LogRecordContent represents unique information in log event/message for a fixed service/tenant/region/host combination

@@ -102,8 +102,17 @@ func (e *EdgeType) Equals(other *EdgeType, includeOrg bool) bool {
 		if len(e.Attributes) != len(other.Attributes) {
 			return false
 		}
-		for i := range e.Attributes {
-			if e.Attributes[i] != other.Attributes[i] {
+		otherAttrsMap := make(map[string]Attribute, len(e.Attributes))
+		for _, attr := range other.Attributes {
+			otherAttrsMap[attr.Name] = attr
+		}
+
+		for _, attr := range e.Attributes {
+			oattr, ok := otherAttrsMap[attr.Name]
+			if !ok {
+				return false
+			}
+			if oattr != attr {
 				return false
 			}
 		}
@@ -191,18 +200,11 @@ func (Edge) GetPaginationKeys() pagination.KeyTypes {
 type Organization struct {
 	ucdb.BaseModel
 
-	Name   string        `db:"name" json:"name" validate:"notempty" required:"true"`
-	Region region.Region `db:"region" json:"region"`
+	Name   string            `db:"name" json:"name" validate:"notempty" required:"true"`
+	Region region.DataRegion `db:"region" json:"region"`
 }
 
 //go:generate genvalidate Organization
-
-func (o Organization) extraValidate() error {
-	if o.Region != "" && !region.IsValid(o.Region) {
-		return ucerr.Friendlyf(nil, "invalid region specified: %s", o.Region)
-	}
-	return nil
-}
 
 // GetPaginationKeys is part of the pagination.PageableType interface
 func (Organization) GetPaginationKeys() pagination.KeyTypes {

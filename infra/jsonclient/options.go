@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/go-http-utils/headers"
+
 	"userclouds.com/infra/oidc"
 	"userclouds.com/infra/ucerr"
 )
@@ -79,7 +81,7 @@ func Header(k, v string) Option {
 
 // HeaderUserAgent allows you to add a User-Agent header to jsonclient requests
 func HeaderUserAgent(ua string) Option {
-	return Header("User-Agent", ua)
+	return Header(headers.UserAgent, ua)
 }
 
 // HeaderHost allows you to add a Host header to jsonclient requests
@@ -89,7 +91,7 @@ func HeaderHost(host string) Option {
 
 // HeaderAuth Adds an Authorization header to the request
 func HeaderAuth(auth string) Option {
-	return Header("Authorization", auth)
+	return Header(headers.Authorization, auth)
 }
 
 // HeaderAuthBearer Adds an Authorization header w/ a Bearer token to the request

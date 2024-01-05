@@ -14,6 +14,7 @@ import (
 	"userclouds.com/idp/policy"
 	"userclouds.com/idp/userstore"
 	"userclouds.com/infra/jsonclient"
+	"userclouds.com/infra/namespace/region"
 	"userclouds.com/infra/pagination"
 	"userclouds.com/infra/sdkclient"
 	"userclouds.com/infra/ucerr"
@@ -23,6 +24,7 @@ type options struct {
 	ifNotExists       bool
 	includeAuthN      bool
 	organizationID    uuid.UUID
+	dataRegion        region.DataRegion
 	paginationOptions []pagination.Option
 	jsonclientOptions []jsonclient.Option
 }
@@ -56,6 +58,13 @@ func IncludeAuthN() Option {
 func OrganizationID(organizationID uuid.UUID) Option {
 	return optFunc(func(opts *options) {
 		opts.organizationID = organizationID
+	})
+}
+
+// DataRegion returns an Option that will cause the client to use the specified region for the request
+func DataRegion(dataRegion region.DataRegion) Option {
+	return optFunc(func(opts *options) {
+		opts.dataRegion = dataRegion
 	})
 }
 
@@ -108,8 +117,12 @@ type CreateUserAndAuthnRequest struct {
 
 	OrganizationID uuid.UUID `json:"organization_id"`
 
-	UserAuthn
+	UserAuthn `validate:"skip"`
+
+	DataRegion region.DataRegion `json:"region"`
 }
+
+//go:generate genvalidate CreateUserAndAuthnRequest
 
 // UserAndAuthnResponse is the response body for methods which return user data.
 type UserAndAuthnResponse struct {
@@ -138,10 +151,9 @@ func (c *Client) CreateUser(ctx context.Context, profile userstore.Record, opts 
 	}
 
 	req := CreateUserAndAuthnRequest{
-		Profile: profile,
-	}
-	if options.organizationID != uuid.Nil {
-		req.OrganizationID = options.organizationID
+		Profile:        profile,
+		OrganizationID: options.organizationID,
+		DataRegion:     options.dataRegion,
 	}
 
 	var res UserAndAuthnResponse
@@ -1087,7 +1099,10 @@ type CreateUserWithMutatorRequest struct {
 	Context        policy.ClientContext        `json:"context"`         // context that is provided to the mutator's Access Policy
 	RowData        map[string]ValueAndPurposes `json:"row_data"`        // the values to use for the users table row
 	OrganizationID uuid.UUID                   `json:"organization_id"` // the organization ID to use for the user
+	DataRegion     region.DataRegion           `json:"region"`          // the region to use for the user
 }
+
+//go:generate genvalidate CreateUserWithMutatorRequest
 
 // CreateUserWithMutator creates a new user and initializes the user's data with the given mutator
 func (c *Client) CreateUserWithMutator(ctx context.Context, mutatorID uuid.UUID, clientContext policy.ClientContext, rowData map[string]ValueAndPurposes, opts ...Option) (uuid.UUID, error) {
@@ -1101,6 +1116,7 @@ func (c *Client) CreateUserWithMutator(ctx context.Context, mutatorID uuid.UUID,
 		Context:        clientContext,
 		RowData:        rowData,
 		OrganizationID: options.organizationID,
+		DataRegion:     options.dataRegion,
 	}
 
 	var res uuid.UUID

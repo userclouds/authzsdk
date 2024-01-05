@@ -22,6 +22,11 @@ func InitLoggerAndTransportsForTests(t *testing.T) *TransportTest {
 	if err != nil {
 		logLevel = uclog.LogLevelDebug
 	}
+	return InitLoggerAndTransportsForTestsWithLevel(t, logLevel)
+}
+
+// InitLoggerAndTransportsForTestsWithLevel configures logging to use golang test logging with a specific log level
+func InitLoggerAndTransportsForTestsWithLevel(t *testing.T, logLevel uclog.LogLevel) *TransportTest {
 	ttc := uclog.TransportConfig{
 		Required:    true,
 		MaxLogLevel: logLevel,
@@ -120,6 +125,13 @@ func (tt *TransportTest) LogsContainString(s string) bool {
 		}
 	}
 	return false
+}
+
+// ClearMessages clears all logged messages
+func (tt *TransportTest) ClearMessages() {
+	tt.logMutex.Lock()
+	tt.LogMessages = make(map[uclog.LogLevel][]string)
+	tt.logMutex.Unlock()
 }
 
 // ClearEvents clears all logged events
