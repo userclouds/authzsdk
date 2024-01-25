@@ -109,11 +109,17 @@ func isNil(got interface{}) bool {
 	}
 }
 
+func copyAppendOpts(opt Option, opts ...Option) []Option {
+	newOpts := make([]Option, 0, len(opts)+1)
+	newOpts = append(newOpts, opts...)
+	newOpts = append(newOpts, opt)
+	return newOpts
+}
+
 // ErrorIs asserts that error is not nil and it matches the expected error
 func ErrorIs(t testing.TB, got, expected error, opts ...Option) {
 	t.Helper()
-	NotNil(t, got, opts...)
-	True(t, errors.Is(got, expected), opts...)
+	True(t, errors.Is(got, expected), copyAppendOpts(Errorf("Expected error '%v' got: '%v'", expected, got), opts...)...)
 }
 
 func buildOpts(opts []Option) options {

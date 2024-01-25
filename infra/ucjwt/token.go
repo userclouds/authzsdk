@@ -25,7 +25,9 @@ func CreateToken(ctx context.Context,
 	claims oidc.TokenClaims,
 	jwtIssuerURL string,
 	validFor int64) (string, error) {
-
+	if jwtIssuerURL == "" {
+		return "", ucerr.Errorf("jwtIssuerURL must be set")
+	}
 	// Augment claims with special fields.
 	claims.IssuedAt = time.Now().Unix()
 	claims.Issuer = jwtIssuerURL

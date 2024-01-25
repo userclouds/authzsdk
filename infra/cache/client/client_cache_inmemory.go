@@ -24,19 +24,50 @@ const memSentinelTTL = 70 * time.Second
 type InMemoryClientCacheProvider struct {
 	cache        *cache.Cache
 	keysMutex    sync.Mutex
-	sm           *shared.WriteThroughCacheSentinelManager
+	sm           CacheSentinelManager
 	cacheName    string
 	tombstoneTTL time.Duration
 }
 
+type optionsInMem struct {
+	sm CacheSentinelManager
+}
+
+// OptionInMem specifies optional arguement for InMemoryClientCacheProvider
+type OptionInMem interface {
+	apply(*optionsInMem)
+}
+
+type optFuncInMem func(*optionsInMem)
+
+func (o optFuncInMem) apply(opts *optionsInMem) {
+	o(opts)
+}
+
+// SentinelManagerInMem allows to specify a custom sentinel manager
+func SentinelManagerInMem(sm CacheSentinelManager) OptionInMem {
+	return optFuncInMem(func(opts *optionsInMem) {
+		opts.sm = sm
+	})
+}
+
 // NewInMemoryClientCacheProvider creates a new InMemoryClientCacheProvider
-func NewInMemoryClientCacheProvider(cacheName string) *InMemoryClientCacheProvider {
+func NewInMemoryClientCacheProvider(cacheName string, opts ...OptionInMem) *InMemoryClientCacheProvider {
+	var options optionsInMem
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	sm := options.sm
+	if sm == nil {
+		sm = shared.NewWriteThroughCacheSentinelManager()
+	}
 	// TODO - Underlying library treats 0 and -1 as no expiration, so we need to set it to minimum value and not look up items from the cache, work around that
 	cacheEdges := cache.New(defaultCacheTTL, gcInterval)
 
 	return &InMemoryClientCacheProvider{
 		cache:        cacheEdges,
-		sm:           shared.NewWriteThroughCacheSentinelManager(),
+		sm:           sm,
 		cacheName:    cacheName,
 		tombstoneTTL: shared.InvalidationTombstoneTTL,
 	}
@@ -79,6 +110,17 @@ func (c *InMemoryClientCacheProvider) inMemMultiDelete(keys []string) {
 	}
 }
 
+// inMemMultiExpire sets expiration time on passed in keys to given TTL. Locking is left up to caller
+func (c *InMemoryClientCacheProvider) inMemMultiExpire(keys []string, ttl time.Duration) bool {
+	r := true
+	for _, key := range keys {
+		if value, found := c.cache.Get(key); found {
+			c.cache.Set(key, value, ttl)
+		}
+	}
+	return r
+}
+
 // getStringKeysFromCacheKeys filters out any empty keys and does the type conversion
 func (c *InMemoryClientCacheProvider) getStringKeysFromCacheKeys(keys []shared.CacheKey) []string {
 	strKeys := make([]string, 0, len(keys))
@@ -102,18 +144,36 @@ func (c *InMemoryClientCacheProvider) WriteSentinel(ctx context.Context, stype s
 	defer c.keysMutex.Unlock()
 
 	// If we are doing a delete we can always take a lock (even in case of other deletes)
-	if !c.sm.IsDeleteSentinelPrefix(sentinel) {
+	if !c.sm.CanAlwaysSetSentinel(sentinel) {
 		// Check if the primary key for the operation is already locked
 		if x, found := c.cache.Get(keys[0]); found {
 			if value, ok := x.(string); ok {
 				// If the key is already locked and see if we have precedence
 				if c.sm.IsSentinelValue(value) {
-					if !c.sm.CanSetSentinel(shared.CacheSentinel(value), sentinel) {
+					if !c.sm.CanSetSentinelGivenCurrVal(shared.CacheSentinel(value), sentinel) {
 						return shared.NoLockSentinel, nil
 					}
 				}
 			}
 		}
+
+		// First make sure that we don't overwrite a tombstone and extend its TTL since it may otherwise expire during the operation
+		// leaving the key unlocked
+		newKeys := make([]string, 0, len(keys))
+		newKeys = append(newKeys, keys[0])
+		for i := 1; i < len(keys); i++ {
+			if x, found := c.cache.Get(keys[i]); found {
+				if value, ok := x.(string); ok && !shared.IsTombstoneSentinel(value) {
+					newKeys = append(newKeys, keys[i])
+				} else if stype != shared.Read {
+					// If the key is a tombstone, refresh its TTL
+					c.cache.Set(keys[i], value, c.tombstoneTTL)
+				}
+			} else {
+				newKeys = append(newKeys, keys[i])
+			}
+		}
+		keys = newKeys
 	}
 	// If key is not found, doesn't have a lock, or our lock has precedence we can set it
 	c.inMemMultiSet(keys, string(sentinel), false, memSentinelTTL)
@@ -163,7 +223,7 @@ func (c *InMemoryClientCacheProvider) SetValue(ctx context.Context, lkeyIn share
 
 	if x, found := c.cache.Get(lkey); found {
 		if cV, ok := x.(string); ok {
-			set, clear, conflict := c.sm.CanSetValue(cV, val, sentinel)
+			set, clear, conflict, refresh := c.sm.CanSetValue(cV, val, sentinel)
 			if set {
 				// The sentinel is still in the key which means nothing interrupted the operation and value can be safely stored in the cache
 				uclog.Verbosef(ctx, "Cache[%v] set key %v", c.cacheName, keys)
@@ -177,7 +237,12 @@ func (c *InMemoryClientCacheProvider) SetValue(ctx context.Context, lkeyIn share
 				c.inMemMultiSet(keys, cV+string(sentinel), false, memSentinelTTL)
 				uclog.Verbosef(ctx, "Cache[%v] lock upgraded to conflict on write collision %v got %v added %v", c.cacheName, lkey, cV, sentinel)
 				return false, true, nil
+			} else if refresh {
+				c.inMemMultiExpire(keys, c.tombstoneTTL)
+				uclog.Verbosef(ctx, "Cache[%v] keys expiration TTL reset - %v got %v had %v", c.cacheName, keys, cV, sentinel)
+				return false, false, nil
 			}
+
 			uclog.Verbosef(ctx, "Cache[%v] not set key %v on sentinel mismatch got %v expect %v", c.cacheName, lkey, cV, sentinel)
 			return false, true, nil
 		}
@@ -251,7 +316,7 @@ func (c *InMemoryClientCacheProvider) GetValue(ctx context.Context, keyIn shared
 	}
 
 	if value, ok := x.(string); ok {
-		if c.sm.IsSentinelValue(value) || shared.IsTombstoneSentinel(value) {
+		if c.sm.IsSentinelValue(value) {
 			uclog.Verbosef(ctx, "Cache[%v] key %v is locked or tombstoned for in progress op %v", c.cacheName, key, value)
 			return nil, &value, shared.NoLockSentinel, nil
 		}
@@ -285,7 +350,7 @@ func (c *InMemoryClientCacheProvider) DeleteValue(ctx context.Context, keysIn []
 		for _, k := range keys {
 			if x, found := c.cache.Get(k); found {
 				if v, ok := x.(string); ok {
-					if c.sm.IsSentinelValue(v) || shared.IsTombstoneSentinel(v) {
+					if c.sm.IsSentinelValue(v) {
 						// Skip locked key
 						continue
 					}

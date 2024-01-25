@@ -14,8 +14,8 @@ const regionEnvVar = "UC_REGION"
 // MachineRegion represents a region for our systems or located
 type MachineRegion string
 
-// MachineRegions is a list of regions (real or fake) UC runs in for each universe
-var MachineRegions = map[universe.Universe][]MachineRegion{
+// machineRegions is a list of regions (real or fake) UC runs in for each universe
+var machineRegions = map[universe.Universe][]MachineRegion{
 	universe.Prod:      {"aws-us-west-2", "aws-us-east-1"},
 	universe.Staging:   {"aws-us-west-2", "aws-us-east-1"},
 	universe.Debug:     {"aws-us-west-2", "aws-us-east-1"},
@@ -23,6 +23,11 @@ var MachineRegions = map[universe.Universe][]MachineRegion{
 	universe.Container: {""},
 	universe.CI:        {""},
 	universe.Test:      {""},
+}
+
+// MachineRegionsForUniverse returns the list of regions for a given universe
+func MachineRegionsForUniverse(u universe.Universe) []MachineRegion {
+	return machineRegions[u]
 }
 
 // Current returns the current region, or empty string
@@ -48,7 +53,7 @@ func GetAWSRegion(r MachineRegion) string {
 
 // IsValid returns true if the region is a valid region for a given universe
 func IsValid(region MachineRegion, u universe.Universe) bool {
-	for _, r := range MachineRegions[u] {
+	for _, r := range machineRegions[u] {
 		if r == region {
 			return true
 		}
@@ -68,12 +73,25 @@ func (r MachineRegion) Validate() error {
 // DataRegion represents a region for where user data should be hosted
 type DataRegion string
 
-// DataRegions is a list of regions that user data can be hosted in
-var DataRegions = []DataRegion{"aws-us-west-2", "aws-us-east-1"}
+// dataRegions is a list of regions that user data can be hosted in
+var dataRegions = map[universe.Universe][]DataRegion{
+	universe.Prod:      {"aws-us-west-2", "aws-us-east-1"},
+	universe.Staging:   {"aws-us-west-2"},
+	universe.Debug:     {""},
+	universe.Dev:       {""},
+	universe.Container: {""},
+	universe.CI:        {"aws-us-west-2", "aws-us-east-1"},
+	universe.Test:      {"aws-us-west-2", "aws-us-east-1"},
+}
+
+// DataRegionsForUniverse returns the list of regions for a given universe
+func DataRegionsForUniverse(u universe.Universe) []DataRegion {
+	return dataRegions[u]
+}
 
 // Validate implements Validateable
 func (r DataRegion) Validate() error {
-	for _, reg := range DataRegions {
+	for _, reg := range dataRegions[universe.Current()] {
 		if string(r) == string(reg) {
 			return nil
 		}
