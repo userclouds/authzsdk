@@ -96,7 +96,6 @@ type LogEvent struct {
 	UserAgent string    // User-Agent header from the request
 	// Identity of the sender
 	TenantID uuid.UUID
-	AppID    uuid.UUID
 }
 
 // LogEventTypeInfo is contains information about a particular event type

@@ -20,8 +20,8 @@ func (o EdgeType) Validate() error {
 	if o.TargetObjectTypeID.IsNil() {
 		return ucerr.Friendlyf(nil, "EdgeType.TargetObjectTypeID (%v) can't be nil", o.ID)
 	}
-	for i := range o.Attributes {
-		if err := o.Attributes[i].Validate(); err != nil {
+	for _, item := range o.Attributes {
+		if err := item.Validate(); err != nil {
 			return ucerr.Wrap(err)
 		}
 	}
