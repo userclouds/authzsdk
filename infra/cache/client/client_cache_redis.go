@@ -27,17 +27,57 @@ const (
 type RedisClientCacheProvider struct {
 	rc           *redis.Client
 	prefix       string
-	sm           *shared.WriteThroughCacheSentinelManager
+	sm           CacheSentinelManager
 	cacheName    string
 	tombstoneTTL time.Duration
 }
 
+type optionsRedis struct {
+	sm     CacheSentinelManager
+	prefix string
+}
+
+// OptionRedis specifies optional arguement for RedisClientCacheProvider
+type OptionRedis interface {
+	apply(*optionsRedis)
+}
+
+type optFuncRedis func(*optionsRedis)
+
+func (o optFuncRedis) apply(opts *optionsRedis) {
+	o(opts)
+}
+
+// SentinelManagerRedis allows specifying a custom CacheSentinelManager
+func SentinelManagerRedis(sm CacheSentinelManager) OptionRedis {
+	return optFuncRedis(func(opts *optionsRedis) {
+		opts.sm = sm
+	})
+}
+
+// KeyPrefixRedis allows specifying a key prefix that all keys managed by this cache have to have
+func KeyPrefixRedis(prefix string) OptionRedis {
+	return optFuncRedis(func(opts *optionsRedis) {
+		opts.prefix = prefix
+	})
+}
+
 // NewRedisClientCacheProvider creates a new RedisClientCacheProvider
-func NewRedisClientCacheProvider(rc *redis.Client, prefix string, cacheName string) *RedisClientCacheProvider {
+func NewRedisClientCacheProvider(rc *redis.Client, cacheName string, opts ...OptionRedis) *RedisClientCacheProvider {
+	var options optionsRedis
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	sm := options.sm
+	if sm == nil {
+		sm = shared.NewWriteThroughCacheSentinelManager()
+	}
+
 	return &RedisClientCacheProvider{
 		rc:           rc,
-		prefix:       prefix,
-		sm:           shared.NewWriteThroughCacheSentinelManager(),
+		prefix:       options.prefix,
+		sm:           sm,
 		cacheName:    cacheName,
 		tombstoneTTL: shared.InvalidationTombstoneTTL,
 	}
@@ -61,20 +101,39 @@ func (c *RedisClientCacheProvider) WriteSentinel(ctx context.Context, stype shar
 		// Operation is committed only if the watched keys remain unchanged.
 		_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
 			lockValue = shared.NoLockSentinel
-			if !c.sm.IsDeleteSentinelPrefix(sentinel) {
+			if !c.sm.CanAlwaysSetSentinel(sentinel) {
 				// Check if the primary key for the operation is already locked
-				value, err := c.rc.Get(ctx, keys[0]).Result()
+				values, err := c.rc.MGet(ctx, keys...).Result()
 				if err != nil && err != redis.Nil {
 					// If we can't read the key, we can't take a lock
 					return ucerr.Wrap(err)
 				}
+				// Get the value of the primary key
+				value, ok := values[0].(string)
+				if values[0] != nil && !ok {
+					return ucerr.Errorf("Cache[%v] WriteSentinel - invalid value  %v in cache", c.cacheName, values[0])
+				}
 				// If the key is already locked and see if we have precedence
 				if err == nil && c.sm.IsSentinelValue(value) {
-					if !c.sm.CanSetSentinel(shared.CacheSentinel(value), sentinel) {
+					if !c.sm.CanSetSentinelGivenCurrVal(shared.CacheSentinel(value), sentinel) {
 						return nil
 					}
 				}
 				// Proceed to take the lock if key is empty (err == redis.Nil) or it doesn't contain sentinel value
+
+				// First make sure that we don't overwrite a tombstone and extend its TTL since it may otherwise expire during the operation
+				// leaving the key unlocked
+				newKeys := make([]string, 0, len(keys))
+				newKeys = append(newKeys, keys[0])
+				for i := 1; i < len(keys); i++ {
+					if values[i] == nil || !shared.IsTombstoneSentinel(values[i].(string)) {
+						newKeys = append(newKeys, keys[i])
+					} else if stype != shared.Read {
+						// If the key is a tombstone, refresh its TTL
+						pipe.Expire(ctx, keys[i], c.tombstoneTTL)
+					}
+				}
+				keys = newKeys
 			}
 
 			if err := multiSetWithPipe(ctx, pipe, keys, string(sentinel), shared.SentinelTTL); err != nil {
@@ -243,7 +302,7 @@ func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.C
 				return nil
 			}
 
-			set, clear, conflict := c.sm.CanSetValue(cV, val, sentinel)
+			set, clear, conflict, refresh := c.sm.CanSetValue(cV, val, sentinel)
 
 			if set { // Value can be set
 				uclog.Verbosef(ctx, "Cache[%v] set key %v ttl %v", c.cacheName, keys, ttl)
@@ -264,6 +323,14 @@ func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.C
 				}
 				uclog.Verbosef(ctx, "Cache[%v] lock upgraded to conflict on write collision %v got %v added %v", c.cacheName, lkey, cV, sentinel)
 				conflictDetected = true
+				return nil
+			} else if refresh { // Refresh TTL on current value in the keys
+				uclog.Verbosef(ctx, "Cache[%v] refreshing TTL in %v got %v added %v", c.cacheName, keys, cV, sentinel)
+				for _, key := range keys {
+					if err := pipe.Expire(ctx, key, c.tombstoneTTL).Err(); err != nil && err != redis.Nil {
+						uclog.Errorf(ctx, "Cache[%v] - error reseting expiration key(s) %v mismatch -  %v", c.cacheName, key, err)
+					}
+				}
 				return nil
 			}
 
@@ -382,7 +449,7 @@ func (c *RedisClientCacheProvider) GetValues(ctx context.Context, keysIn []share
 	for i, v := range valuesOut {
 		if v != nil {
 			if vS, ok := v.(string); ok {
-				if !c.sm.IsSentinelValue(vS) && !shared.IsTombstoneSentinel(vS) {
+				if !c.sm.IsSentinelValue(vS) {
 					val[i] = &vS
 					uclog.Verbosef(ctx, "Cache[%v] hit key %v", c.cacheName, keys[i])
 					continue
@@ -421,9 +488,31 @@ func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []sha
 		return ucerr.Wrap(err)
 	}
 	if len(keysAll) != 0 {
-		if force && !setTombstone {
-			return c.rc.Del(ctx, keysAll...).Err()
+		// If we are forcing the delete operation, the current value of the keys is not relevant
+		if force {
+			if !setTombstone {
+				// If tombstone is not set, just delete the keys
+				return c.rc.Del(ctx, keysAll...).Err()
+			}
+			if len(keysAll) == 1 {
+				// If we have single key (common case), use Set instead of MSet to avoid the overhead of creating a pipeline
+				uclog.Verbosef(ctx, "Cache[%v] DeleteValue - tombstoned keys %v", c.cacheName, keysAll[0])
+				return c.rc.Set(ctx, keysAll[0], string(shared.TombstoneSentinel), c.tombstoneTTL).Err()
+			}
+			// If we have multiple keys, use a pipeline to set the tombstone and expiration time
+			pipe := c.rc.Pipeline()
+			if err := multiSetWithPipe(ctx, pipe, keysAll, string(shared.TombstoneSentinel), c.tombstoneTTL); err != nil {
+				uclog.Errorf(ctx, "Cache[%v] error setting tombstone on key(s) %v -  %v", c.cacheName, keysAll, err)
+				return ucerr.Wrap(err)
+			}
+			_, err = pipe.Exec(ctx)
+			if err == nil {
+				uclog.Verbosef(ctx, "Cache[%v] DeleteValue - tombstoned keys %v", c.cacheName, keysAll)
+			}
+			return ucerr.Wrap(err)
 		}
+
+		// If the operation is not forced we need to read current values of the keys and only delete them if they don't contain sentinel or tombstone
 		batchSize := 2
 		var end int
 		for start := 0; start < len(keysAll); start += batchSize {
@@ -438,14 +527,6 @@ func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []sha
 			txf := func(tx *redis.Tx) error {
 				// Operation is committed only if the watched keys remain unchanged.
 				_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
-					if force {
-						if err := multiSetWithPipe(ctx, pipe, keys, string(shared.TombstoneSentinel), c.tombstoneTTL); err != nil {
-							uclog.Errorf(ctx, "Cache[%v] error setting tombstone on key(s) %v -  %v", c.cacheName, keys, err)
-							return ucerr.Wrap(err)
-						}
-						uclog.Verbosef(ctx, "Cache[%v] DeleteValue - tombstoned keys %v", c.cacheName, keys)
-						return nil
-					}
 					values, err := c.rc.MGet(ctx, keys...).Result()
 					if err != nil && err != redis.Nil {
 						return ucerr.Wrap(err)
@@ -453,7 +534,7 @@ func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []sha
 
 					keysToDelete := []string{}
 					for i, v := range values {
-						if vS, ok := v.(string); ok && !c.sm.IsSentinelValue(vS) && !shared.IsTombstoneSentinel(vS) {
+						if vS, ok := v.(string); ok && !c.sm.IsSentinelValue(vS) {
 							keysToDelete = append(keysToDelete, keys[i])
 						}
 					}

@@ -2,7 +2,6 @@ package tokenizer
 
 import (
 	"userclouds.com/idp/policy"
-	"userclouds.com/infra/ucerr"
 )
 
 // CreateAccessPolicyRequest creates a new AP
@@ -40,7 +39,7 @@ type CreateTransformerRequest struct {
 
 //go:generate genvalidate CreateTransformerRequest
 
-// Note: Transformers are immutable for recordkeeping, so there are no updates
+// Note: Transformers are immutable for record keeping, so there are no updates
 
 // TestTransformerRequest lets you run an unsaved policy for testing
 type TestTransformerRequest struct {
@@ -48,13 +47,7 @@ type TestTransformerRequest struct {
 	Data        string             `json:"data"`
 }
 
-// Validate implements Validateable
-func (t TestTransformerRequest) Validate() error {
-	if t.Transformer.Function == "" {
-		return ucerr.New("Transformer.Function can't be empty")
-	}
-	return nil
-}
+//go:generate genvalidate TestTransformerRequest
 
 // TestTransformerResponse is the response to a TestTransformer call
 type TestTransformerResponse struct {
@@ -67,12 +60,16 @@ type TestAccessPolicyRequest struct {
 	Context      policy.AccessPolicyContext `json:"context"`
 }
 
+//go:generate genvalidate TestAccessPolicyRequest
+
 // TestAccessPolicyTemplateRequest lets you run an unsaved policy template with a given context for testing
 type TestAccessPolicyTemplateRequest struct {
 	AccessPolicyTemplate policy.AccessPolicyTemplate `json:"access_policy_template"`
 	Context              policy.AccessPolicyContext  `json:"context"`
 	Params               string                      `json:"params"`
 }
+
+//go:generate genvalidate TestAccessPolicyTemplateRequest
 
 // TestAccessPolicyResponse is the response to a TestAccessPolicy call
 type TestAccessPolicyResponse struct {
