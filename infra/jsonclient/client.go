@@ -438,3 +438,8 @@ func GetDetailedErrorInfo(err error) *SDKStructuredError {
 	}
 	return nil
 }
+
+// IsHTTPNotFound returns true if the error is an HTTP 404 Not Found error
+func IsHTTPNotFound(err error) bool {
+	return GetHTTPStatusCode(err) == http.StatusNotFound
+}

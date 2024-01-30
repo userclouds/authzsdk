@@ -131,11 +131,17 @@ const (
 	// PolicyTypeInvalid is an invalid policy type
 	PolicyTypeInvalid PolicyType = "invalid"
 
-	// PolicyTypeCompositeIntersection is the type for composite policies in which all components must be satisfied to grant access
-	PolicyTypeCompositeIntersection = "compositeintersection"
+	// PolicyTypeCompositeAnd is the type for composite policies in which all components must be satisfied to grant access
+	PolicyTypeCompositeAnd = "composite_and"
 
-	// PolicyTypeCompositeUnion is the type for composite policies in which any component must be satisfied to grant access
-	PolicyTypeCompositeUnion = "compositeunion"
+	// PolicyTypeCompositeOr is the type for composite policies in which any component must be satisfied to grant access
+	PolicyTypeCompositeOr = "composite_or"
+
+	// PolicyTypeCompositeIntersectionDeprecated replaced by PolicyTypeCompositeAnd
+	PolicyTypeCompositeIntersectionDeprecated = "compositeintersection"
+
+	// PolicyTypeCompositeUnionDeprecated replaced by PolicyTypeCompositeOr
+	PolicyTypeCompositeUnionDeprecated = "compositeunion"
 )
 
 //go:generate genconstant PolicyType
@@ -254,6 +260,8 @@ type AccessPolicyContext struct {
 	User   userstore.Record `json:"user"`
 }
 
+//go:generate genvalidate AccessPolicyContext
+
 // ServerContext is automatically injected by the server at resolution time
 type ServerContext struct {
 	// TODO: add token creation time
@@ -262,10 +270,14 @@ type ServerContext struct {
 	Action    Action          `json:"action"`
 }
 
+//go:generate genvalidate ServerContext
+
 // ResolverContext contains automatic data about the authenticated user/system at resolution time
 type ResolverContext struct {
 	Username string `json:"username"`
 }
+
+//go:generate genvalidate ResolverContext
 
 // Action identifies the reason access policy is being invoked
 type Action string

@@ -1,6 +1,9 @@
 package authz
 
 import (
+	"fmt"
+	"sort"
+
 	"github.com/gofrs/uuid"
 
 	"userclouds.com/infra/namespace/region"
@@ -80,6 +83,15 @@ func (a *Attribute) extraValidate() error {
 
 // Attributes is a collection of Attribute, used as a column/field in EdgeType
 type Attributes []Attribute
+
+func (attrs Attributes) String() string {
+	strs := make([]string, 0, len(attrs))
+	for _, attr := range attrs {
+		strs = append(strs, fmt.Sprintf("%v", attr))
+	}
+	sort.Strings(strs)
+	return fmt.Sprintf("%v", strs)
+}
 
 //go:generate gendbjson Attributes
 

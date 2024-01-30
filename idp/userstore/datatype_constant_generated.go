@@ -13,6 +13,8 @@ func (t DataType) MarshalText() ([]byte, error) {
 		return []byte("birthdate"), nil
 	case DataTypeBoolean:
 		return []byte("boolean"), nil
+	case DataTypeComposite:
+		return []byte("composite"), nil
 	case DataTypeDate:
 		return []byte("date"), nil
 	case DataTypeE164PhoneNumber:
@@ -48,6 +50,8 @@ func (t *DataType) UnmarshalText(b []byte) error {
 		*t = DataTypeBirthdate
 	case "boolean":
 		*t = DataTypeBoolean
+	case "composite":
+		*t = DataTypeComposite
 	case "date":
 		*t = DataTypeDate
 	case "e164_phonenumber":
@@ -83,6 +87,8 @@ func (t *DataType) Validate() error {
 		return nil
 	case DataTypeBoolean:
 		return nil
+	case DataTypeComposite:
+		return nil
 	case DataTypeDate:
 		return nil
 	case DataTypeE164PhoneNumber:
@@ -112,6 +118,7 @@ func (t DataType) Enum() []interface{} {
 		"address",
 		"birthdate",
 		"boolean",
+		"composite",
 		"date",
 		"e164_phonenumber",
 		"email",
@@ -129,6 +136,7 @@ var AllDataTypes = []DataType{
 	DataTypeAddress,
 	DataTypeBirthdate,
 	DataTypeBoolean,
+	DataTypeComposite,
 	DataTypeDate,
 	DataTypeE164PhoneNumber,
 	DataTypeEmail,
