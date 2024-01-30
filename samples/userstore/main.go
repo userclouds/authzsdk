@@ -83,7 +83,7 @@ func setup(ctx context.Context) (*idp.Client, uuid.UUID, uuid.UUID, uuid.UUID, u
 		Name: "CheckAPIKeySecurityTeam",
 		Components: []policy.AccessPolicyComponent{{Template: &userstore.ResourceID{ID: aptID},
 			TemplateParameters: `{"api_key": "api_key_for_security_team"}`}},
-		PolicyType: policy.PolicyTypeCompositeIntersection,
+		PolicyType: policy.PolicyTypeCompositeAnd,
 	}
 	if ap, err = tc.CreateAccessPolicy(ctx, *ap, idp.IfNotExists()); err != nil {
 		panic(err)
@@ -226,7 +226,7 @@ func setup(ctx context.Context) (*idp.Client, uuid.UUID, uuid.UUID, uuid.UUID, u
 		Name: "CheckAPIKeyDataScienceTeam",
 		Components: []policy.AccessPolicyComponent{{Template: &userstore.ResourceID{ID: aptID},
 			TemplateParameters: `{"api_key": "api_key_for_data_science"}`}},
-		PolicyType: policy.PolicyTypeCompositeIntersection,
+		PolicyType: policy.PolicyTypeCompositeAnd,
 	}
 
 	if tokenResolvePolicy, err = tc.CreateAccessPolicy(ctx, *tokenResolvePolicy, idp.IfNotExists()); err != nil {
