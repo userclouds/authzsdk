@@ -1,5 +1,7 @@
 package pagination
 
+import "fmt"
+
 // Option defines a method of passing optional args to paginated List APIs
 type Option interface {
 	apply(*Paginator)
@@ -93,7 +95,12 @@ func EndingBefore(cursor Cursor) Option {
 func Filter(filter string) Option {
 	return optFunc(
 		func(p *Paginator) {
-			p.filter = filter
+			if filter != "" {
+				if p.filter != "" {
+					filter = fmt.Sprintf("(%s,AND,%s)", p.filter, filter)
+				}
+				p.filter = filter
+			}
 		})
 }
 

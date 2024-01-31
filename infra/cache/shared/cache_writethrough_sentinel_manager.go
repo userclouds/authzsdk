@@ -35,13 +35,19 @@ func (c *WriteThroughCacheSentinelManager) GenerateSentinel(stype SentinelType) 
 	return NoLockSentinel
 }
 
-// CanSetSentinel returns true if new sentinel can be set for the given current sentinel
-func (c *WriteThroughCacheSentinelManager) CanSetSentinel(currVal CacheSentinel, newVal CacheSentinel) bool {
+// CanAlwaysSetSentinel returns true if the sentinel can be set without reading current value
+func (c *WriteThroughCacheSentinelManager) CanAlwaysSetSentinel(newVal CacheSentinel) bool {
+	return false // We could return true for delete sentinel if we didn't need to check for tombstones. TODO we could optimize this
+}
+
+// CanSetSentinelGivenCurrVal returns true if new sentinel can be set for the given current sentinel
+func (c *WriteThroughCacheSentinelManager) CanSetSentinelGivenCurrVal(currVal CacheSentinel, newVal CacheSentinel) bool {
 	// If we are doing a read - read sentinel loses to all other sentinels including other in progress reads
 	if c.IsReadSentinelPrefix(newVal) {
 		return false
 	}
-	// If there is delete in progress, writes can't take a lock and delete don't need to
+
+	// If there is delete in progress, writes can't take a lock delete don't need to
 	if c.IsDeleteSentinelPrefix(currVal) {
 		return false
 	}
@@ -54,32 +60,35 @@ func (c *WriteThroughCacheSentinelManager) CanSetSentinel(currVal CacheSentinel,
 }
 
 // CanSetValue returns operation to take given existing key value, new value, and sentinel for the operation
-func (c *WriteThroughCacheSentinelManager) CanSetValue(currVal string, val string, sentinel CacheSentinel) (set bool, clear bool, conflict bool) {
+func (c *WriteThroughCacheSentinelManager) CanSetValue(currVal string, val string, sentinel CacheSentinel) (set bool, clear bool, conflict bool, refresh bool) {
 	if currVal == string(sentinel) {
 		// The sentinel is still in the key which means nothing interrupted the operation and value can be safely stored in the cache
-		return true, false, false
+		return true, false, false, false
 	} else if c.IsWriteSentinelPrefix(sentinel) {
 		// We are doing a write of an item and we are interleaved with other write(s)
 		if !c.IsSentinelValue(currVal) && val != currVal {
-			// There is a value in the cache and it doesn't match what we got from the server, clear the cache because we had interleaving writes
-			// finish before us with a different value. We can't tell what the server side order of completion was
-			return false, true, false
+			// If there is a tombstone in the cache, we overlapped with either a delete or an invalidation
+			if currVal != string(TombstoneSentinel) {
+				// There is a value in the cache and it doesn't match what we got from the server, clear the cache because we had interleaving writes
+				// finish before us with a different value. We can't tell what the server side order of completion was
+				return false, true, false, false
+			}
 		} else if strings.HasPrefix(currVal, string(sentinel)) {
 			// Another write that was interleaved with this one and finished first, setting the sentinel to indicate conflict. We can't tell what the server
 			// side order of completion was so clear the cache
-			return false, true, false
+			return false, true, false, false
 		} else if c.IsWriteSentinelPrefix(CacheSentinel(currVal)) {
 			// There is another write in progress that started after us. There is no way to tell if that write will commit same value to the cache
 			// so upgrade its lock to conflict so it doesn't commit its result
-			return false, false, true
+			return false, false, true, false
 		}
 	}
-	return false, false, false
+	return false, false, false, false
 }
 
 // IsSentinelValue returns true if the value passed in is a sentinel value
 func (c *WriteThroughCacheSentinelManager) IsSentinelValue(v string) bool {
-	return strings.HasPrefix(v, sentinelPrefix)
+	return strings.HasPrefix(v, sentinelPrefix) || v == string(TombstoneSentinel)
 }
 
 // IsInvalidatingSentinelValue returns true if the sentinel requires invalidating the value across other
