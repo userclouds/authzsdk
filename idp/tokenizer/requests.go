@@ -51,16 +51,10 @@ type ResolveTokenResponse struct {
 
 // InspectTokenRequest contains the data required to inspect a token
 type InspectTokenRequest struct {
-	Token string `json:"token"`
+	Token string `json:"token" validate:"notempty"`
 }
 
-// Validate implements Validateable
-func (i InspectTokenRequest) Validate() error {
-	if i.Token == "" {
-		return ucerr.New("token can't be empty")
-	}
-	return nil
-}
+//go:generate genvalidate InspectTokenRequest
 
 // InspectTokenResponse contains the data returned by an InspectToken call
 type InspectTokenResponse struct {

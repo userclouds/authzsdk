@@ -28,7 +28,11 @@ func (o optFunc) apply(os *options) {
 // Errorf adds a more specific message to the failure
 func Errorf(msg string, args ...interface{}) Option {
 	return optFunc(func(os *options) {
-		os.msg = fmt.Sprintf(msg, args...)
+		if os.msg == "" {
+			os.msg = fmt.Sprintf(msg, args...)
+		} else {
+			os.msg = fmt.Sprintf("%s\n%s", os.msg, fmt.Sprintf(msg, args...))
+		}
 	})
 }
 

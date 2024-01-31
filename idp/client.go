@@ -24,6 +24,7 @@ type options struct {
 	ifNotExists       bool
 	includeAuthN      bool
 	organizationID    uuid.UUID
+	userID            uuid.UUID
 	dataRegion        region.DataRegion
 	paginationOptions []pagination.Option
 	jsonclientOptions []jsonclient.Option
@@ -58,6 +59,13 @@ func IncludeAuthN() Option {
 func OrganizationID(organizationID uuid.UUID) Option {
 	return optFunc(func(opts *options) {
 		opts.organizationID = organizationID
+	})
+}
+
+// UserID returns an Option that will cause the client to use the specified user ID for the create user request
+func UserID(userID uuid.UUID) Option {
+	return optFunc(func(opts *options) {
+		opts.userID = userID
 	})
 }
 
@@ -113,6 +121,8 @@ func NewClient(url string, opts ...Option) (*Client, error) {
 
 // CreateUserAndAuthnRequest creates a user on the IDP
 type CreateUserAndAuthnRequest struct {
+	ID uuid.UUID `json:"id"`
+
 	Profile userstore.Record `json:"profile"`
 
 	OrganizationID uuid.UUID `json:"organization_id"`
@@ -151,6 +161,7 @@ func (c *Client) CreateUser(ctx context.Context, profile userstore.Record, opts 
 	}
 
 	req := CreateUserAndAuthnRequest{
+		ID:             options.userID,
 		Profile:        profile,
 		OrganizationID: options.organizationID,
 		DataRegion:     options.dataRegion,
@@ -198,6 +209,8 @@ type UpdateUserRequest struct {
 	// Only fields set in the underlying map will be updated
 	Profile userstore.Record `json:"profile"`
 }
+
+//go:generate genvalidate UpdateUserRequest
 
 // UpdateUser updates user profile data for a given user ID
 func (c *Client) UpdateUser(ctx context.Context, id uuid.UUID, req UpdateUserRequest) (*UserAndAuthnResponse, error) {
@@ -398,9 +411,11 @@ type ColumnRetentionDuration struct {
 	Duration        RetentionDuration            `json:"duration"`
 	UseDefault      bool                         `json:"use_default"`
 	Version         int                          `json:"version"`
-	DefaultDuration *RetentionDuration           `json:"default_duration"`
-	PurposeName     *string                      `json:"purpose_name"`
+	DefaultDuration *RetentionDuration           `json:"default_duration" validate:"allownil"`
+	PurposeName     *string                      `json:"purpose_name" validate:"allownil,notempty"`
 }
+
+//go:generate genvalidate ColumnRetentionDuration
 
 // UpdateColumnRetentionDurationRequest is is used to update a single retention duration for a column.
 // The retention duration must have UseDefault set to false. ID must be nil for a creation request,
@@ -917,10 +932,12 @@ func (c *Client) UpdateMutator(ctx context.Context, mutatorID uuid.UUID, updated
 
 // ExecuteAccessorRequest is the request body for accessing user data
 type ExecuteAccessorRequest struct {
-	AccessorID     uuid.UUID                    `json:"accessor_id"`     // the accessor that specifies what data to access
-	Context        policy.ClientContext         `json:"context"`         // context that is provided to the accessor Access Policy
-	SelectorValues userstore.UserSelectorValues `json:"selector_values"` // the values to use for the selector
+	AccessorID     uuid.UUID                    `json:"accessor_id" validate:"notnil"` // the accessor that specifies what data to access
+	Context        policy.ClientContext         `json:"context"`                       // context that is provided to the accessor Access Policy
+	SelectorValues userstore.UserSelectorValues `json:"selector_values"`               // the values to use for the selector
 }
+
+//go:generate genvalidate ExecuteAccessorRequest
 
 // ExecuteAccessorResponse is the response body for accessing user data
 type ExecuteAccessorResponse struct {
@@ -1095,6 +1112,7 @@ func (c *Client) DeletePurpose(ctx context.Context, purposeID uuid.UUID) error {
 
 // CreateUserWithMutatorRequest is the request body for creating a new user with a mutator
 type CreateUserWithMutatorRequest struct {
+	ID             uuid.UUID                   `json:"id"`              // ID of the user to create (optional)
 	MutatorID      uuid.UUID                   `json:"mutator_id"`      // ID of the mutator that specifies what columns to edit
 	Context        policy.ClientContext        `json:"context"`         // context that is provided to the mutator's Access Policy
 	RowData        map[string]ValueAndPurposes `json:"row_data"`        // the values to use for the users table row
@@ -1112,6 +1130,7 @@ func (c *Client) CreateUserWithMutator(ctx context.Context, mutatorID uuid.UUID,
 	}
 
 	req := CreateUserWithMutatorRequest{
+		ID:             options.userID,
 		MutatorID:      mutatorID,
 		Context:        clientContext,
 		RowData:        rowData,
@@ -1132,6 +1151,8 @@ type GetConsentedPurposesForUserRequest struct {
 	UserID  uuid.UUID              `json:"user_id"`
 	Columns []userstore.ResourceID `json:"columns"`
 }
+
+//go:generate genvalidate GetConsentedPurposesForUserRequest
 
 // ColumnConsentedPurposes is a tuple for specifying the column and the purposes that are consented for that column
 type ColumnConsentedPurposes struct {
