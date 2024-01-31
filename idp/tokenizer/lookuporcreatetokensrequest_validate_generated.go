@@ -8,13 +8,13 @@ import (
 
 // Validate implements Validateable
 func (o LookupOrCreateTokensRequest) Validate() error {
-	for i := range o.TransformerRIDs {
-		if err := o.TransformerRIDs[i].Validate(); err != nil {
+	for _, item := range o.TransformerRIDs {
+		if err := item.Validate(); err != nil {
 			return ucerr.Wrap(err)
 		}
 	}
-	for i := range o.AccessPolicyRIDs {
-		if err := o.AccessPolicyRIDs[i].Validate(); err != nil {
+	for _, item := range o.AccessPolicyRIDs {
+		if err := item.Validate(); err != nil {
 			return ucerr.Wrap(err)
 		}
 	}
