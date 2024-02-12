@@ -132,6 +132,10 @@ type CacheKeyNameProvider interface {
 	GetKeyNameWithString(id CacheKeyNameID, itemName string) shared.CacheKey
 	// GetKeyNameStatic is a wrapper around GetKeyName that passing in empty []string
 	GetKeyNameStatic(id CacheKeyNameID) shared.CacheKey
+	// GetPrefix returns the prefix for the cache keys
+	GetPrefix() string
+	// GetAllKeyIDs returns all the key IDs that are used by the cache
+	GetAllKeyIDs() []string
 }
 
 // CacheSentinelManager is the interface for managaing cache sentinels to implement concurrency handling
@@ -141,6 +145,15 @@ type CacheSentinelManager interface {
 	CanSetSentinelGivenCurrVal(currVal shared.CacheSentinel, newVal shared.CacheSentinel) bool
 	CanSetValue(currVal string, val string, sentinel shared.CacheSentinel) (set bool, clear bool, conflict bool, refresh bool)
 	IsSentinelValue(val string) bool
+}
+
+// Flush flushes the cache
+func (cm CacheManager) Flush(ctx context.Context, objType string) error {
+	if err := cm.P.Flush(ctx, cm.N.GetPrefix(), false); err != nil {
+		uclog.Errorf(ctx, "error flushing cache for %v: %v", objType, err)
+		return ucerr.Wrap(err)
+	}
+	return nil
 }
 
 // getItemLockKeys returns the keys to lock for the given item

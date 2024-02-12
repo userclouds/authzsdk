@@ -43,7 +43,7 @@ type Transformer struct {
 	Description        string              `json:"description"`
 	InputType          userstore.DataType  `json:"input_type" required:"true"`
 	OutputType         userstore.DataType  `json:"output_type" validate:"skip"`
-	ReuseExistingToken bool                `json:"reuse_existing_token" validate:"skip" description:"Specifies if the tokenizing transfomer should return existing token instead of creating a new one."`
+	ReuseExistingToken bool                `json:"reuse_existing_token" validate:"skip" description:"Specifies if the tokenizing transformer should return existing token instead of creating a new one."`
 	TransformType      TransformType       `json:"transform_type" required:"true"`
 	TagIDs             uuidarray.UUIDArray `json:"tag_ids" validate:"skip"`
 	Function           string              `json:"function" required:"true"`

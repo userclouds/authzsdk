@@ -23,8 +23,8 @@ runs:
       shell: bash
       working-directory: ${{ inputs.module-path }}
       run: |
-        echo 'TENANT_ID="${{ inputs.tenant-id }}"' >> .env
-        echo 'TENANT_URL="${{ inputs.tenant-url }}"' >> .env
-        echo 'CLIENT_ID="${{ inputs.client-id }}"' >> .env
-        echo 'CLIENT_SECRET="${{ inputs.client-secret }}"' >> .env
+        echo 'USERCLOUDS_TENANT_ID="${{ inputs.tenant-id }}"' >> .env
+        echo 'USERCLOUDS_TENANT_URL="${{ inputs.tenant-url }}"' >> .env
+        echo 'USERCLOUDS_CLIENT_ID="${{ inputs.client-id }}"' >> .env
+        echo 'USERCLOUDS_CLIENT_SECRET="${{ inputs.client-secret }}"' >> .env
         go run *.go

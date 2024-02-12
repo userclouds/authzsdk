@@ -100,13 +100,13 @@ func initClients() (*idp.Client, *authz.Client, *ucjwt.Config) {
 		log.Printf("error loading .env file: %v\n(did you forget to copy `.env.example` to `.env` and substitute values?)", err)
 	}
 
-	tenantURL := os.Getenv("TENANT_URL")
-	clientID := os.Getenv("CLIENT_ID")
-	clientSecret := os.Getenv("CLIENT_SECRET")
-	tenantID := uuid.FromStringOrNil(os.Getenv("TENANT_ID"))
+	tenantURL := os.Getenv("USERCLOUDS_TENANT_URL")
+	clientID := os.Getenv("USERCLOUDS_CLIENT_ID")
+	clientSecret := os.Getenv("USERCLOUDS_CLIENT_SECRET")
+	tenantID := uuid.FromStringOrNil(os.Getenv("USERCLOUDS_TENANT_ID"))
 
 	if tenantURL == "" || clientID == "" || clientSecret == "" || tenantID.IsNil() {
-		log.Fatal("missing one or more required environment variables: TENANT_URL, CLIENT_ID, CLIENT_SECRET, TENANT_ID")
+		log.Fatal("missing one or more required environment variables: USERCLOUDS_TENANT_URL, USERCLOUDS_CLIENT_ID, USERCLOUDS_CLIENT_SECRET, USERCLOUDS_TENANT_ID")
 	}
 
 	tokenSource := jsonclient.ClientCredentialsTokenSource(tenantURL+"/oidc/token", clientID, clientSecret, nil)

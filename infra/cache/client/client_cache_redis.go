@@ -29,12 +29,14 @@ type RedisClientCacheProvider struct {
 	prefix       string
 	sm           CacheSentinelManager
 	cacheName    string
+	readOnly     bool
 	tombstoneTTL time.Duration
 }
 
 type optionsRedis struct {
-	sm     CacheSentinelManager
-	prefix string
+	sm       CacheSentinelManager
+	prefix   string
+	readOnly bool
 }
 
 // OptionRedis specifies optional arguement for RedisClientCacheProvider
@@ -62,6 +64,15 @@ func KeyPrefixRedis(prefix string) OptionRedis {
 	})
 }
 
+// ReadOnlyRedis specifies that the cache provider will not make any modfications
+// It will only read the values via GetValues and GetValue if they are there and
+// make not other modifications otherwise
+func ReadOnlyRedis() OptionRedis {
+	return optFuncRedis(func(opts *optionsRedis) {
+		opts.readOnly = true
+	})
+}
+
 // NewRedisClientCacheProvider creates a new RedisClientCacheProvider
 func NewRedisClientCacheProvider(rc *redis.Client, cacheName string, opts ...OptionRedis) *RedisClientCacheProvider {
 	var options optionsRedis
@@ -79,6 +90,7 @@ func NewRedisClientCacheProvider(rc *redis.Client, cacheName string, opts ...Opt
 		prefix:       options.prefix,
 		sm:           sm,
 		cacheName:    cacheName,
+		readOnly:     options.readOnly,
 		tombstoneTTL: shared.InvalidationTombstoneTTL,
 	}
 }
@@ -93,6 +105,11 @@ func (c *RedisClientCacheProvider) WriteSentinel(ctx context.Context, stype shar
 	// There must be at least one key to lock
 	if len(keys) == 0 {
 		return shared.NoLockSentinel, ucerr.New("WriteSentinel was passed no keys to set")
+	}
+
+	if c.readOnly {
+		uclog.Verbosef(ctx, "Cache[%v] WriteSentinel - skipping cache due to read only mode", c.cacheName)
+		return shared.NoLockSentinel, nil
 	}
 
 	lockValue := shared.NoLockSentinel
@@ -199,6 +216,11 @@ func (c *RedisClientCacheProvider) ReleaseSentinel(ctx context.Context, keysIn [
 		return
 	}
 
+	if c.readOnly {
+		uclog.Verbosef(ctx, "Cache[%v] ReleaseSentinel - skipping cache due to read only mode", c.cacheName)
+		return
+	}
+
 	// Using optimistic concurrency control to clear the sentinels set by our operation. We need to make sure that no ones else
 	// writes to the keys between the read and the delete so that we don't accidentally clear another operations sentinel
 
@@ -283,6 +305,11 @@ func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn shared.C
 	lkey, err := getValidatedStringKeyFromCacheKey(lkeyIn, c.prefix, "SetValue")
 	if err != nil {
 		return false, false, ucerr.Wrap(err)
+	}
+
+	if c.readOnly {
+		uclog.Verbosef(ctx, "Cache[%v] SetValue - skipping cache due to read only mode", c.cacheName)
+		return false, false, nil
 	}
 
 	conflictDetected := false
@@ -398,6 +425,28 @@ func (c *RedisClientCacheProvider) GetValues(ctx context.Context, keysIn []share
 		return val, conflicts, sentinels, ucerr.Wrap(err)
 	}
 
+	// Only copy the keys that are not locked by other operations into output array
+	for i, v := range valuesOut {
+		if v != nil {
+			if vS, ok := v.(string); ok {
+				if !c.sm.IsSentinelValue(vS) {
+					val[i] = &vS
+					uclog.Verbosef(ctx, "Cache[%v] hit key %v", c.cacheName, keys[i])
+					continue
+				}
+				conflicts[i] = &vS
+			}
+			uclog.Verbosef(ctx, "Cache[%v] key %v is locked for in progress op %v", c.cacheName, keys[i], v)
+			continue
+		}
+
+	}
+
+	if c.readOnly {
+		uclog.Verbosef(ctx, "Cache[%v] GetValues - skipping writing locks due to read only mode", c.cacheName)
+		return val, conflicts, sentinels, nil
+	}
+
 	// Check if we need to lock any keys (handles err == redis.Nil)
 	keysToLock := make(map[string]interface{})
 	for i, lock := range lockOnMiss {
@@ -445,22 +494,6 @@ func (c *RedisClientCacheProvider) GetValues(ctx context.Context, keysIn []share
 		}
 	}
 
-	// Only copy the keys that are not locked by other operations into output array
-	for i, v := range valuesOut {
-		if v != nil {
-			if vS, ok := v.(string); ok {
-				if !c.sm.IsSentinelValue(vS) {
-					val[i] = &vS
-					uclog.Verbosef(ctx, "Cache[%v] hit key %v", c.cacheName, keys[i])
-					continue
-				}
-				conflicts[i] = &vS
-			}
-			uclog.Verbosef(ctx, "Cache[%v] key %v is locked for in progress op %v", c.cacheName, keys[i], v)
-			continue
-		}
-
-	}
 	return val, conflicts, sentinels, nil
 }
 
@@ -487,6 +520,12 @@ func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []sha
 	if err != nil {
 		return ucerr.Wrap(err)
 	}
+
+	if c.readOnly {
+		uclog.Verbosef(ctx, "Cache[%v] DeleteValue - skipping cache due to read only mode", c.cacheName)
+		return nil
+	}
+
 	if len(keysAll) != 0 {
 		// If we are forcing the delete operation, the current value of the keys is not relevant
 		if force {
@@ -610,6 +649,11 @@ func (c *RedisClientCacheProvider) AddDependency(ctx context.Context, keysIn []s
 		return ucerr.New("No non blank values provided to AddDependency")
 	}
 
+	if c.readOnly {
+		uclog.Verbosef(ctx, "Cache[%v] AddDependency - skipping cache due to read only mode", c.cacheName)
+		return nil
+	}
+
 	// We are using redis's WRONGTYPE error to detect when a key has been tomstoned. This depends on ClearDependencies using a transaction to detect modification to the
 	// set of dependencies and restarting if a new dependency has been added by AddDependencies.
 
@@ -657,6 +701,11 @@ func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn 
 	key, err := getValidatedStringKeyFromCacheKey(keyIn, c.prefix, "ClearDependencies")
 	if err != nil {
 		return ucerr.Wrap(err)
+	}
+
+	if c.readOnly {
+		uclog.Verbosef(ctx, "Cache[%v] ClearDependencies - skipping cache due to read only mode", c.cacheName)
+		return nil
 	}
 
 	// Using optimistic concurrency control to clear the dependent keys for each value in key. This may cause us to flush more keys than needed but
@@ -720,6 +769,11 @@ func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn 
 
 // Flush flushes the cache (applies only to the tenant for which the client was created)
 func (c *RedisClientCacheProvider) Flush(ctx context.Context, prefix string, flushTombstones bool) error {
+	if c.readOnly {
+		uclog.Verbosef(ctx, "Cache[%v] Flush - skipping cache due to read only mode", c.cacheName)
+		return nil
+	}
+
 	pipe := c.rc.Pipeline()
 	iter := c.rc.Scan(ctx, 0, prefix+"*", 0).Iterator()
 

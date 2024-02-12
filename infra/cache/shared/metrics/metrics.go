@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"userclouds.com/infra/ucerr"
@@ -13,7 +14,10 @@ const (
 	ctxCacheMetrics contextKey = 1
 )
 
-// CacheMetrics keeps track of DB calls during a request
+var cacheMetricsLock sync.RWMutex
+
+// CacheMetrics keeps track of cache calls during a request
+// We don't take a lock to access these fields as we perform read only once per request at the end, effectively single threaded
 type CacheMetrics struct {
 	Calls             int
 	Hits              int
@@ -24,18 +28,24 @@ type CacheMetrics struct {
 	DeletionLatencies time.Duration
 }
 
-// GetTotalDuration returns the sum of the time spend calling the DB
+// GetTotalDuration returns the sum of the time spend calling the cache
 func (m *CacheMetrics) GetTotalDuration() time.Duration {
+	// We don't take a lock as we perform read only once per request at the end, effectively single threaded
+
 	return m.GetLatencies + m.StoreLatencies + m.DeletionLatencies
 }
 
-// HadCalls returns true if there were any DB calls
+// HadCalls returns true if there were any cache calls
 func (m *CacheMetrics) HadCalls() bool {
+	// We don't take a lock as we perform read only once per request at the end, effectively single threaded
+
 	return m.Calls > 0
 }
 
-// GetMetrics returns the DB metrics structure from the context, errors out if it is not there.
+// GetMetrics returns the cache metrics structure from the context, errors out if it is not there.
 func GetMetrics(ctx context.Context) (*CacheMetrics, error) {
+	// We don't take a lock as we either perform read only once per request at the end, effectively single threaded, or we take a write lock before
+	// modifying the data
 	val := ctx.Value(ctxCacheMetrics)
 	metrics, ok := val.(*CacheMetrics)
 	if !ok {
@@ -44,11 +54,19 @@ func GetMetrics(ctx context.Context) (*CacheMetrics, error) {
 	return metrics, nil
 }
 
-// InitContext adds a DB metrics struct to the context to allow keeping track of DB calls during a request
+// ResetContext resets/adds a cache metrics struct to the context to allow keeping track of cache calls during a request
+func ResetContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, ctxCacheMetrics, &CacheMetrics{})
+}
+
+// InitContext adds a cache metrics struct to the context to allow keeping track of cache calls during a request
 func InitContext(ctx context.Context) context.Context {
+	// We don't take a lock as we always perform only once per request at start, effectively single threaded. If that pattern changes, we need to take a lock
 	val := ctx.Value(ctxCacheMetrics)
+
 	if _, ok := val.(*CacheMetrics); !ok {
 		return context.WithValue(ctx, ctxCacheMetrics, &CacheMetrics{})
+
 	}
 	return ctx
 }
@@ -59,6 +77,10 @@ func RecordCacheHit(ctx context.Context, duration time.Duration) {
 	if err != nil {
 		return
 	}
+	// We take a lock as we may have parallelism in the request
+	cacheMetricsLock.Lock()
+	defer cacheMetricsLock.Unlock()
+
 	metricsData.Calls++
 	metricsData.Hits++
 	metricsData.GetLatencies += duration
@@ -70,6 +92,11 @@ func RecordCacheMiss(ctx context.Context, duration time.Duration) {
 	if err != nil {
 		return
 	}
+
+	// We take a lock as we may have parallelism in the request
+	cacheMetricsLock.Lock()
+	defer cacheMetricsLock.Unlock()
+
 	metricsData.Calls++
 	metricsData.Misses++
 	metricsData.GetLatencies += duration
@@ -81,6 +108,11 @@ func RecordMultiGet(ctx context.Context, hits, misses int, duration time.Duratio
 	if err != nil {
 		return
 	}
+
+	// We take a lock as we may have parallelism in the request
+	cacheMetricsLock.Lock()
+	defer cacheMetricsLock.Unlock()
+
 	metricsData.Calls++
 	metricsData.Hits += hits
 	metricsData.Misses += misses
@@ -93,17 +125,26 @@ func RecordCacheStore(ctx context.Context, start time.Time) {
 	if err != nil {
 		return
 	}
+
+	// We take a lock as we may have parallelism in the request
+	cacheMetricsLock.Lock()
+	defer cacheMetricsLock.Unlock()
+
 	metricsData.Calls++
 	metricsData.StoreLatencies += time.Now().UTC().Sub(start)
 }
 
 // RecordCacheDelete records a deletion from the cache
 func RecordCacheDelete(ctx context.Context, start time.Time) {
-
 	metricsData, err := GetMetrics(ctx)
 	if err != nil {
 		return
 	}
+
+	// We take a lock as we may have parallelism in the request
+	cacheMetricsLock.Lock()
+	defer cacheMetricsLock.Unlock()
+
 	metricsData.Calls++
 	metricsData.Deletions++
 
