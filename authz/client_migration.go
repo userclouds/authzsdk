@@ -19,7 +19,7 @@ type MigrationRequest struct {
 
 // AddOrganizationToObject adds the specified organization id to the user
 func (c *Client) AddOrganizationToObject(ctx context.Context, objectID uuid.UUID, organizationID uuid.UUID) (*Object, error) {
-	cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(organizationID), c.ttlP)
+	cm := clientcache.NewCacheManager(c.cp, c.np, c.ttlP)
 	req := &MigrationRequest{
 		OrganizationID: organizationID,
 	}
@@ -41,7 +41,7 @@ func (c *Client) AddOrganizationToObject(ctx context.Context, objectID uuid.UUID
 
 // AddOrganizationToEdgeType adds the specified organization id to the edge type
 func (c *Client) AddOrganizationToEdgeType(ctx context.Context, edgeTypeID uuid.UUID, organizationID uuid.UUID) (*EdgeType, error) {
-	cm := clientcache.NewCacheManager(c.cp, c.getCacheKeyNameProvider(organizationID), c.ttlP)
+	cm := clientcache.NewCacheManager(c.cp, c.np, c.ttlP)
 
 	req := &MigrationRequest{
 		OrganizationID: organizationID,

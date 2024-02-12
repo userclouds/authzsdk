@@ -19,6 +19,7 @@ const (
 // Supported universes.
 // NOTE: keep in sync with `enum Universe` in TSX codebase
 const (
+	Undefined Universe = "undefined" // undefined universe
 	Dev       Universe = "dev"       // local dev laptops
 	Test      Universe = "test"      // automated tests on localhost
 	CI        Universe = "ci"        // AWS continuous integration env
@@ -32,11 +33,22 @@ const (
 
 // Current checks the current application environment.
 func Current() Universe {
-	u := Universe(os.Getenv(EnvKeyUniverse))
+	value, isDefined := os.LookupEnv(EnvKeyUniverse)
+	var u Universe
+	if isDefined {
+		u = Universe(value)
+	} else {
+		u = Undefined
+	}
 	if err := u.Validate(); err != nil {
 		panic(fmt.Sprintf("invalid universe from environment: %v", u))
 	}
 	return u
+}
+
+// IsUndefined returns true if universe is undefined
+func (u Universe) IsUndefined() bool {
+	return u == Undefined
 }
 
 // IsProd returns true if universe is prod

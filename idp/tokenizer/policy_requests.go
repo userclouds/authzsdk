@@ -2,6 +2,7 @@ package tokenizer
 
 import (
 	"userclouds.com/idp/policy"
+	"userclouds.com/infra/ucerr"
 )
 
 // CreateAccessPolicyRequest creates a new AP
@@ -47,7 +48,21 @@ type TestTransformerRequest struct {
 	Data        string             `json:"data"`
 }
 
-//go:generate genvalidate TestTransformerRequest
+// Validate implements Validateable
+func (o TestTransformerRequest) Validate() error {
+	blankName := false
+	if o.Transformer.Name == "" {
+		blankName = true
+		o.Transformer.Name = "temp"
+	}
+	if err := o.Transformer.Validate(); err != nil {
+		return ucerr.Wrap(err)
+	}
+	if blankName {
+		o.Transformer.Name = ""
+	}
+	return nil
+}
 
 // TestTransformerResponse is the response to a TestTransformer call
 type TestTransformerResponse struct {
@@ -60,7 +75,26 @@ type TestAccessPolicyRequest struct {
 	Context      policy.AccessPolicyContext `json:"context"`
 }
 
-//go:generate genvalidate TestAccessPolicyRequest
+// Validate implements Validateable
+func (o TestAccessPolicyRequest) Validate() error {
+	blankName := false
+	if o.AccessPolicy.Name == "" {
+		blankName = true
+		o.AccessPolicy.Name = "temp"
+	}
+	if err := o.AccessPolicy.Validate(); err != nil {
+		return ucerr.Wrap(err)
+	}
+	if blankName {
+		o.AccessPolicy.Name = ""
+	}
+
+	if err := o.Context.Validate(); err != nil {
+		return ucerr.Wrap(err)
+	}
+
+	return nil
+}
 
 // TestAccessPolicyTemplateRequest lets you run an unsaved policy template with a given context for testing
 type TestAccessPolicyTemplateRequest struct {
@@ -69,7 +103,26 @@ type TestAccessPolicyTemplateRequest struct {
 	Params               string                      `json:"params"`
 }
 
-//go:generate genvalidate TestAccessPolicyTemplateRequest
+// Validate implements Validateable
+func (o TestAccessPolicyTemplateRequest) Validate() error {
+	blankName := false
+	if o.AccessPolicyTemplate.Name == "" {
+		blankName = true
+		o.AccessPolicyTemplate.Name = "temp"
+	}
+	if err := o.AccessPolicyTemplate.Validate(); err != nil {
+		return ucerr.Wrap(err)
+	}
+	if blankName {
+		o.AccessPolicyTemplate.Name = ""
+	}
+
+	if err := o.Context.Validate(); err != nil {
+		return ucerr.Wrap(err)
+	}
+
+	return nil
+}
 
 // TestAccessPolicyResponse is the response to a TestAccessPolicy call
 type TestAccessPolicyResponse struct {

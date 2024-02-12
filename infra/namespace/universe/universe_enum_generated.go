@@ -10,4 +10,5 @@ var allUniverseValues = []Universe{
 	Prod,
 	Staging,
 	Test,
+	Undefined,
 }

@@ -942,10 +942,22 @@ type ExecuteAccessorRequest struct {
 // ExecuteAccessorResponse is the response body for accessing user data
 type ExecuteAccessorResponse struct {
 	Data []string `json:"data"`
+	pagination.ResponseFields
 }
 
 // ExecuteAccessor accesses a column via an accessor for the associated tenant
-func (c *Client) ExecuteAccessor(ctx context.Context, accessorID uuid.UUID, clientContext policy.ClientContext, selectorValues userstore.UserSelectorValues) (*ExecuteAccessorResponse, error) {
+func (c *Client) ExecuteAccessor(ctx context.Context, accessorID uuid.UUID, clientContext policy.ClientContext, selectorValues userstore.UserSelectorValues, opts ...Option) (*ExecuteAccessorResponse, error) {
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	pager, err := pagination.ApplyOptions(options.paginationOptions...)
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+	query := pager.Query()
+
 	req := ExecuteAccessorRequest{
 		AccessorID:     accessorID,
 		Context:        clientContext,
@@ -953,7 +965,7 @@ func (c *Client) ExecuteAccessor(ctx context.Context, accessorID uuid.UUID, clie
 	}
 
 	var res ExecuteAccessorResponse
-	if err := c.client.Post(ctx, paths.ExecuteAccessorPath, req, &res); err != nil {
+	if err := c.client.Post(ctx, fmt.Sprintf("%s?%s", paths.ExecuteAccessorPath, query.Encode()), req, &res); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
 

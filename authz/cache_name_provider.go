@@ -13,21 +13,21 @@ import (
 const (
 	// CachePrefix is the prefix for all keys in authz cache
 	CachePrefix                 = "authz"
-	objTypePrefix               = "OBJTYPE"     // Primary key for object type
-	objTypeCollectionKeyString  = "OBJTYPECOL"  // Global collection for object type
-	edgeTypePrefix              = "EDGETYPE"    // Primary key for edge type
-	edgeTypeCollectionKeyString = "EDGETYPECOL" // Global collection for edge type
-	objPrefix                   = "OBJ"         // Primary key for object
-	objCollectionKeyString      = "OBJCOL"      // Global collection for object
-	objEdgeCollection           = "OBJEDGES"    // Per object collection of all in/out edges
-	perObjectEdgesPrefix        = "E"           // Per object collection of source/target edges
-	perObjectPathPrefix         = "P"           // Per object collection containing path for a particular source/target/attribute
-	edgePrefix                  = "EDGE"        // Primary key for edge
-	edgeCollectionKeyString     = "EDGECOL"     // Global collection for edge
-	orgPrefix                   = "ORG"         // Primary key for organization
-	orgCollectionKeyString      = "ORGCOL"      // Global collection for organizations
-	dependencyPrefix            = "DEP"         // Shared dependency key prefix among all items
-	isModifiedPrefix            = "MOD"         // Shared is modified key prefix among all items
+	objTypePrefix               = "OBJTYPE"      // Primary key for object type
+	objTypeCollectionKeyString  = "OBJTYPE_COL"  // Global collection for object type
+	edgeTypePrefix              = "EDGETYPE"     // Primary key for edge type
+	edgeTypeCollectionKeyString = "EDGETYPE_COL" // Global collection for edge type
+	objPrefix                   = "OBJ"          // Primary key for object
+	objCollectionKeyString      = "OBJ_COL"      // Global collection for object
+	objEdgeCollection           = "OBJEDGES"     // Per object collection of all in/out edges
+	perObjectEdgesPrefix        = "E"            // Per object collection of source/target edges
+	perObjectPathPrefix         = "P"            // Per object collection containing path for a particular source/target/attribute
+	edgePrefix                  = "EDGE"         // Primary key for edge
+	edgeCollectionKeyString     = "EDGE_COL"     // Global collection for edge
+	orgPrefix                   = "ORG"          // Primary key for organization
+	orgCollectionKeyString      = "ORG_COL"      // Global collection for organizations
+	dependencyPrefix            = "DEP"          // Shared dependency key prefix among all items
+	isModifiedPrefix            = "MOD"          // Shared is modified key prefix among all items
 )
 
 // CacheNameProvider is the base implementation of the CacheNameProvider interface
@@ -91,6 +91,32 @@ const (
 // GetPrefix returns the base prefix for all keys
 func (c *CacheNameProvider) GetPrefix() string {
 	return c.basePrefix
+}
+
+// GetAllKeyIDs returns all the key IDs
+func (c *CacheNameProvider) GetAllKeyIDs() []string {
+	return []string{
+		ObjectTypeKeyID,
+		EdgeTypeKeyID,
+		ObjectKeyID,
+		EdgeKeyID,
+		OrganizationKeyID,
+		EdgeFullKeyID,
+		ObjectTypeNameKeyID,
+		ObjEdgesKeyID,
+		EdgeTypeNameKeyID,
+		ObjAliasNameKeyID,
+		OrganizationNameKeyID,
+		EdgesObjToObjID,
+		DependencyKeyID,
+		IsModifiedKeyID,
+		ObjectTypeCollectionKeyID,
+		EdgeTypeCollectionKeyID,
+		ObjectCollectionKeyID,
+		EdgeCollectionKeyID,
+		OrganizationCollectionKeyID,
+		AttributePathObjToObjID,
+	}
 }
 
 // GetKeyNameStatic is a shortcut for GetKeyName with without components
@@ -243,17 +269,17 @@ func (c *CacheNameProvider) objCollectionKey() cache.CacheKey {
 
 // edgeCollectionKey returns key name for edge collection
 func (c *CacheNameProvider) edgeCollectionKey() cache.CacheKey {
-	return cache.CacheKey(c.basePrefix + edgeCollectionKeyString)
+	return cache.CacheKey(fmt.Sprintf("%v_%v", c.basePrefix, edgeCollectionKeyString))
 }
 
 // orgCollectionKey returns key name for edge collection
 func (c *CacheNameProvider) orgCollectionKey() cache.CacheKey {
-	return cache.CacheKey(c.basePrefix + orgCollectionKeyString)
+	return cache.CacheKey(fmt.Sprintf("%v_%v", c.basePrefix, orgCollectionKeyString))
 }
 
 // attributePathObjToObj returns key name for attribute path
-func (c *CacheNameProvider) attributePathObjToObj(sourceID string, targetID string, atributeName string) cache.CacheKey {
-	return cache.CacheKey(fmt.Sprintf("%v_%v_%v_%v_%v_%v", c.basePrefix, objPrefix, sourceID, perObjectPathPrefix, targetID, atributeName))
+func (c *CacheNameProvider) attributePathObjToObj(sourceID string, targetID string, attributeName string) cache.CacheKey {
+	return cache.CacheKey(fmt.Sprintf("%v_%v_%v_%v_%v_%v", c.basePrefix, objPrefix, sourceID, perObjectPathPrefix, targetID, attributeName))
 }
 
 // GetPrimaryKey returns the primary cache key name for object type

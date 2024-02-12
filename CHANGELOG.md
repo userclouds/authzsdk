@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 - UNPUBLISHED
+## 1.0.0 - 31-01-2024
 
 - Breaking change: Return ErrXXXNotFound error when getting a HTTP 404 from authz endpoints
 - Breaking change: Move prefix argument for NewRedisClientCacheProvider to be optional KeyPrefixRedis(prefix) instead of required
