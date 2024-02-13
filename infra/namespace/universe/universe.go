@@ -61,6 +61,16 @@ func (u Universe) IsProdOrStaging() bool {
 	return u == Prod || u == Staging
 }
 
+// IsDebug returns true if universe is debug
+func (u Universe) IsDebug() bool {
+	return u == Debug
+}
+
+// IsContainer true if universe is container
+func (u Universe) IsContainer() bool {
+	return u == Container
+}
+
 // IsDev returns true if universe is dev
 func (u Universe) IsDev() bool {
 	return u == Dev
@@ -68,7 +78,7 @@ func (u Universe) IsDev() bool {
 
 // IsCloud returns true if universe is one of the cloud envs (prod, staging debug)
 func (u Universe) IsCloud() bool {
-	return u.IsProdOrStaging() || u == Debug
+	return u.IsProdOrStaging() || u.IsDebug()
 }
 
 // IsTestOrCI returns true if universe is CI or tests
