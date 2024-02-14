@@ -265,9 +265,10 @@ type AccessPolicyContext struct {
 // ServerContext is automatically injected by the server at resolution time
 type ServerContext struct {
 	// TODO: add token creation time
-	IPAddress string          `json:"ip_address"`
-	Resolver  ResolverContext `json:"resolver"`
-	Action    Action          `json:"action"`
+	IPAddress    string          `json:"ip_address"`
+	Resolver     ResolverContext `json:"resolver"`
+	Action       Action          `json:"action"`
+	PurposeNames []string        `json:"purpose_names"`
 }
 
 //go:generate genvalidate ServerContext
