@@ -319,7 +319,11 @@ type Accessor struct {
 	// Policy for token resolution in the case of transformers that tokenize data
 	TokenAccessPolicy ResourceID `json:"token_access_policy,omitempty" validate:"skip"`
 
+	// Whether this accessor is a system accessor
 	IsSystem bool `json:"is_system" description:"Whether this accessor is a system accessor. System accessors cannot be deleted or modified. This property cannot be changed."`
+
+	// Whether this accessor is audit logged each time it is executed
+	IsAuditLogged bool `json:"is_audit_logged" description:"Whether this accessor is audit logged each time it is executed."`
 }
 
 func (o *Accessor) extraValidate() error {
