@@ -38,17 +38,19 @@ const (
 
 // Transformer describes a token transformer
 type Transformer struct {
-	ID                 uuid.UUID           `json:"id"`
-	Name               string              `json:"name" validate:"length:1,128" required:"true"`
-	Description        string              `json:"description"`
-	InputType          userstore.DataType  `json:"input_type" required:"true"`
-	OutputType         userstore.DataType  `json:"output_type" validate:"skip"`
-	ReuseExistingToken bool                `json:"reuse_existing_token" validate:"skip" description:"Specifies if the tokenizing transformer should return existing token instead of creating a new one."`
-	TransformType      TransformType       `json:"transform_type" required:"true"`
-	TagIDs             uuidarray.UUIDArray `json:"tag_ids" validate:"skip"`
-	Function           string              `json:"function" required:"true"`
-	Parameters         string              `json:"parameters"`
-	IsSystem           bool                `json:"is_system" description:"Whether this transformer is a system transformer. System transformers cannot be deleted or modified. This property cannot be changed."`
+	ID                 uuid.UUID                   `json:"id"`
+	Name               string                      `json:"name" validate:"length:1,128" required:"true"`
+	Description        string                      `json:"description"`
+	InputType          userstore.DataType          `json:"input_type" required:"true"`
+	InputConstraints   userstore.ColumnConstraints `json:"input_type_constraints"`
+	OutputType         userstore.DataType          `json:"output_type" validate:"skip"`
+	OutputConstraints  userstore.ColumnConstraints `json:"output_type_constraints"`
+	ReuseExistingToken bool                        `json:"reuse_existing_token" validate:"skip" description:"Specifies if the tokenizing transformer should return existing token instead of creating a new one."`
+	TransformType      TransformType               `json:"transform_type" required:"true"`
+	TagIDs             uuidarray.UUIDArray         `json:"tag_ids" validate:"skip"`
+	Function           string                      `json:"function" required:"true"`
+	Parameters         string                      `json:"parameters"`
+	IsSystem           bool                        `json:"is_system" description:"Whether this transformer is a system transformer. System transformers cannot be deleted or modified. This property cannot be changed."`
 }
 
 // GetPaginationKeys is part of the pagination.PageableType interface
@@ -108,7 +110,9 @@ func (g *Transformer) Equals(other *Transformer) bool {
 	return (g.ID == other.ID || g.ID.IsNil() || other.ID.IsNil()) &&
 		strings.EqualFold(g.Name, other.Name) &&
 		g.InputType == other.InputType &&
+		g.InputConstraints.Equals(other.InputConstraints) &&
 		g.OutputType == other.OutputType &&
+		g.OutputConstraints.Equals(other.OutputConstraints) &&
 		g.TransformType == other.TransformType &&
 		g.ReuseExistingToken == other.ReuseExistingToken &&
 		g.Function == other.Function &&
