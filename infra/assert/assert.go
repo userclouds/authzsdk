@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+
+	"userclouds.com/infra/jsonclient"
 )
 
 // Equal asserts two objects are equal
@@ -92,6 +94,15 @@ func FailContinue(t testing.TB, fmt string, args ...interface{}) {
 func Fail(t testing.TB, fmt string, args ...interface{}) {
 	t.Helper()
 	logFailure(t, nil, nil, []Option{Must(), Errorf(fmt, args...)})
+}
+
+// HTTPError asserts that an error is an HTTP error with the given status code
+func HTTPError(t *testing.T, err error, code int) {
+	t.Helper()
+	NotNil(t, err, Errorf("Expected HTTP error with HTTP status code %d, got nil", code))
+	httpCode := jsonclient.GetHTTPStatusCode(err)
+	NotEqual(t, httpCode, -1, Errorf("Error is not a HTTP error (%v)", err))
+	Equal(t, httpCode, code)
 }
 
 func isNil(got interface{}) bool {
