@@ -1,5 +1,10 @@
 # Changelog
 
+## UNPUBLISHED
+
+- Breaking change: idp/userstore/ColumnField parameter "Optional" has been changed to "Required", with fields not required by default
+- Add InputConstraints and OutputConstraints parameters of type idp/userstore/ColumnConstraints to idp/policy/Transformer
+
 ## 1.0.0 - 31-01-2024
 
 - Breaking change: Return ErrXXXNotFound error when getting a HTTP 404 from authz endpoints

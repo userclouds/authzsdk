@@ -15,6 +15,12 @@ func (o Transformer) Validate() error {
 	if err := o.InputType.Validate(); err != nil {
 		return ucerr.Wrap(err)
 	}
+	if err := o.InputConstraints.Validate(); err != nil {
+		return ucerr.Wrap(err)
+	}
+	if err := o.OutputConstraints.Validate(); err != nil {
+		return ucerr.Wrap(err)
+	}
 	if err := o.TransformType.Validate(); err != nil {
 		return ucerr.Wrap(err)
 	}
