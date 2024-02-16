@@ -1,21 +1,20 @@
-package client
+package cache
 
 import (
 	"context"
 
 	"github.com/gofrs/uuid"
 
-	"userclouds.com/infra/cache/shared"
 	"userclouds.com/infra/request"
 	"userclouds.com/infra/ucerr"
 	"userclouds.com/infra/uclog"
 )
 
 // CreateItem creates an item
-func CreateItem[item CacheSingleItem](ctx context.Context, cm *CacheManager, id uuid.UUID, i *item, keyID CacheKeyNameID, secondaryKey shared.CacheKey, ifNotExists bool,
-	bypassCache bool, additionalKeysToClear []shared.CacheKey, action func(i *item) (*item, error), equals func(input *item, current *item) bool) (*item, error) {
+func CreateItem[item SingleItem](ctx context.Context, cm *Manager, id uuid.UUID, i *item, keyID KeyNameID, secondaryKey Key, ifNotExists bool,
+	bypassCache bool, additionalKeysToClear []Key, action func(i *item) (*item, error), equals func(input *item, current *item) bool) (*item, error) {
 	var err error
-	sentinel := shared.NoLockSentinel
+	sentinel := NoLockSentinel
 
 	if i == nil {
 		return nil, ucerr.Errorf("CreateItem is called with nil input")
@@ -42,11 +41,11 @@ func CreateItem[item CacheSingleItem](ctx context.Context, cm *CacheManager, id 
 
 	// On the client we always invalidate the local cache even if the cache if bypassed for read operation
 	if cm != nil {
-		sentinel, err = TakeItemLock(ctx, shared.Create, *cm, *i)
+		sentinel, err = TakeItemLock(ctx, Create, *cm, *i)
 		if err != nil {
 			return nil, ucerr.Wrap(err)
 		}
-		defer ReleaseItemLock(ctx, *cm, shared.Create, *i, sentinel)
+		defer ReleaseItemLock(ctx, *cm, Create, *i, sentinel)
 	}
 
 	var resp *item
@@ -61,15 +60,15 @@ func CreateItem[item CacheSingleItem](ctx context.Context, cm *CacheManager, id 
 }
 
 // CreateItemServer creates an item (wrapper for calls from ORM)
-func CreateItemServer[item CacheSingleItem](ctx context.Context, cm *CacheManager, i *item, keyID CacheKeyNameID, additionalKeysToClear []shared.CacheKey, action func(i *item) error) error {
+func CreateItemServer[item SingleItem](ctx context.Context, cm *Manager, i *item, keyID KeyNameID, additionalKeysToClear []Key, action func(i *item) error) error {
 	_, err := CreateItem[item](ctx, cm, uuid.Nil, i, keyID, "", false, cm == nil, additionalKeysToClear,
 		func(i *item) (*item, error) { return i, ucerr.Wrap(action(i)) }, func(input, current *item) bool { return false })
 	return ucerr.Wrap(err)
 }
 
 // CreateItemClient creates an item (wrapper for calls from client)
-func CreateItemClient[item CacheSingleItem](ctx context.Context, cm *CacheManager, id uuid.UUID, i *item, keyID CacheKeyNameID, secondaryKey shared.CacheKey, ifNotExists bool,
-	bypassCache bool, additionalKeysToClear []shared.CacheKey, action func(i *item) (*item, error), equals func(input *item, current *item) bool) (*item, error) {
+func CreateItemClient[item SingleItem](ctx context.Context, cm *Manager, id uuid.UUID, i *item, keyID KeyNameID, secondaryKey Key, ifNotExists bool,
+	bypassCache bool, additionalKeysToClear []Key, action func(i *item) (*item, error), equals func(input *item, current *item) bool) (*item, error) {
 	ctx = request.NewRequestID(ctx)
 
 	uclog.Verbosef(ctx, "CreateItemClient: %v key %v", *i, keyID)
@@ -84,9 +83,9 @@ func CreateItemClient[item CacheSingleItem](ctx context.Context, cm *CacheManage
 }
 
 // GetItem returns the item
-func GetItem[item CacheSingleItem](ctx context.Context, cm *CacheManager, id uuid.UUID, keyID CacheKeyNameID, modifiedKeyID CacheKeyNameID, bypassCache bool, action func(id uuid.UUID, conflict shared.CacheSentinel, i *item) error) (*item, error) {
-	sentinel := shared.NoLockSentinel
-	conflict := shared.TombstoneSentinel
+func GetItem[item SingleItem](ctx context.Context, cm *Manager, id uuid.UUID, keyID KeyNameID, modifiedKeyID KeyNameID, bypassCache bool, action func(id uuid.UUID, conflict Sentinel, i *item) error) (*item, error) {
+	sentinel := NoLockSentinel
+	conflict := TombstoneSentinel
 	if !bypassCache {
 		var cachedObj *item
 		var err error
@@ -115,7 +114,7 @@ func GetItem[item CacheSingleItem](ctx context.Context, cm *CacheManager, id uui
 }
 
 // GetItemClient returns the item (wrapper for calls from client)
-func GetItemClient[item CacheSingleItem](ctx context.Context, cm CacheManager, id uuid.UUID, keyID CacheKeyNameID, bypassCache bool, action func(id uuid.UUID, conflict shared.CacheSentinel, i *item) error) (*item, error) {
+func GetItemClient[item SingleItem](ctx context.Context, cm Manager, id uuid.UUID, keyID KeyNameID, bypassCache bool, action func(id uuid.UUID, conflict Sentinel, i *item) error) (*item, error) {
 	ctx = request.NewRequestID(ctx)
 
 	uclog.Verbosef(ctx, "ClientGetItem: %v key %v", id, keyID)
@@ -130,6 +129,6 @@ func GetItemClient[item CacheSingleItem](ctx context.Context, cm CacheManager, i
 }
 
 // ServerGetItem returns the item (wrapper for calls from ORM)
-func ServerGetItem[item CacheSingleItem](ctx context.Context, cm *CacheManager, id uuid.UUID, keyID CacheKeyNameID, modifiedKeyID CacheKeyNameID, action func(id uuid.UUID, conflict shared.CacheSentinel, i *item) error) (*item, error) {
+func ServerGetItem[item SingleItem](ctx context.Context, cm *Manager, id uuid.UUID, keyID KeyNameID, modifiedKeyID KeyNameID, action func(id uuid.UUID, conflict Sentinel, i *item) error) (*item, error) {
 	return GetItem[item](ctx, cm, id, keyID, modifiedKeyID, cm == nil, action)
 }

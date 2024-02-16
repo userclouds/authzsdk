@@ -1,4 +1,4 @@
-package shared
+package cache
 
 import (
 	"strings"
@@ -21,27 +21,27 @@ func NewWriteThroughCacheSentinelManager() *WriteThroughCacheSentinelManager {
 }
 
 // GenerateSentinel generates a sentinel value for the given sentinel type
-func (c *WriteThroughCacheSentinelManager) GenerateSentinel(stype SentinelType) CacheSentinel {
+func (c *WriteThroughCacheSentinelManager) GenerateSentinel(stype SentinelType) Sentinel {
 	id := uuid.Must(uuid.NewV4()).String()
 	switch stype {
 	case Read:
-		return CacheSentinel(readSentinelPrefix() + id)
+		return Sentinel(readSentinelPrefix() + id)
 	case Create, Update:
-		return CacheSentinel(writeSentinelPrefix() + id)
+		return Sentinel(writeSentinelPrefix() + id)
 	case Delete:
-		return CacheSentinel(deleteSentinelPrefix() + id)
+		return Sentinel(deleteSentinelPrefix() + id)
 
 	}
 	return NoLockSentinel
 }
 
 // CanAlwaysSetSentinel returns true if the sentinel can be set without reading current value
-func (c *WriteThroughCacheSentinelManager) CanAlwaysSetSentinel(newVal CacheSentinel) bool {
+func (c *WriteThroughCacheSentinelManager) CanAlwaysSetSentinel(newVal Sentinel) bool {
 	return false // We could return true for delete sentinel if we didn't need to check for tombstones. TODO we could optimize this
 }
 
 // CanSetSentinelGivenCurrVal returns true if new sentinel can be set for the given current sentinel
-func (c *WriteThroughCacheSentinelManager) CanSetSentinelGivenCurrVal(currVal CacheSentinel, newVal CacheSentinel) bool {
+func (c *WriteThroughCacheSentinelManager) CanSetSentinelGivenCurrVal(currVal Sentinel, newVal Sentinel) bool {
 	// If we are doing a read - read sentinel loses to all other sentinels including other in progress reads
 	if c.IsReadSentinelPrefix(newVal) {
 		return false
@@ -60,7 +60,7 @@ func (c *WriteThroughCacheSentinelManager) CanSetSentinelGivenCurrVal(currVal Ca
 }
 
 // CanSetValue returns operation to take given existing key value, new value, and sentinel for the operation
-func (c *WriteThroughCacheSentinelManager) CanSetValue(currVal string, val string, sentinel CacheSentinel) (set bool, clear bool, conflict bool, refresh bool) {
+func (c *WriteThroughCacheSentinelManager) CanSetValue(currVal string, val string, sentinel Sentinel) (set bool, clear bool, conflict bool, refresh bool) {
 	if currVal == string(sentinel) {
 		// The sentinel is still in the key which means nothing interrupted the operation and value can be safely stored in the cache
 		return true, false, false, false
@@ -77,7 +77,7 @@ func (c *WriteThroughCacheSentinelManager) CanSetValue(currVal string, val strin
 			// Another write that was interleaved with this one and finished first, setting the sentinel to indicate conflict. We can't tell what the server
 			// side order of completion was so clear the cache
 			return false, true, false, false
-		} else if c.IsWriteSentinelPrefix(CacheSentinel(currVal)) {
+		} else if c.IsWriteSentinelPrefix(Sentinel(currVal)) {
 			// There is another write in progress that started after us. There is no way to tell if that write will commit same value to the cache
 			// so upgrade its lock to conflict so it doesn't commit its result
 			return false, false, true, false
@@ -92,22 +92,22 @@ func (c *WriteThroughCacheSentinelManager) IsSentinelValue(v string) bool {
 }
 
 // IsInvalidatingSentinelValue returns true if the sentinel requires invalidating the value across other
-func (c *WriteThroughCacheSentinelManager) IsInvalidatingSentinelValue(v CacheSentinel) bool {
+func (c *WriteThroughCacheSentinelManager) IsInvalidatingSentinelValue(v Sentinel) bool {
 	return c.IsWriteSentinelPrefix(v) || c.IsDeleteSentinelPrefix(v)
 }
 
 // IsReadSentinelPrefix returns true if the sentinel value is a read sentinel
-func (c *WriteThroughCacheSentinelManager) IsReadSentinelPrefix(v CacheSentinel) bool {
+func (c *WriteThroughCacheSentinelManager) IsReadSentinelPrefix(v Sentinel) bool {
 	return strings.HasPrefix(string(v), readSentinelPrefix())
 }
 
 // IsWriteSentinelPrefix returns true if the sentinel value is a write sentinel
-func (c *WriteThroughCacheSentinelManager) IsWriteSentinelPrefix(v CacheSentinel) bool {
+func (c *WriteThroughCacheSentinelManager) IsWriteSentinelPrefix(v Sentinel) bool {
 	return strings.HasPrefix(string(v), writeSentinelPrefix())
 }
 
 // IsDeleteSentinelPrefix returns true if the sentinel value is a delete sentinel
-func (c *WriteThroughCacheSentinelManager) IsDeleteSentinelPrefix(v CacheSentinel) bool {
+func (c *WriteThroughCacheSentinelManager) IsDeleteSentinelPrefix(v Sentinel) bool {
 	return strings.HasPrefix(string(v), deleteSentinelPrefix())
 }
 
@@ -124,6 +124,6 @@ func readSentinelPrefix() string {
 }
 
 // IsInvalidatingSentinelValue returns true if the sentinel requires invalidating the value across other
-func IsInvalidatingSentinelValue(v CacheSentinel) bool {
+func IsInvalidatingSentinelValue(v Sentinel) bool {
 	return strings.HasPrefix(string(v), writeSentinelPrefix()) || strings.HasPrefix(string(v), deleteSentinelPrefix())
 }

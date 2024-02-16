@@ -1,4 +1,4 @@
-package shared
+package cache
 
 import "time"
 
@@ -18,10 +18,10 @@ const (
 	InvalidationTombstoneTTL = 5 * time.Second
 
 	// TombstoneSentinel represents the sentinel value for a tombstone
-	TombstoneSentinel CacheSentinel = "Tombstone"
+	TombstoneSentinel Sentinel = "Tombstone"
 
 	// NoLockSentinel represents the sentinel value for no lock
-	NoLockSentinel CacheSentinel = ""
+	NoLockSentinel Sentinel = ""
 )
 
 // IsTombstoneSentinel returns true if the given data is a tombstone sentinel
