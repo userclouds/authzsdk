@@ -39,7 +39,11 @@ func EndingBefore(cursor Cursor) Option {
 //
 //  3. A COMPOSITE query, formatted like:
 //
-//     (FILTER_QUERY,OPERATOR,FILTER_QUERY)
+//     (FILTER_QUERY,OPERATOR,FILTER_QUERY,...,OPERATOR,FILTER_QUERY)
+//
+//     The OPERATORs in a COMPOSITE query must be a LOGICAL OPERATOR. Note that if more than one LOGICAL OPERATOR is present in
+//     the COMPOSITE query, standard SQL precedence rules will be followed, with consecutive AND queries grouped together before
+//     OR queries. So the query (fee,OR,fie,AND,foe,AND,fum) would be executed as (fee,OR,(fie,AND,foe,AND,fum)).
 //
 //     For NESTED and COMPOSITE queries, FILTER_QUERY can be a LEAF, NESTED, or COMPOSITE query.
 //
@@ -85,8 +89,6 @@ func EndingBefore(cursor Cursor) Option {
 //	Only StringKeyType keys support PATTERN operators. For a PATTERN operator, % matches 0 or more characters. _
 //	matches any single character. To match the % or _ characters, the character must be escaped with a \ in the
 //	value (i.e., '\%' matches the '%' character, and '\_' matches '_').
-//
-// For a COMPOSITE query, the OPERATOR must be a LOGICAL operator.
 //
 //	LOGICAL operators include:
 //
