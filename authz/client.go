@@ -225,64 +225,46 @@ type CreateObjectTypeRequest struct {
 
 // CreateObjectType creates a new type of object for the authz system.
 func (c *Client) CreateObjectType(ctx context.Context, id uuid.UUID, typeName string, opts ...Option) (*ObjectType, error) {
-	ctx = request.NewRequestID(ctx)
-
 	options := c.options
 	for _, opt := range opts {
 		opt.apply(&options)
 	}
 
-	req := CreateObjectTypeRequest{ObjectType{
+	input := ObjectType{
 		BaseModel: ucdb.NewBase(),
 		TypeName:  typeName,
-	}}
+	}
+
 	if !id.IsNil() {
-		req.ObjectType.ID = id
+		input.ID = id
 	}
 
-	var resp ObjectType
-
-	// Check if the object type already exists in the cache if we're using ifNotExists
-	if options.ifNotExists && !options.bypassCache {
-		keyName := c.cm.N.GetKeyNameWithString(ObjectTypeNameKeyID, typeName)
-		if !id.IsNil() {
-			keyName = c.cm.N.GetKeyNameWithID(ObjectTypeKeyID, id)
-		}
-		v, _, _, err := clientcache.GetItemFromCache[ObjectType](ctx, c.cm, keyName, false)
-		if err != nil {
-			uclog.Errorf(ctx, "GetItemFromCache failed to get item from cache: %v", err)
-		} else if v != nil && v.TypeName == typeName && (id.IsNil() || v.ID == id) {
-			return v, nil
-		}
-	}
-
-	s, err := clientcache.TakeItemLock(ctx, cache.Create, c.cm, req.ObjectType)
-	if err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-	defer clientcache.ReleaseItemLock(ctx, c.cm, cache.Create, req.ObjectType, s)
-
-	if options.ifNotExists {
-		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/objecttypes", req, &resp)
-		if err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-		if exists {
-			if id.IsNil() || existingID == id {
-				resp = req.ObjectType
-				resp.ID = existingID
+	return clientcache.CreateItemClient[ObjectType](ctx, &c.cm, id, &input, ObjectTypeKeyID, c.cm.N.GetKeyNameWithString(ObjectTypeNameKeyID, typeName), options.ifNotExists, options.bypassCache, nil,
+		func(i *ObjectType) (*ObjectType, error) {
+			req := CreateObjectTypeRequest{*i}
+			var resp ObjectType
+			if options.ifNotExists {
+				exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/objecttypes", req, &resp)
+				if err != nil {
+					return nil, ucerr.Wrap(err)
+				}
+				if exists {
+					if id.IsNil() || existingID == id {
+						resp = req.ObjectType
+						resp.ID = existingID
+					} else {
+						return nil, ucerr.Errorf("object type already exists with different ID: %s", existingID)
+					}
+				}
 			} else {
-				return nil, ucerr.Errorf("object type already exists with different ID: %s", existingID)
+				if err := c.client.Post(ctx, "/authz/objecttypes", req, &resp); err != nil {
+					return nil, ucerr.Wrap(err)
+				}
 			}
-		}
-	} else {
-		if err := c.client.Post(ctx, "/authz/objecttypes", req, &resp); err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-	}
-
-	clientcache.SaveItemToCache(ctx, c.cm, resp, s, true, nil)
-	return &resp, nil
+			return &resp, nil
+		}, func(in *ObjectType, curr *ObjectType) bool {
+			return curr.TypeName == typeName && (id.IsNil() || curr.ID == id)
+		})
 }
 
 // FindObjectTypeID resolves an object type name to an ID.
@@ -321,34 +303,20 @@ func (c *Client) FindObjectTypeID(ctx context.Context, typeName string, opts ...
 
 // GetObjectType returns an object type by ID.
 func (c *Client) GetObjectType(ctx context.Context, id uuid.UUID, opts ...Option) (*ObjectType, error) {
-	ctx = request.NewRequestID(ctx)
-
 	options := c.options
 	for _, opt := range opts {
 		opt.apply(&options)
 	}
 
-	s := cache.NoLockSentinel
-	if !options.bypassCache {
-		var v *ObjectType
-		var err error
-		v, _, s, err = clientcache.GetItemFromCache[ObjectType](ctx, c.cm, c.cm.N.GetKeyNameWithID(ObjectTypeKeyID, id), true)
-		if err != nil {
-			uclog.Errorf(ctx, "GetItemFromCache failed to get item from cache: %v", err)
-		} else if v != nil {
-			return v, nil
+	return clientcache.GetItemClient[ObjectType](ctx, c.cm, id, ObjectTypeKeyID, options.bypassCache, func(id uuid.UUID, conflict cache.CacheSentinel, resp *ObjectType) error {
+		if err := c.client.Get(ctx, fmt.Sprintf("/authz/objecttypes/%v", id), resp); err != nil {
+			if jsonclient.IsHTTPNotFound(err) {
+				return ErrObjectTypeNotFound
+			}
+			return ucerr.Wrap(err)
 		}
-	}
-	var resp ObjectType
-	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objecttypes/%v", id), &resp); err != nil {
-		if jsonclient.IsHTTPNotFound(err) {
-			return nil, ErrObjectTypeNotFound
-		}
-		return nil, ucerr.Wrap(err)
-	}
-
-	clientcache.SaveItemToCache(ctx, c.cm, resp, s, false, nil)
-	return &resp, nil
+		return nil
+	})
 }
 
 // ListObjectTypesResponse is the paginated response from listing object types.
@@ -432,67 +400,49 @@ type CreateEdgeTypeRequest struct {
 
 // CreateEdgeType creates a new type of edge for the authz system.
 func (c *Client) CreateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectTypeID, targetObjectTypeID uuid.UUID, typeName string, attributes Attributes, opts ...Option) (*EdgeType, error) {
-	ctx = request.NewRequestID(ctx)
-
 	options := c.options
 	for _, opt := range opts {
 		opt.apply(&options)
 	}
 
-	req := CreateEdgeTypeRequest{EdgeType{
+	input := EdgeType{
 		BaseModel:          ucdb.NewBase(),
 		TypeName:           typeName,
 		SourceObjectTypeID: sourceObjectTypeID,
 		TargetObjectTypeID: targetObjectTypeID,
 		Attributes:         attributes,
 		OrganizationID:     options.organizationID,
-	}}
+	}
 	if !id.IsNil() {
-		req.EdgeType.ID = id
+		input.ID = id
 	}
 
-	var resp EdgeType
-	// Check if the edge type already exists in the cache if we're using ifNotExists
-	if options.ifNotExists && !options.bypassCache {
-		keyName := c.cm.N.GetKeyNameWithString(EdgeTypeNameKeyID, typeName)
-		if !id.IsNil() {
-			keyName = c.cm.N.GetKeyNameWithID(EdgeTypeKeyID, req.EdgeType.ID)
-		}
-		v, _, _, err := clientcache.GetItemFromCache[EdgeType](ctx, c.cm, keyName, false)
-		if err != nil {
-			uclog.Errorf(ctx, "GetEdgeType failed to get item from cache: %v", err)
-		} else if v != nil && v.Equals(&req.EdgeType, true) {
-			return v, nil
-		}
-	}
-
-	s, err := clientcache.TakeItemLock(ctx, cache.Create, c.cm, req.EdgeType)
-	if err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-	defer clientcache.ReleaseItemLock(ctx, c.cm, cache.Create, req.EdgeType, s)
-
-	if options.ifNotExists {
-		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/edgetypes", req, &resp)
-		if err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-		if exists {
-			if id.IsNil() || existingID == id {
-				resp = req.EdgeType
-				resp.ID = existingID
+	return clientcache.CreateItemClient[EdgeType](ctx, &c.cm, id, &input, EdgeTypeKeyID, c.cm.N.GetKeyNameWithString(EdgeTypeNameKeyID, typeName), options.ifNotExists, options.bypassCache, nil,
+		func(i *EdgeType) (*EdgeType, error) {
+			req := CreateEdgeTypeRequest{*i}
+			var resp EdgeType
+			if options.ifNotExists {
+				exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/edgetypes", req, &resp)
+				if err != nil {
+					return nil, ucerr.Wrap(err)
+				}
+				if exists {
+					if id.IsNil() || existingID == id {
+						resp = req.EdgeType
+						resp.ID = existingID
+					} else {
+						return nil, ucerr.Errorf("edge type already exists with different ID: %s", existingID)
+					}
+				}
 			} else {
-				return nil, ucerr.Errorf("edge type already exists with different ID: %s", existingID)
+				if err := c.client.Post(ctx, "/authz/edgetypes", req, &resp); err != nil {
+					return nil, ucerr.Wrap(err)
+				}
 			}
-		}
-	} else {
-		if err := c.client.Post(ctx, "/authz/edgetypes", req, &resp); err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-	}
-
-	clientcache.SaveItemToCache(ctx, c.cm, resp, s, true, nil)
-	return &resp, nil
+			return &resp, nil
+		}, func(in *EdgeType, curr *EdgeType) bool {
+			return curr.Equals(in, true)
+		})
 }
 
 // UpdateEdgeTypeRequest is the request struct for updating an edge type
@@ -563,35 +513,20 @@ func (c *Client) UpdateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectT
 
 // GetEdgeType gets an edge type (relationship) by its type ID.
 func (c *Client) GetEdgeType(ctx context.Context, edgeTypeID uuid.UUID, opts ...Option) (*EdgeType, error) {
-	ctx = request.NewRequestID(ctx)
-
 	options := c.options
 	for _, opt := range opts {
 		opt.apply(&options)
 	}
 
-	s := cache.NoLockSentinel
-	if !options.bypassCache {
-		var v *EdgeType
-		var err error
-
-		v, _, s, err = clientcache.GetItemFromCache[EdgeType](ctx, c.cm, c.cm.N.GetKeyNameWithID(EdgeTypeKeyID, edgeTypeID), true)
-		if err != nil {
-			uclog.Errorf(ctx, "GetEdgeType failed to get item from cache: %v", err)
-		} else if v != nil {
-			return v, nil
+	return clientcache.GetItemClient[EdgeType](ctx, c.cm, edgeTypeID, EdgeTypeKeyID, options.bypassCache, func(id uuid.UUID, conflict cache.CacheSentinel, resp *EdgeType) error {
+		if err := c.client.Get(ctx, fmt.Sprintf("/authz/edgetypes/%s", id), resp); err != nil {
+			if jsonclient.IsHTTPNotFound(err) {
+				return ErrEdgeTypeNotFound
+			}
+			return ucerr.Wrap(err)
 		}
-	}
-	var resp EdgeType
-	if err := c.client.Get(ctx, fmt.Sprintf("/authz/edgetypes/%s", edgeTypeID), &resp); err != nil {
-		if jsonclient.IsHTTPNotFound(err) {
-			return nil, ErrEdgeTypeNotFound
-		}
-		return nil, ucerr.Wrap(err)
-	}
-
-	clientcache.SaveItemToCache(ctx, c.cm, resp, s, false, nil)
-	return &resp, nil
+		return nil
+	})
 }
 
 // FindEdgeTypeID resolves an edge type name to an ID.
@@ -712,102 +647,69 @@ type CreateObjectRequest struct {
 
 // CreateObject creates a new object with a given ID, name, and type.
 func (c *Client) CreateObject(ctx context.Context, id, typeID uuid.UUID, alias string, opts ...Option) (*Object, error) {
-	ctx = request.NewRequestID(ctx)
-
 	options := c.options
 	for _, opt := range opts {
 		opt.apply(&options)
 	}
 
-	req := CreateObjectRequest{Object{
+	input := Object{
 		BaseModel:      ucdb.NewBase(),
 		Alias:          &alias,
 		TypeID:         typeID,
 		OrganizationID: options.organizationID,
-	}}
+	}
 	if !id.IsNil() {
-		req.Object.ID = id
+		input.ID = id
 	}
 
 	if alias == "" { // this allows storing multiple objects with "" alias
-		req.Object.Alias = nil
+		input.Alias = nil
 	}
 
-	var resp Object
-	// Check if the object already exists in the cache if we're using ifNotExists
-	if options.ifNotExists && !options.bypassCache {
-		keyname := c.cm.N.GetKeyName(ObjAliasNameKeyID, []string{typeID.String(), alias, options.organizationID.String()})
-		if !id.IsNil() {
-			keyname = c.cm.N.GetKeyNameWithID(ObjectKeyID, id)
-		}
-		v, _, _, err := clientcache.GetItemFromCache[Object](ctx, c.cm, keyname, false)
-		if err != nil {
-			uclog.Errorf(ctx, "GetItemFromCache failed to get item from cache: %v", err)
-		} else if v != nil && v.Equals(&req.Object, true) {
-			return v, nil
-		}
-	}
-
-	s, err := clientcache.TakeItemLock(ctx, cache.Create, c.cm, req.Object)
-	if err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-	defer clientcache.ReleaseItemLock(ctx, c.cm, cache.Create, req.Object, s)
-
-	if options.ifNotExists {
-		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/objects", req, &resp)
-		if err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-		if exists {
-			if id.IsNil() || existingID == id {
-				resp = req.Object
-				resp.ID = existingID
+	return clientcache.CreateItemClient[Object](ctx, &c.cm, id, &input, ObjectKeyID, c.cm.N.GetKeyName(ObjAliasNameKeyID, []string{typeID.String(), alias, options.organizationID.String()}), options.ifNotExists, options.bypassCache, nil,
+		func(i *Object) (*Object, error) {
+			req := CreateObjectRequest{*i}
+			var resp Object
+			if options.ifNotExists {
+				exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/objects", req, &resp)
+				if err != nil {
+					return nil, ucerr.Wrap(err)
+				}
+				if exists {
+					if id.IsNil() || existingID == id {
+						resp = req.Object
+						resp.ID = existingID
+					} else {
+						return nil, ucerr.Errorf("object already exists with different ID: %s", existingID)
+					}
+				}
 			} else {
-				return nil, ucerr.Errorf("object already exists with different ID: %s", existingID)
+				if err := c.client.Post(ctx, "/authz/objects", req, &resp); err != nil {
+					return nil, ucerr.Wrap(err)
+				}
 			}
-		}
-	} else {
-		if err := c.client.Post(ctx, "/authz/objects", req, &resp); err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-	}
-
-	clientcache.SaveItemToCache(ctx, c.cm, resp, s, true, nil)
-	return &resp, nil
+			return &resp, nil
+		}, func(in *Object, curr *Object) bool {
+			return curr.Equals(in, true)
+		})
 }
 
 // GetObject returns an object by ID.
 func (c *Client) GetObject(ctx context.Context, id uuid.UUID, opts ...Option) (*Object, error) {
-	ctx = request.NewRequestID(ctx)
-
 	options := c.options
 	for _, opt := range opts {
 		opt.apply(&options)
 	}
 
-	s := cache.NoLockSentinel
-	if !options.bypassCache {
-		var v *Object
-		var err error
-		v, _, s, err = clientcache.GetItemFromCache[Object](ctx, c.cm, c.cm.N.GetKeyNameWithID(ObjectKeyID, id), true)
-		if err != nil {
-			uclog.Errorf(ctx, "GetObject failed to get item from cache: %v", err)
-		} else if v != nil {
-			return v, nil
+	return clientcache.GetItemClient[Object](ctx, c.cm, id, ObjectKeyID, options.bypassCache, func(id uuid.UUID, conflict cache.CacheSentinel, resp *Object) error {
+		if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects/%s", id), resp); err != nil {
+			if jsonclient.IsHTTPNotFound(err) {
+				return ErrObjectNotFound
+			}
+			return ucerr.Wrap(err)
 		}
-	}
-
-	var resp Object
-	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objects/%s", id), &resp); err != nil {
-		if jsonclient.IsHTTPNotFound(err) {
-			return nil, ErrObjectNotFound
-		}
-		return nil, ucerr.Wrap(err)
-	}
-
-	clientcache.SaveItemToCache(ctx, c.cm, resp, s, false, nil)
-	return &resp, nil
+		return nil
+	})
 }
 
 // GetObjectForName returns an object with a given name.
@@ -1126,36 +1028,20 @@ func (c *Client) ListEdgesBetweenObjects(ctx context.Context, sourceObjectID, ta
 
 // GetEdge returns an edge by ID.
 func (c *Client) GetEdge(ctx context.Context, id uuid.UUID, opts ...Option) (*Edge, error) {
-	ctx = request.NewRequestID(ctx)
-
 	options := c.options
 	for _, opt := range opts {
 		opt.apply(&options)
 	}
 
-	s := cache.NoLockSentinel
-	if !options.bypassCache {
-		var edge *Edge
-		var err error
-
-		edge, _, s, err = clientcache.GetItemFromCache[Edge](ctx, c.cm, c.cm.N.GetKeyNameWithID(EdgeKeyID, id), true)
-		if err != nil {
-			uclog.Errorf(ctx, "GetEdge failed to get item from cache: %v", err)
-		} else if edge != nil {
-			return edge, nil
+	return clientcache.GetItemClient[Edge](ctx, c.cm, id, EdgeKeyID, options.bypassCache, func(id uuid.UUID, conflict cache.CacheSentinel, resp *Edge) error {
+		if err := c.client.Get(ctx, fmt.Sprintf("/authz/edges/%s", id), resp); err != nil {
+			if jsonclient.IsHTTPNotFound(err) {
+				return ErrEdgeNotFound
+			}
+			return ucerr.Wrap(err)
 		}
-	}
-	var resp Edge
-	if err := c.client.Get(ctx, fmt.Sprintf("/authz/edges/%s", id), &resp); err != nil {
-		if jsonclient.IsHTTPNotFound(err) {
-			return nil, ErrEdgeNotFound
-		}
-		return nil, ucerr.Wrap(err)
-	}
-
-	clientcache.SaveItemToCache(ctx, c.cm, resp, s, false, nil)
-
-	return &resp, nil
+		return nil
+	})
 }
 
 // FindEdge finds an existing edge (relationship) between two objects.
@@ -1239,72 +1125,53 @@ type CreateEdgeRequest struct {
 
 // CreateEdge creates an edge (relationship) between two objects.
 func (c *Client) CreateEdge(ctx context.Context, id, sourceObjectID, targetObjectID, edgeTypeID uuid.UUID, opts ...Option) (*Edge, error) {
-	ctx = request.NewRequestID(ctx)
-
 	options := c.options
 	for _, opt := range opts {
 		opt.apply(&options)
 	}
 
-	req := CreateEdgeRequest{Edge{
+	input := Edge{
 		BaseModel:      ucdb.NewBase(),
 		EdgeTypeID:     edgeTypeID,
 		SourceObjectID: sourceObjectID,
 		TargetObjectID: targetObjectID,
-	}}
+	}
 	if !id.IsNil() {
-		req.Edge.ID = id
-	}
-	var resp Edge
-	// Check if the object type already exists in the cache if we're using ifNotExists
-	if options.ifNotExists && !options.bypassCache {
-		keyname := c.cm.N.GetKeyName(EdgeFullKeyID, []string{sourceObjectID.String(), targetObjectID.String(), edgeTypeID.String()})
-		if !id.IsNil() {
-			keyname = c.cm.N.GetKeyNameWithID(EdgeKeyID, id)
-		}
-		v, _, _, err := clientcache.GetItemFromCache[Edge](ctx, c.cm, keyname, false)
-		if err != nil {
-			uclog.Errorf(ctx, "GetItemFromCache failed to get item from cache: %v", err)
-		} else if v != nil && v.EdgeTypeID == req.Edge.EdgeTypeID && v.SourceObjectID == req.Edge.SourceObjectID && v.TargetObjectID == req.Edge.TargetObjectID &&
-			(id.IsNil() || v.ID == id) {
-			return v, nil
-		}
+		input.ID = id
 	}
 
-	s, err := clientcache.TakeItemLock(ctx, cache.Create, c.cm, req.Edge)
-	if err != nil {
-		return nil, ucerr.Wrap(err)
+	additionalKeys := []cache.CacheKey{c.cm.N.GetKeyName(EdgesObjToObjID, []string{input.SourceObjectID.String(), input.TargetObjectID.String()}), // Source -> Target edges collection
+		c.cm.N.GetKeyNameWithID(ObjEdgesKeyID, input.SourceObjectID),                                               // Source all in/out edges collection
+		c.cm.N.GetKeyName(EdgesObjToObjID, []string{input.TargetObjectID.String(), input.SourceObjectID.String()}), // Target -> Source edges collection
+		c.cm.N.GetKeyNameWithID(ObjEdgesKeyID, input.TargetObjectID),                                               // Target all in/out edges collection
 	}
-	defer clientcache.ReleaseItemLock(ctx, c.cm, cache.Create, req.Edge, s)
 
-	if options.ifNotExists {
-		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/edges", req, &resp)
-		if err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-		if exists {
-			if id.IsNil() || existingID == id {
-				resp = req.Edge
-				resp.ID = existingID
+	return clientcache.CreateItemClient[Edge](ctx, &c.cm, id, &input, EdgeKeyID, c.cm.N.GetKeyName(EdgeFullKeyID, []string{sourceObjectID.String(), targetObjectID.String(), edgeTypeID.String()}), options.ifNotExists, options.bypassCache, additionalKeys,
+		func(i *Edge) (*Edge, error) {
+			req := CreateEdgeRequest{*i}
+			var resp Edge
+			if options.ifNotExists {
+				exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/edges", req, &resp)
+				if err != nil {
+					return nil, ucerr.Wrap(err)
+				}
+				if exists {
+					if id.IsNil() || existingID == id {
+						resp = req.Edge
+						resp.ID = existingID
+					} else {
+						return nil, ucerr.Errorf("edge already exists with different ID: %s", existingID)
+					}
+				}
 			} else {
-				return nil, ucerr.Errorf("edge already exists with different ID: %s", existingID)
+				if err := c.client.Post(ctx, "/authz/edges", req, &resp); err != nil {
+					return nil, ucerr.Wrap(err)
+				}
 			}
-		}
-	} else {
-		if err := c.client.Post(ctx, "/authz/edges", req, &resp); err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-	}
-
-	clientcache.SaveItemToCache(ctx, c.cm, resp, s, true,
-		// Clear additional collections that may be invalidated by this write
-		[]cache.CacheKey{c.cm.N.GetKeyName(EdgesObjToObjID, []string{resp.SourceObjectID.String(), resp.TargetObjectID.String()}), // Source -> Target edges collection
-			c.cm.N.GetKeyNameWithID(ObjEdgesKeyID, resp.SourceObjectID),                                              // Source all in/out edges collection
-			c.cm.N.GetKeyName(EdgesObjToObjID, []string{resp.TargetObjectID.String(), resp.SourceObjectID.String()}), // Target -> Source edges collection
-			c.cm.N.GetKeyNameWithID(ObjEdgesKeyID, resp.TargetObjectID),                                              // Target all in/out edges collection
+			return &resp, nil
+		}, func(in *Edge, v *Edge) bool {
+			return v.EdgeTypeID == in.EdgeTypeID && v.SourceObjectID == in.SourceObjectID && v.TargetObjectID == in.TargetObjectID && (id.IsNil() || v.ID == id)
 		})
-
-	return &resp, nil
 }
 
 // DeleteEdge deletes an edge by ID.
@@ -1340,6 +1207,11 @@ func (c *Client) DeleteEdge(ctx context.Context, edgeID uuid.UUID) error {
 type AttributePathNode struct {
 	ObjectID uuid.UUID `json:"object_id" validate:"notnil"`
 	EdgeID   uuid.UUID `json:"edge_id"`
+}
+
+// GetID returns nil ID since we never create/update attribute path directly
+func (a AttributePathNode) GetID() uuid.UUID {
+	return uuid.Nil
 }
 
 //go:generate genvalidate AttributePathNode
@@ -1526,34 +1398,18 @@ func (c *Client) ListOrganizations(ctx context.Context, opts ...Option) ([]Organ
 
 // GetOrganization retrieves a single organization by its UUID
 func (c *Client) GetOrganization(ctx context.Context, id uuid.UUID, opts ...Option) (*Organization, error) {
-	ctx = request.NewRequestID(ctx)
-
 	options := c.options
 	for _, opt := range opts {
 		opt.apply(&options)
 	}
 
-	s := cache.NoLockSentinel
-	if !options.bypassCache {
-		var v *Organization
-		var err error
+	return clientcache.GetItemClient[Organization](ctx, c.cm, id, OrganizationKeyID, options.bypassCache, func(id uuid.UUID, conflict cache.CacheSentinel, resp *Organization) error {
 
-		v, _, s, err = clientcache.GetItemFromCache[Organization](ctx, c.cm, c.cm.N.GetKeyNameWithID(OrganizationKeyID, id), true)
-		if err != nil {
-			uclog.Errorf(ctx, "GetOrganization failed to get item from cache: %v", err)
-		} else if v != nil {
-			return v, nil
+		if err := c.client.Get(ctx, fmt.Sprintf("/authz/organizations/%s", id), &resp); err != nil {
+			return ucerr.Wrap(err)
 		}
-	}
-
-	var resp Organization
-	if err := c.client.Get(ctx, fmt.Sprintf("/authz/organizations/%s", id), &resp); err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-
-	clientcache.SaveItemToCache(ctx, c.cm, resp, s, false, nil)
-
-	return &resp, nil
+		return nil
+	})
 }
 
 // GetOrganizationForName retrieves a single organization by its name
@@ -1608,56 +1464,47 @@ type CreateOrganizationRequest struct {
 // Note that if the `IfNotExists` option is used, the organizations must match exactly (eg. name and region),
 // otherwise a 409 Conflict error will still be returned.
 func (c *Client) CreateOrganization(ctx context.Context, id uuid.UUID, name string, region region.DataRegion, opts ...Option) (*Organization, error) {
-	ctx = request.NewRequestID(ctx)
-	var err error
-
 	options := c.options
 	for _, opt := range opts {
 		opt.apply(&options)
 	}
 
-	req := CreateOrganizationRequest{
-		Organization: Organization{
-			BaseModel: ucdb.NewBase(),
-			Name:      name,
-			Region:    region,
-		},
+	input := Organization{
+		BaseModel: ucdb.NewBase(),
+		Name:      name,
+		Region:    region,
 	}
+
 	if !id.IsNil() {
-		req.Organization.ID = id
+		input.ID = id
 	}
 
-	s := cache.NoLockSentinel
-	if !options.bypassCache {
-		s, err = clientcache.TakeItemLock(ctx, cache.Create, c.cm, req.Organization)
-		if err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-		defer clientcache.ReleaseItemLock(ctx, c.cm, cache.Create, req.Organization, s)
-	}
-	var resp Organization
-	if options.ifNotExists {
-		exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/organizations", req, &resp)
-		if err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-		if exists {
-			if id.IsNil() || existingID == id {
-				resp = req.Organization
-				resp.ID = existingID
+	return clientcache.CreateItemClient[Organization](ctx, &c.cm, id, &input, OrganizationKeyID, c.cm.N.GetKeyNameWithString(OrganizationNameKeyID, name), options.ifNotExists, options.bypassCache, nil,
+		func(i *Organization) (*Organization, error) {
+			req := CreateOrganizationRequest{*i}
+			var resp Organization
+			if options.ifNotExists {
+				exists, existingID, err := c.client.CreateIfNotExists(ctx, "/authz/organizations", req, &resp)
+				if err != nil {
+					return nil, ucerr.Wrap(err)
+				}
+				if exists {
+					if id.IsNil() || existingID == id {
+						resp = req.Organization
+						resp.ID = existingID
+					} else {
+						return nil, ucerr.Errorf("organization exists with different ID: %s", existingID)
+					}
+				}
 			} else {
-				return nil, ucerr.Errorf("organization exists with different ID: %s", existingID)
+				if err := c.client.Post(ctx, "/authz/organizations", req, &resp); err != nil {
+					return nil, ucerr.Wrap(err)
+				}
 			}
-		}
-	} else {
-		if err := c.client.Post(ctx, "/authz/organizations", req, &resp); err != nil {
-			return nil, ucerr.Wrap(err)
-		}
-	}
-
-	clientcache.SaveItemToCache(ctx, c.cm, resp, s, true, nil)
-
-	return &resp, nil
+			return &resp, nil
+		}, func(in *Organization, v *Organization) bool {
+			return v.Name == in.Name && v.Region == in.Region && (id.IsNil() || v.ID == id)
+		})
 }
 
 // UpdateOrganizationRequest is the request struct to the UpdateOrganization endpoint
