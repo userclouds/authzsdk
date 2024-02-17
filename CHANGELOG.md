@@ -4,6 +4,7 @@
 
 - Breaking change: idp/userstore/ColumnField parameter "Optional" has been changed to "Required", with fields not required by default
 - Add InputConstraints and OutputConstraints parameters of type idp/userstore/ColumnConstraints to idp/policy/Transformer
+- Add pagination support for chained logical filter queries (query,logical_operator,query,logical_operator,query...)
 
 ## 1.0.0 - 31-01-2024
 
