@@ -84,7 +84,6 @@ func cleanPreviousRunData(ctx context.Context, authZClient *authz.Client) error 
 		log.Printf("warning, failed to list object types: %v", err)
 		return ucerr.Wrap(err)
 	}
-	log.Printf("Got object types %v", ots)
 
 	for _, v := range ots {
 		if v.TypeName == "file" || v.TypeName == "team" {
