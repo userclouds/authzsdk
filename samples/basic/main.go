@@ -28,6 +28,8 @@ var fileTeamEditorTypeID, fileTeamViewerTypeID uuid.UUID
 
 var aliceUserID, bobUserID uuid.UUID
 
+var edgeTypeNames = []string{"team_member", "file_editor", "file_viewer", "file_team_editor", "file_team_viewer", "file_container"}
+
 func oneTimeProvision(ctx context.Context, idpClient *idp.Client, authZClient *authz.Client) error {
 	// NB: these Create commands are only here because this is a self-contained sample app; normally
 	// you would do one-time provisioning via the Console or via the AuthZ API ahead of time, not in every single app.
@@ -82,6 +84,7 @@ func cleanPreviousRunData(ctx context.Context, authZClient *authz.Client) error 
 		log.Printf("warning, failed to list object types: %v", err)
 		return ucerr.Wrap(err)
 	}
+
 	for _, v := range ots {
 		if v.TypeName == "file" || v.TypeName == "team" {
 			if err := authZClient.DeleteObjectType(ctx, v.ID); err != nil {
@@ -89,6 +92,23 @@ func cleanPreviousRunData(ctx context.Context, authZClient *authz.Client) error 
 			}
 		}
 	}
+
+	ets, err := authZClient.ListEdgeTypes(ctx)
+	if err != nil {
+		log.Printf("warning, failed to list edge types: %v", err)
+		return ucerr.Wrap(err)
+	}
+
+	for _, v := range ets {
+		for _, name := range edgeTypeNames {
+			if v.TypeName == name {
+				if err := authZClient.DeleteEdgeType(ctx, v.ID); err != nil {
+					log.Printf("warning, failed to delete %+v: %v", v, err)
+				}
+			}
+		}
+	}
+
 	return nil
 }
 

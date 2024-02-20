@@ -29,6 +29,11 @@ func (ObjectType) GetPaginationKeys() pagination.KeyTypes {
 	}
 }
 
+// EqualsWithoutID returns true if two object types are equal, ignoring the ID field
+func (ot *ObjectType) EqualsWithoutID(other *ObjectType) bool {
+	return ot.TypeName == other.TypeName
+}
+
 //go:generate genvalidate ObjectType
 
 // Attribute represents a named attribute on an Edge Type.
@@ -192,6 +197,11 @@ type Edge struct {
 	// These must be valid ObjectType.ID values
 	SourceObjectID uuid.UUID `db:"source_object_id" json:"source_object_id" validate:"notnil" required:"true"`
 	TargetObjectID uuid.UUID `db:"target_object_id" json:"target_object_id" validate:"notnil" required:"true"`
+}
+
+// EqualsWithoutID returns true if two edges are equal, ignoring the ID field
+func (e *Edge) EqualsWithoutID(other *Edge) bool {
+	return e.EdgeTypeID == other.EdgeTypeID && e.SourceObjectID == other.SourceObjectID && e.TargetObjectID == other.TargetObjectID
 }
 
 //go:generate genvalidate Edge

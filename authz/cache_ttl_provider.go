@@ -3,10 +3,10 @@ package authz
 import (
 	"time"
 
-	clientcache "userclouds.com/infra/cache/client"
+	"userclouds.com/infra/cache"
 )
 
-// CacheTTLProvider implements the clientcache.CacheTTLProvider interface
+// CacheTTLProvider implements the cache.CacheTTLProvider interface
 type CacheTTLProvider struct {
 	objTypeTTL  time.Duration
 	edgeTypeTTL time.Duration
@@ -15,7 +15,7 @@ type CacheTTLProvider struct {
 	orgTTL      time.Duration
 }
 
-// NewCacheTTLProvider creates a new Configurableclientcache.CacheTTLProvider
+// NewCacheTTLProvider creates a new Configurablecache.CacheTTLProvider
 func NewCacheTTLProvider(objTypeTTL time.Duration, edgeTypeTTL time.Duration, objTTL time.Duration, edgeTTL time.Duration) *CacheTTLProvider {
 	return &CacheTTLProvider{objTypeTTL: objTypeTTL, edgeTypeTTL: edgeTypeTTL, objTTL: objTTL, edgeTTL: edgeTTL, orgTTL: objTypeTTL}
 }
@@ -34,7 +34,7 @@ const (
 )
 
 // TTL returns the TTL for given type
-func (c *CacheTTLProvider) TTL(id clientcache.CacheKeyTTLID) time.Duration {
+func (c *CacheTTLProvider) TTL(id cache.KeyTTLID) time.Duration {
 	switch id {
 	case ObjectTypeTTL:
 		return c.objTypeTTL
@@ -47,5 +47,5 @@ func (c *CacheTTLProvider) TTL(id clientcache.CacheKeyTTLID) time.Duration {
 	case OrganizationTTL:
 		return c.orgTTL
 	}
-	return clientcache.SkipCacheTTL
+	return cache.SkipCacheTTL
 }
