@@ -12,7 +12,6 @@ import (
 	"userclouds.com/idp"
 	"userclouds.com/infra/jsonclient"
 	"userclouds.com/infra/logtransports"
-	"userclouds.com/infra/ucerr"
 	"userclouds.com/infra/ucjwt"
 	"userclouds.com/infra/uclog"
 )
@@ -75,43 +74,6 @@ func oneTimeProvision(ctx context.Context, idpClient *idp.Client, authZClient *a
 	return nil
 }
 
-// cleanPreviousRunData is a convenience method to clean up 'file' and 'team' objects from previous runs
-// so that it's easier to inspect the sample's output in the UserClouds Console.
-func cleanPreviousRunData(ctx context.Context, authZClient *authz.Client) error {
-	// Delete the File and Team object types which should nuke all related edge types, edges, and objects.
-	ots, err := authZClient.ListObjectTypes(ctx)
-	if err != nil {
-		log.Printf("warning, failed to list object types: %v", err)
-		return ucerr.Wrap(err)
-	}
-
-	for _, v := range ots {
-		if v.TypeName == "file" || v.TypeName == "team" {
-			if err := authZClient.DeleteObjectType(ctx, v.ID); err != nil {
-				log.Printf("warning, failed to delete %+v: %v", v, err)
-			}
-		}
-	}
-
-	ets, err := authZClient.ListEdgeTypes(ctx)
-	if err != nil {
-		log.Printf("warning, failed to list edge types: %v", err)
-		return ucerr.Wrap(err)
-	}
-
-	for _, v := range ets {
-		for _, name := range edgeTypeNames {
-			if v.TypeName == name {
-				if err := authZClient.DeleteEdgeType(ctx, v.ID); err != nil {
-					log.Printf("warning, failed to delete %+v: %v", v, err)
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
 func initClients() (*idp.Client, *authz.Client, *ucjwt.Config) {
 	ctx := context.Background()
 
@@ -140,10 +102,6 @@ func initClients() (*idp.Client, *authz.Client, *ucjwt.Config) {
 	authZClient, err := authz.NewClient(tenantURL, authz.JSONClient(tokenSource))
 	if err != nil {
 		log.Fatalf("error initializing authz client: %v", err)
-	}
-
-	if err := cleanPreviousRunData(ctx, authZClient); err != nil {
-		log.Printf("failed to clean previous run data, ignoring and moving on")
 	}
 
 	if err := oneTimeProvision(ctx, idpClient, authZClient); err != nil {
@@ -192,7 +150,7 @@ func main() {
 	}
 
 	// Grant Bob viewer permissions in 'dir1'
-	_ = mustEdge(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), bobUserID, dir1.id, fileViewerTypeID))
+	_ = mustEdge(authZClient.CreateEdge(ctx, uuid.Nil, bobUserID, dir1.id, fileViewerTypeID))
 
 	// Now Bob can read '/dir1/file1'
 	if _, err := fm.ReadFile(ctx, file1, bobUserID); err != nil {
@@ -207,11 +165,12 @@ func main() {
 
 	// Create a team, add Bob to it, give that team write permissions to '/dir2'
 	aliceReportsTeamID := mustID(provisionObject(ctx, authZClient, teamTypeID, "Alice's Direct Reports"))
-	_ = mustEdge(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), bobUserID, aliceReportsTeamID, teamMemberID))
-	_ = mustEdge(authZClient.CreateEdge(ctx, uuid.Must(uuid.NewV4()), aliceReportsTeamID, dir2.id, fileTeamEditorTypeID))
+	_ = mustEdge(authZClient.CreateEdge(ctx, uuid.Nil, bobUserID, aliceReportsTeamID, teamMemberID, authz.IfNotExists()))
+	_ = mustEdge(authZClient.CreateEdge(ctx, uuid.Nil, aliceReportsTeamID, dir2.id, fileTeamEditorTypeID, authz.IfNotExists()))
 
 	// Now Bob can create subdirectories under '/dir2'
-	if _, err := fm.NewDir(ctx, "dir3", dir2, bobUserID); err != nil {
+	dir3, err := fm.NewDir(ctx, "dir3", dir2, bobUserID)
+	if err != nil {
 		log.Fatalf("expected Bob to succeed creating dir3 under /dir2: %v", err)
 	}
 
@@ -224,4 +183,28 @@ func main() {
 	renderFileTree(ctx, idpClient, authZClient, rootDir, 0)
 
 	log.Printf("successfully ran sample")
+
+	objectsToDelete := []uuid.UUID{
+		rootDir.id,
+		dir1.id,
+		dir2.id,
+		dir3.id,
+		file1.id,
+		aliceReportsTeamID,
+	}
+	for _, id := range objectsToDelete {
+		if err := authZClient.DeleteObject(ctx, id); err != nil {
+			log.Printf("failed to delete object %s: %v", id, err)
+		}
+	}
+
+	usersToDelete := []uuid.UUID{
+		aliceUserID,
+		bobUserID,
+	}
+	for _, id := range usersToDelete {
+		if err := idpClient.DeleteUser(ctx, id); err != nil {
+			log.Printf("failed to delete user %s: %v", id, err)
+		}
+	}
 }

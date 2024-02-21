@@ -262,7 +262,7 @@ func (c *Client) CreateObjectType(ctx context.Context, id uuid.UUID, typeName st
 			}
 			return &resp, nil
 		}, func(in *ObjectType, curr *ObjectType) bool {
-			return curr.TypeName == typeName && (id.IsNil() || curr.ID == id)
+			return curr.EqualsIgnoringID(in) && (id.IsNil() || curr.ID == id)
 		})
 }
 
@@ -440,7 +440,7 @@ func (c *Client) CreateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectT
 			}
 			return &resp, nil
 		}, func(in *EdgeType, curr *EdgeType) bool {
-			return curr.Equals(in, true)
+			return curr.EqualsIgnoringID(in, true) && (id.IsNil() || curr.ID == id)
 		})
 }
 
@@ -481,7 +481,7 @@ func (c *Client) UpdateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectT
 		v, _, _, err = cache.GetItemFromCache[EdgeType](ctx, c.cm, c.cm.N.GetKeyNameWithID(EdgeTypeKeyID, id), false)
 		if err != nil {
 			uclog.Errorf(ctx, "UpdateEdgeType failed to get item from cache: %v", err)
-		} else if v != nil && v.Equals(&eT, false) {
+		} else if v != nil && v.ID == eT.ID && v.EqualsIgnoringID(&eT, false) {
 			return v, nil
 		}
 	}
@@ -689,7 +689,7 @@ func (c *Client) CreateObject(ctx context.Context, id, typeID uuid.UUID, alias s
 			}
 			return &resp, nil
 		}, func(in *Object, curr *Object) bool {
-			return curr.Equals(in, true)
+			return curr.EqualsIgnoringID(in, true) && (id.IsNil() || curr.ID == id)
 		})
 }
 
@@ -1169,7 +1169,7 @@ func (c *Client) CreateEdge(ctx context.Context, id, sourceObjectID, targetObjec
 			}
 			return &resp, nil
 		}, func(in *Edge, v *Edge) bool {
-			return v.EdgeTypeID == in.EdgeTypeID && v.SourceObjectID == in.SourceObjectID && v.TargetObjectID == in.TargetObjectID && (id.IsNil() || v.ID == id)
+			return v.EqualsIgnoringID(in) && (id.IsNil() || v.ID == id)
 		})
 }
 

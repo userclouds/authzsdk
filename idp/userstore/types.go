@@ -166,8 +166,8 @@ func (Column) GetPaginationKeys() pagination.KeyTypes {
 	}
 }
 
-// Equals returns true if the two columns are equal
-func (c *Column) Equals(other *Column) bool {
+// EqualsIgnoringNilID returns true if the two columns are equal, ignoring ID if one is nil
+func (c *Column) EqualsIgnoringNilID(other *Column) bool {
 	return (c.ID == other.ID || c.ID.IsNil() || other.ID.IsNil()) &&
 		strings.EqualFold(c.Name, other.Name) &&
 		c.Type == other.Type &&
