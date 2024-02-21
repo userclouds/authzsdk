@@ -105,8 +105,8 @@ func (g Transformer) extraValidate() error {
 	return nil
 }
 
-// Equals returns true if the two policies are equal, ignoring the ID and description fields
-func (g *Transformer) Equals(other *Transformer) bool {
+// EqualsIgnoringNilID returns true if the two policies are equal, ignoring the description and ID if one is nil
+func (g *Transformer) EqualsIgnoringNilID(other *Transformer) bool {
 	return (g.ID == other.ID || g.ID.IsNil() || other.ID.IsNil()) &&
 		strings.EqualFold(g.Name, other.Name) &&
 		g.InputType == other.InputType &&
@@ -183,8 +183,8 @@ func (a AccessPolicyTemplate) extraValidate() error {
 	return nil
 }
 
-// Equals returns true if the two templates are equal, ignoring the ID, description, and version fields
-func (a *AccessPolicyTemplate) Equals(other *AccessPolicyTemplate) bool {
+// EqualsIgnoringNilID returns true if the two templates are equal, ignoring the description, version, and ID if one is nil
+func (a *AccessPolicyTemplate) EqualsIgnoringNilID(other *AccessPolicyTemplate) bool {
 	return (a.ID == other.ID || a.ID.IsNil() || other.ID.IsNil()) &&
 		strings.EqualFold(a.Name, other.Name) &&
 		a.Function == other.Function &&
@@ -232,8 +232,8 @@ type AccessPolicy struct {
 	Components []AccessPolicyComponent `json:"components" validate:"skip"`
 }
 
-// Equals returns true if the two policies are equal, ignoring the ID, description, and version fields
-func (a AccessPolicy) Equals(other AccessPolicy) bool {
+// EqualsIgnoringNilID returns true if the two policies are equal, ignoring the description, version, and ID if one is nil
+func (a AccessPolicy) EqualsIgnoringNilID(other AccessPolicy) bool {
 	if (a.ID == other.ID || a.ID.IsNil() || other.ID.IsNil()) &&
 		strings.EqualFold(a.Name, other.Name) &&
 		strings.EqualFold(a.Description, other.Description) &&

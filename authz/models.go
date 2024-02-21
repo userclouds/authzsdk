@@ -29,8 +29,8 @@ func (ObjectType) GetPaginationKeys() pagination.KeyTypes {
 	}
 }
 
-// EqualsWithoutID returns true if two object types are equal, ignoring the ID field
-func (ot *ObjectType) EqualsWithoutID(other *ObjectType) bool {
+// EqualsIgnoringID returns true if two object types are equal, ignoring the ID field
+func (ot *ObjectType) EqualsIgnoringID(other *ObjectType) bool {
 	return ot.TypeName == other.TypeName
 }
 
@@ -113,8 +113,8 @@ type EdgeType struct {
 	OrganizationID uuid.UUID `db:"organization_id" json:"organization_id"`
 }
 
-// Equals returns true if the two edges are equal, ignoring the ID field
-func (e *EdgeType) Equals(other *EdgeType, includeOrg bool) bool {
+// EqualsIgnoringID returns true if the two edges are equal, ignoring the ID field
+func (e *EdgeType) EqualsIgnoringID(other *EdgeType, includeOrg bool) bool {
 	if e.TypeName == other.TypeName && e.SourceObjectTypeID == other.SourceObjectTypeID && e.TargetObjectTypeID == other.TargetObjectTypeID && (!includeOrg || e.OrganizationID == other.OrganizationID) {
 		if len(e.Attributes) != len(other.Attributes) {
 			return false
@@ -162,8 +162,8 @@ type Object struct {
 	OrganizationID uuid.UUID `db:"organization_id" json:"organization_id"`
 }
 
-// Equals returns true if the two objects are equal, ignoring the ID field
-func (o *Object) Equals(other *Object, includeOrg bool) bool {
+// EqualsIgnoringID returns true if the two objects are equal, ignoring the ID field
+func (o *Object) EqualsIgnoringID(other *Object, includeOrg bool) bool {
 	if o.Alias == nil && other.Alias == nil {
 		return o.TypeID == other.TypeID && (!includeOrg || o.OrganizationID == other.OrganizationID)
 	}
@@ -199,8 +199,8 @@ type Edge struct {
 	TargetObjectID uuid.UUID `db:"target_object_id" json:"target_object_id" validate:"notnil" required:"true"`
 }
 
-// EqualsWithoutID returns true if two edges are equal, ignoring the ID field
-func (e *Edge) EqualsWithoutID(other *Edge) bool {
+// EqualsIgnoringID returns true if two edges are equal, ignoring the ID field
+func (e *Edge) EqualsIgnoringID(other *Edge) bool {
 	return e.EdgeTypeID == other.EdgeTypeID && e.SourceObjectID == other.SourceObjectID && e.TargetObjectID == other.TargetObjectID
 }
 
