@@ -14,9 +14,9 @@ import (
 
 // ClientCredentialsTokenSource encapsulates parameters required to issue a Client Credentials OIDC request and return a token
 type ClientCredentialsTokenSource struct {
-	TokenURL        string   `json:"token_url"`
-	ClientID        string   `json:"client_id"`
-	ClientSecret    string   `json:"client_secret"`
+	TokenURL        string   `json:"token_url" validate:"notempty"`
+	ClientID        string   `json:"client_id" validate:"notempty"`
+	ClientSecret    string   `json:"client_secret" validate:"notempty"`
 	CustomAudiences []string `json:"custom_audiences"`
 	SubjectJWT      string   `json:"subject_jwt"` // optional, ID Token for a UC user if this access token is being created on their behalf
 }
@@ -26,6 +26,9 @@ type ClientCredentialsTokenSource struct {
 // GetToken issues a request to an OIDC-compliant token endpoint to perform
 // the Client Credentials flow in exchange for an access token.
 func (ccts ClientCredentialsTokenSource) GetToken() (string, error) {
+	if err := ccts.Validate(); err != nil {
+		return "", ucerr.Wrap(err)
+	}
 	query := url.Values{}
 	// TODO: move common OIDC values into constants
 	query.Add("grant_type", "client_credentials")
