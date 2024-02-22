@@ -21,6 +21,8 @@ type ClientCredentialsTokenSource struct {
 	SubjectJWT      string   `json:"subject_jwt"` // optional, ID Token for a UC user if this access token is being created on their behalf
 }
 
+//go:generate genvalidate ClientCredentialsTokenSource
+
 // GetToken issues a request to an OIDC-compliant token endpoint to perform
 // the Client Credentials flow in exchange for an access token.
 func (ccts ClientCredentialsTokenSource) GetToken() (string, error) {
