@@ -301,25 +301,14 @@ type AccessPolicyContext struct {
 	User   userstore.Record `json:"user"`
 }
 
-//go:generate genvalidate AccessPolicyContext
-
 // ServerContext is automatically injected by the server at resolution time
 type ServerContext struct {
 	// TODO: add token creation time
-	IPAddress    string          `json:"ip_address"`
-	Resolver     ResolverContext `json:"resolver"`
-	Action       Action          `json:"action"`
-	PurposeNames []string        `json:"purpose_names"`
+	IPAddress    string                 `json:"ip_address"`
+	Action       Action                 `json:"action"`
+	PurposeNames []string               `json:"purpose_names"`
+	Claims       map[string]interface{} `json:"claims"`
 }
-
-//go:generate genvalidate ServerContext
-
-// ResolverContext contains automatic data about the authenticated user/system at resolution time
-type ResolverContext struct {
-	Username string `json:"username"`
-}
-
-//go:generate genvalidate ResolverContext
 
 // Action identifies the reason access policy is being invoked
 type Action string
