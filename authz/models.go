@@ -114,8 +114,8 @@ type EdgeType struct {
 }
 
 // EqualsIgnoringID returns true if the two edges are equal, ignoring the ID field
-func (e *EdgeType) EqualsIgnoringID(other *EdgeType, includeOrg bool) bool {
-	if e.TypeName == other.TypeName && e.SourceObjectTypeID == other.SourceObjectTypeID && e.TargetObjectTypeID == other.TargetObjectTypeID && (!includeOrg || e.OrganizationID == other.OrganizationID) {
+func (e *EdgeType) EqualsIgnoringID(other *EdgeType) bool {
+	if e.TypeName == other.TypeName && e.SourceObjectTypeID == other.SourceObjectTypeID && e.TargetObjectTypeID == other.TargetObjectTypeID && e.OrganizationID == other.OrganizationID {
 		if len(e.Attributes) != len(other.Attributes) {
 			return false
 		}
