@@ -1,6 +1,8 @@
 package oidc
 
 import (
+	"encoding/json"
+
 	"github.com/golang-jwt/jwt"
 
 	"userclouds.com/infra/ucerr"
@@ -40,8 +42,20 @@ type StandardClaims struct {
 	Subject         string   `json:"sub,omitempty"`
 }
 
+// private class to allow audience to be an array or a string
+type standardClaims struct {
+	Audience        interface{} `json:"aud,omitempty"`
+	AuthorizedParty string      `json:"azp,omitempty"`
+	ExpiresAt       int64       `json:"exp,omitempty"`
+	ID              string      `json:"jti,omitempty"`
+	IssuedAt        int64       `json:"iat,omitempty"`
+	Issuer          string      `json:"iss,omitempty"`
+	NotBefore       int64       `json:"nbf,omitempty"`
+	Subject         string      `json:"sub,omitempty"`
+}
+
 // Valid implements jwt.Claims interface
-func (c StandardClaims) Valid() error {
+func (c *StandardClaims) Valid() error {
 	// Use the time validation logic from jwt.StandardClaims
 	jwtClaims := jwt.StandardClaims{
 		ExpiresAt: c.ExpiresAt,
@@ -52,9 +66,9 @@ func (c StandardClaims) Valid() error {
 	return ucerr.Wrap(jwtClaims.Valid())
 }
 
-// TokenClaims represents the claims made by a token, and is also used by the UserInfo
+// UCTokenClaims represents the UserClouds claims made by a token, and is also used by the UserInfo
 // endpoint to return standard OIDC user claims.
-type TokenClaims struct {
+type UCTokenClaims struct {
 	StandardClaims
 
 	Name            string   `json:"name,omitempty"`
@@ -70,9 +84,66 @@ type TokenClaims struct {
 	ImpersonatedBy  string   `json:"impersonated_by,omitempty"`
 }
 
+// private class needed for json unmarshal
+type tokenclaims struct {
+	standardClaims
+
+	Name            string   `json:"name,omitempty"`
+	Nickname        string   `json:"nickname,omitempty"`
+	Email           string   `json:"email,omitempty"`
+	EmailVerified   bool     `json:"email_verified,omitempty"`
+	Picture         string   `json:"picture,omitempty"`
+	Nonce           string   `json:"nonce,omitempty"`
+	UpdatedAt       int64    `json:"updated_at,omitempty"` // NOTE: Auth0 treats this as a string, but OIDC says this is seconds since the Unix Epoch
+	RefreshAudience []string `json:"refresh_aud,omitempty"`
+	SubjectType     string   `json:"subject_type,omitempty"`
+	OrganizationID  string   `json:"organization_id,omitempty"`
+	ImpersonatedBy  string   `json:"impersonated_by,omitempty"`
+}
+
 // Valid implements jwt.Claims interface
-func (t TokenClaims) Valid() error {
+func (t *UCTokenClaims) Valid() error {
 	return ucerr.Wrap(t.StandardClaims.Valid())
+}
+
+// UnmarshalJSON implements json.Unmarshaler, we need this to handle the audience field being either an array or a string
+func (t *UCTokenClaims) UnmarshalJSON(b []byte) error {
+	var tc tokenclaims
+	if err := json.Unmarshal(b, &tc); err != nil {
+		return ucerr.Wrap(err)
+	}
+
+	audience := []string{}
+	if arr, ok := tc.Audience.([]any); ok {
+		for _, a := range arr {
+			if s, ok := a.(string); ok {
+				audience = append(audience, s)
+			}
+		}
+	} else if s, ok := tc.Audience.(string); ok {
+		audience = append(audience, s)
+	}
+
+	t.Audience = audience
+	t.AuthorizedParty = tc.AuthorizedParty
+	t.ExpiresAt = tc.ExpiresAt
+	t.ID = tc.ID
+	t.IssuedAt = tc.IssuedAt
+	t.Issuer = tc.Issuer
+	t.NotBefore = tc.NotBefore
+	t.Subject = tc.Subject
+	t.Name = tc.Name
+	t.Nickname = tc.Nickname
+	t.Email = tc.Email
+	t.EmailVerified = tc.EmailVerified
+	t.Picture = tc.Picture
+	t.Nonce = tc.Nonce
+	t.UpdatedAt = tc.UpdatedAt
+	t.RefreshAudience = tc.RefreshAudience
+	t.SubjectType = tc.SubjectType
+	t.OrganizationID = tc.OrganizationID
+	t.ImpersonatedBy = tc.ImpersonatedBy
+	return nil
 }
 
 // TokenResponse is an OIDC-compliant response from a token endpoint.
