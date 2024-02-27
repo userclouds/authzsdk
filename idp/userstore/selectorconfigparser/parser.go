@@ -8,41 +8,57 @@ type yySymType struct {
 	yys int
 }
 
-const COLUMN_IDENTIFIER = 57346
-const OPERATOR = 57347
-const IS = 57348
-const NOT = 57349
-const NULL = 57350
-const VALUE_PLACEHOLDER = 57351
-const INT_VALUE = 57352
-const INT_VALUE_LIST = 57353
-const QUOTED_VALUE = 57354
-const QUOTED_VALUE_LIST = 57355
-const ANY = 57356
-const CONJUNCTION = 57357
-const LEFT_PARENTHESIS = 57358
-const RIGHT_PARENTHESIS = 57359
-const UNKNOWN = 57360
+const ABS_OPERATOR = 57346
+const ANY = 57347
+const ARRAY_OPERATOR = 57348
+const BOOL_VALUE = 57349
+const COLUMN_IDENTIFIER = 57350
+const COLUMN_OPERATOR = 57351
+const COMMA = 57352
+const CONJUNCTION = 57353
+const DATE_ARGUMENT = 57354
+const DATE_OPERATOR = 57355
+const INT_VALUE = 57356
+const IS = 57357
+const LEFT_BRACKET = 57358
+const LEFT_PARENTHESIS = 57359
+const NOT = 57360
+const NULL = 57361
+const NUMBER_PART_OPERATOR = 57362
+const QUOTED_VALUE = 57363
+const RIGHT_BRACKET = 57364
+const RIGHT_PARENTHESIS = 57365
+const OPERATOR = 57366
+const UNKNOWN = 57367
+const VALUE_PLACEHOLDER = 57368
 
 var yyToknames = [...]string{
 	"$end",
 	"error",
 	"$unk",
+	"ABS_OPERATOR",
+	"ANY",
+	"ARRAY_OPERATOR",
+	"BOOL_VALUE",
 	"COLUMN_IDENTIFIER",
-	"OPERATOR",
+	"COLUMN_OPERATOR",
+	"COMMA",
+	"CONJUNCTION",
+	"DATE_ARGUMENT",
+	"DATE_OPERATOR",
+	"INT_VALUE",
 	"IS",
+	"LEFT_BRACKET",
+	"LEFT_PARENTHESIS",
 	"NOT",
 	"NULL",
-	"VALUE_PLACEHOLDER",
-	"INT_VALUE",
-	"INT_VALUE_LIST",
+	"NUMBER_PART_OPERATOR",
 	"QUOTED_VALUE",
-	"QUOTED_VALUE_LIST",
-	"ANY",
-	"CONJUNCTION",
-	"LEFT_PARENTHESIS",
+	"RIGHT_BRACKET",
 	"RIGHT_PARENTHESIS",
+	"OPERATOR",
 	"UNKNOWN",
+	"VALUE_PLACEHOLDER",
 }
 
 var yyStatenames = [...]string{}
@@ -59,45 +75,60 @@ var yyExca = [...]int8{
 
 const yyPrivate = 57344
 
-const yyLast = 35
+const yyLast = 71
 
 var yyAct = [...]int8{
-	20, 13, 14, 21, 15, 22, 11, 23, 16, 3,
-	24, 13, 14, 29, 15, 28, 19, 12, 16, 5,
-	26, 4, 18, 17, 1, 27, 6, 8, 7, 9,
-	10, 2, 0, 0, 25,
+	43, 48, 3, 30, 18, 24, 21, 24, 21, 50,
+	58, 55, 51, 22, 54, 22, 25, 29, 25, 34,
+	23, 49, 23, 44, 32, 20, 12, 20, 47, 33,
+	45, 39, 28, 16, 19, 10, 52, 41, 31, 5,
+	6, 38, 35, 46, 7, 5, 6, 15, 4, 37,
+	7, 8, 14, 56, 57, 36, 9, 8, 27, 26,
+	1, 53, 42, 40, 11, 13, 2, 0, 0, 0,
+	17,
 }
 
 var yyPact = [...]int16{
-	5, -1000, 4, 21, 5, 5, -8, -1000, 15, -1,
-	-1000, -6, -1000, -1000, -1000, -1000, 2, -1000, 12, -1000,
-	-1000, -1000, -1000, -1000, -6, -2, -1000, -4, -1000, -1000,
+	31, -1000, 45, 11, 31, -1000, 35, 30, 16, 31,
+	-1, -1000, 40, 9, 37, 12, 37, -1000, 1, -1000,
+	-1000, -1000, -1000, -1000, 39, 1, -1000, 22, -1000, 8,
+	53, -1000, -1000, 12, 52, -1000, 1, 7, -1000, -1000,
+	37, 5, -5, 14, 51, -1000, -9, -1000, -12, -1000,
+	-1000, -5, -1000, 1, -1000, -1000, -13, -1000, -1000,
 }
 
 var yyPgo = [...]int8{
-	0, 24, 31, 0, 17, 28,
+	0, 60, 66, 2, 3, 1, 23, 64, 0,
 }
 
 var yyR1 = [...]int8{
-	0, 1, 1, 2, 2, 2, 2, 4, 4, 4,
-	4, 3, 3, 3, 3, 5, 5,
+	0, 1, 1, 3, 3, 3, 3, 2, 2, 2,
+	2, 6, 6, 6, 6, 6, 6, 8, 8, 4,
+	4, 4, 5, 5, 5, 7, 7,
 }
 
 var yyR2 = [...]int8{
-	0, 1, 3, 4, 3, 2, 3, 1, 1, 1,
-	3, 1, 1, 1, 3, 2, 3,
+	0, 1, 3, 1, 4, 6, 6, 4, 3, 2,
+	3, 1, 1, 1, 1, 4, 3, 1, 3, 1,
+	1, 3, 1, 1, 3, 2, 3,
 }
 
 var yyChk = [...]int16{
-	-1000, -1, -2, 4, 16, 15, 5, -5, 6, -1,
-	-1, 14, -4, 9, 10, 12, 16, 8, 7, 17,
-	-3, 9, 11, 13, 16, -4, 8, -3, 17, 17,
+	-1000, -1, -2, -3, 17, 8, 9, 13, 20, 11,
+	24, -7, 15, -1, 17, 17, 17, -1, 5, -6,
+	26, 7, 14, 21, 6, 17, 19, 18, 23, -3,
+	-4, 26, 12, 17, -3, -6, 16, -6, 19, 23,
+	10, -4, 10, -8, -6, 23, -3, 23, -5, 26,
+	14, 17, 22, 10, 23, 23, -5, -8, 23,
 }
 
 var yyDef = [...]int8{
-	0, -2, 1, 0, 0, 0, 0, 5, 0, 0,
-	2, 0, 4, 7, 8, 9, 0, 15, 0, 6,
-	3, 11, 12, 13, 0, 0, 16, 0, 10, 14,
+	0, -2, 1, 0, 0, 3, 0, 0, 0, 0,
+	0, 9, 0, 0, 0, 0, 0, 2, 0, 8,
+	11, 12, 13, 14, 0, 0, 25, 0, 10, 0,
+	0, 19, 20, 0, 0, 7, 0, 0, 26, 4,
+	0, 0, 0, 0, 17, 16, 0, 21, 0, 22,
+	23, 0, 15, 0, 5, 6, 0, 18, 24,
 }
 
 var yyTok1 = [...]int8{
@@ -106,7 +137,8 @@ var yyTok1 = [...]int8{
 
 var yyTok2 = [...]int8{
 	2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
-	12, 13, 14, 15, 16, 17, 18,
+	12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+	22, 23, 24, 25, 26,
 }
 
 var yyTok3 = [...]int8{
