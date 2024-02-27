@@ -440,7 +440,7 @@ func (c *Client) CreateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectT
 			}
 			return &resp, nil
 		}, func(in *EdgeType, curr *EdgeType) bool {
-			return curr.EqualsIgnoringID(in, true) && (id.IsNil() || curr.ID == id)
+			return curr.EqualsIgnoringID(in) && (id.IsNil() || curr.ID == id)
 		})
 }
 
@@ -481,7 +481,7 @@ func (c *Client) UpdateEdgeType(ctx context.Context, id uuid.UUID, sourceObjectT
 		v, _, _, err = cache.GetItemFromCache[EdgeType](ctx, c.cm, c.cm.N.GetKeyNameWithID(EdgeTypeKeyID, id), false)
 		if err != nil {
 			uclog.Errorf(ctx, "UpdateEdgeType failed to get item from cache: %v", err)
-		} else if v != nil && v.ID == eT.ID && v.EqualsIgnoringID(&eT, false) {
+		} else if v != nil && v.ID == eT.ID && v.EqualsIgnoringID(&eT) {
 			return v, nil
 		}
 	}

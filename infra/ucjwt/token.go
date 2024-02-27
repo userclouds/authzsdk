@@ -22,7 +22,7 @@ func CreateToken(ctx context.Context,
 	privateKey *rsa.PrivateKey,
 	keyID string,
 	tokenID uuid.UUID,
-	claims oidc.TokenClaims,
+	claims oidc.UCTokenClaims,
 	jwtIssuerURL string,
 	validFor int64) (string, error) {
 	if jwtIssuerURL == "" {
@@ -43,7 +43,7 @@ func CreateToken(ctx context.Context,
 	// up each token issuance uniquely by the token.
 	claims.ID = tokenID.String()
 
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, &claims)
 	token.Header["kid"] = keyID
 	signedToken, err := token.SignedString(privateKey)
 	if err != nil {
@@ -52,9 +52,9 @@ func CreateToken(ctx context.Context,
 	return signedToken, nil
 }
 
-// ParseClaimsUnverified extracts the claims from a token without validating
+// ParseUCClaimsUnverified extracts the claims as UCTokenClaims from a token without validating
 // its signature or anything else.
-func ParseClaimsUnverified(token string) (*oidc.TokenClaims, error) {
+func ParseUCClaimsUnverified(token string) (*oidc.UCTokenClaims, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) < 2 {
 		return nil, ucerr.Errorf("malformed jwt, expected 3 parts got %d", len(parts))
@@ -63,7 +63,7 @@ func ParseClaimsUnverified(token string) (*oidc.TokenClaims, error) {
 	if err != nil {
 		return nil, ucerr.Errorf("malformed jwt payload: %v", err)
 	}
-	var claims oidc.TokenClaims
+	var claims oidc.UCTokenClaims
 	if err := json.Unmarshal(payload, &claims); err != nil {
 		return nil, ucerr.Errorf("failed to unmarshal claims: %v", err)
 	}
@@ -71,9 +71,28 @@ func ParseClaimsUnverified(token string) (*oidc.TokenClaims, error) {
 	return &claims, nil
 }
 
-// ParseClaimsVerified extracts the claims from a token and verifies the signature, expiration, etc.
-func ParseClaimsVerified(token string, key *rsa.PublicKey) (*oidc.TokenClaims, error) {
-	var claims oidc.TokenClaims
+// ParseJWTClaimsUnverified extracts the claims as MapClaims from a token without validating
+// its signature or anything else.
+func ParseJWTClaimsUnverified(token string) (jwt.MapClaims, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) < 2 {
+		return nil, ucerr.Errorf("malformed jwt, expected 3 parts got %d", len(parts))
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, ucerr.Errorf("malformed jwt payload: %v", err)
+	}
+	var claims jwt.MapClaims
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return nil, ucerr.Errorf("failed to unmarshal claims: %v", err)
+	}
+
+	return claims, nil
+}
+
+// ParseUCClaimsVerified extracts the claims as UCTokenClaims from a token and verifies the signature, expiration, etc.
+func ParseUCClaimsVerified(token string, key *rsa.PublicKey) (*oidc.UCTokenClaims, error) {
+	var claims oidc.UCTokenClaims
 	_, err := jwt.ParseWithClaims(token, &claims, func(t *jwt.Token) (interface{}, error) {
 		return key, nil
 	})
@@ -85,7 +104,7 @@ func ParseClaimsVerified(token string, key *rsa.PublicKey) (*oidc.TokenClaims, e
 // aren't parseable.
 // NOTE: It does NOT validate the token's signature!
 func IsExpired(jwt string) (bool, error) {
-	claims, err := ParseClaimsUnverified(jwt)
+	claims, err := ParseUCClaimsUnverified(jwt)
 	if err != nil {
 		return true, ucerr.Wrap(err)
 	}

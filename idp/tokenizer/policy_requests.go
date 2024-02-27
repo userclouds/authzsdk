@@ -89,10 +89,6 @@ func (o TestAccessPolicyRequest) Validate() error {
 		o.AccessPolicy.Name = ""
 	}
 
-	if err := o.Context.Validate(); err != nil {
-		return ucerr.Wrap(err)
-	}
-
 	return nil
 }
 
@@ -115,10 +111,6 @@ func (o TestAccessPolicyTemplateRequest) Validate() error {
 	}
 	if blankName {
 		o.AccessPolicyTemplate.Name = ""
-	}
-
-	if err := o.Context.Validate(); err != nil {
-		return ucerr.Wrap(err)
 	}
 
 	return nil
