@@ -424,6 +424,8 @@ type UpdateColumnRetentionDurationRequest struct {
 	RetentionDuration ColumnRetentionDuration `json:"retention_duration"`
 }
 
+//go:generate genvalidate UpdateColumnRetentionDurationRequest
+
 // UpdateColumnRetentionDurationsRequest is used to update a collection of retention durations
 // for a column. If ID for a retention duration is non-nil, that retention duration will be
 // updated if UseDefault is set to false, or deleted if UseDefault is set to true.  If ID is nil,
@@ -431,6 +433,8 @@ type UpdateColumnRetentionDurationRequest struct {
 type UpdateColumnRetentionDurationsRequest struct {
 	RetentionDurations []ColumnRetentionDuration `json:"retention_durations"`
 }
+
+//go:generate genvalidate UpdateColumnRetentionDurationsRequest
 
 // ColumnRetentionDurationResponse is the response to a get or update request for a single
 // retention duration.  The retention duration that applies for the request will be returned,
@@ -987,11 +991,13 @@ type ValueAndPurposes struct {
 
 // ExecuteMutatorRequest is the request body for modifying data in the userstore
 type ExecuteMutatorRequest struct {
-	MutatorID      uuid.UUID                    `json:"mutator_id"`      // the mutator that specifies what columns to edit
-	Context        policy.ClientContext         `json:"context"`         // context that is provided to the mutator's Access Policy
-	SelectorValues userstore.UserSelectorValues `json:"selector_values"` // the values to use for the selector
-	RowData        map[string]ValueAndPurposes  `json:"row_data"`        // the values to use for the users table row
+	MutatorID      uuid.UUID                    `json:"mutator_id" validate:"notnil"` // the mutator that specifies what columns to edit
+	Context        policy.ClientContext         `json:"context"`                      // context that is provided to the mutator's Access Policy
+	SelectorValues userstore.UserSelectorValues `json:"selector_values"`              // the values to use for the selector
+	RowData        map[string]ValueAndPurposes  `json:"row_data"`                     // the values to use for the users table row
 }
+
+//go:generate genvalidate ExecuteMutatorRequest
 
 // ExecuteMutatorResponse is the response body for modifying data in the userstore
 type ExecuteMutatorResponse struct {
