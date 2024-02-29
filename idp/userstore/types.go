@@ -451,7 +451,15 @@ type UserSelectorConfig struct {
 	WhereClause string `json:"where_clause" validate:"notempty" example:"{id} = ANY (?)"`
 }
 
+// MatchesAll returns true if the UserSelectorConfig is configured to match all users
+func (u UserSelectorConfig) MatchesAll() bool {
+	return u.WhereClause == "ALL"
+}
+
 func (u UserSelectorConfig) extraValidate() error {
+	if u.MatchesAll() {
+		return nil
+	}
 	return ucerr.Wrap(selectorconfigparser.ParseWhereClause(u.WhereClause))
 }
 
