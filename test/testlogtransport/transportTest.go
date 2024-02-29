@@ -97,34 +97,47 @@ func (tt *TransportTest) GetEventsLoggedByName(name string) []uclog.LogEvent {
 	return eA
 }
 
-// GetLogMessagesByLevel returns log messages by level
-func (tt *TransportTest) GetLogMessagesByLevel(level uclog.LogLevel) []string {
-	tt.logMutex.Lock()
-	mA := tt.LogMessages[level]
-	tt.logMutex.Unlock()
-	return mA
-}
-
 // AssertMessagesByLogLevel asserts that the number of messages logged at a particular level is as expected
 func (tt *TransportTest) AssertMessagesByLogLevel(level uclog.LogLevel, expected int, opts ...assert.Option) {
 	tt.t.Helper()
-	got := len(tt.GetLogMessagesByLevel(level))
-	opts = append(opts, assert.Errorf("Expected %d messages at level %s, got %d", expected, level, got))
+	tt.logMutex.Lock()
+	got := len(tt.LogMessages[level])
+	tt.logMutex.Unlock()
+	opts = append(opts, assert.Errorf("Expected %d messages at level %v, got %d", expected, level, got))
 	assert.Equal(tt.t, got, expected, opts...)
 }
 
-// LogsContainString returns whether any of the logged messages contain the given string
-func (tt *TransportTest) LogsContainString(s string) bool {
+func (tt *TransportTest) getLogMessages() []string {
 	tt.logMutex.Lock()
 	defer tt.logMutex.Unlock()
+	messages := make([]string, 0)
 	for level := range tt.LogMessages {
-		for _, m := range tt.LogMessages[level] {
+		messages = append(messages, tt.LogMessages[level]...)
+	}
+	return messages
+}
+
+// AssertLogsContainString asserts that at least one log message contains a one of the strings passed to this function
+func (tt *TransportTest) AssertLogsContainString(strs ...string) {
+	tt.t.Helper()
+	messages := tt.getLogMessages()
+	for _, m := range messages {
+		for _, s := range strs {
 			if strings.Contains(m, s) {
-				return true
+				return
 			}
 		}
 	}
-	return false
+	assert.Fail(tt.t, "No log message contains string(s): %v, checked: %v", strs, messages)
+}
+
+// AssertLogsDoesntContainString asserts that no log message contains a particular string
+func (tt *TransportTest) AssertLogsDoesntContainString(s string) {
+	tt.t.Helper()
+	messages := tt.getLogMessages()
+	for _, msg := range messages {
+		assert.False(tt.t, strings.Contains(msg, s), assert.Errorf("Log message '%s' contains string: '%s'", msg, s))
+	}
 }
 
 // ClearMessages clears all logged messages
