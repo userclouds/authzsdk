@@ -846,3 +846,8 @@ func (c *RedisClientCacheProvider) Flush(ctx context.Context, prefix string, flu
 func (c *RedisClientCacheProvider) GetCacheName(ctx context.Context) string {
 	return c.cacheName
 }
+
+// RegisterInvalidationHandler registers a handler for cache invalidation
+func (c *RedisClientCacheProvider) RegisterInvalidationHandler(ctx context.Context, handler InvalidationHandler, prefix string) error {
+	return ucerr.Errorf("RegisterInvalidationHandler not supported for RedisClientCacheProvider")
+}

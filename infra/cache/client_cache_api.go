@@ -71,6 +71,9 @@ type SingleItem interface {
 	infra.Validateable
 }
 
+// InvalidationHandler is the type for a function that is called when the cache is invalidated
+type InvalidationHandler func(ctx context.Context, key Key) error
+
 // Provider is the interface for the cache backend for a given tenant which can be implemented by in-memory, redis, memcache, etc
 type Provider interface {
 	// GetValue gets the value in cache key (if any) and tries to lock the key for Read is lockOnMiss = true
@@ -93,6 +96,8 @@ type Provider interface {
 	Flush(ctx context.Context, prefix string, flushTombstones bool) error
 	// GetCacheName returns the global name of the cache if any
 	GetCacheName(ctx context.Context) string
+	// RegisterInvalidationHandler registers a handler to be called when the cache is invalidated
+	RegisterInvalidationHandler(ctx context.Context, handler InvalidationHandler, prefix string) error
 }
 
 // Manager is the bundle cache classes that are needed to interact with the cache
