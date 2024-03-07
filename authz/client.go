@@ -334,7 +334,8 @@ func (c *Client) ListObjectTypes(ctx context.Context, opts ...Option) ([]ObjectT
 	}
 
 	s := cache.NoLockSentinel
-	if !options.bypassCache {
+	var useCache = (!options.bypassCache && len(options.paginationOptions) == 0)
+	if useCache {
 		var v *[]ObjectType
 		var err error
 		v, _, s, err = cache.GetItemsArrayFromCache[ObjectType](ctx, c.cm, c.cm.N.GetKeyNameStatic(ObjectTypeCollectionKeyID), true)
@@ -345,8 +346,8 @@ func (c *Client) ListObjectTypes(ctx context.Context, opts ...Option) ([]ObjectT
 		}
 	}
 	// TODO: we should eventually support pagination arguments to this method, but for now we assume
-	// there aren't that many object types and just fetch them all.
-
+	// there aren't that many object types and just fetch them all. We should do this by combining
+	// the caching behavior here with the pagination behavior of ListObjectTypesPaginated
 	pager, err := pagination.ApplyOptions()
 	if err != nil {
 		return nil, ucerr.Wrap(err)
@@ -358,22 +359,50 @@ func (c *Client) ListObjectTypes(ctx context.Context, opts ...Option) ([]ObjectT
 		query := pager.Query()
 
 		var resp ListObjectTypesResponse
+
 		if err := c.client.Get(ctx, fmt.Sprintf("/authz/objecttypes?%s", query.Encode()), &resp); err != nil {
 			return nil, ucerr.Wrap(err)
 		}
 
 		objTypes = append(objTypes, resp.Data...)
 
-		cache.SaveItemsFromCollectionToCache(ctx, c.cm, resp.Data, s)
-
+		if useCache {
+			cache.SaveItemsFromCollectionToCache(ctx, c.cm, resp.Data, s)
+		}
 		if !pager.AdvanceCursor(resp.ResponseFields) {
 			break
 		}
 	}
-	ckey := c.cm.N.GetKeyNameStatic(ObjectTypeCollectionKeyID)
-	cache.SaveItemsToCollection(ctx, c.cm, ObjectType{}, objTypes, ckey, ckey, s, true)
-
+	if useCache {
+		ckey := c.cm.N.GetKeyNameStatic(ObjectTypeCollectionKeyID)
+		cache.SaveItemsToCollection(ctx, c.cm, ObjectType{}, objTypes, ckey, ckey, s, true)
+	}
 	return objTypes, nil
+}
+
+// ListObjectTypesPaginated lists objects for console in paginated form
+func (c *Client) ListObjectTypesPaginated(ctx context.Context, opts ...Option) (*ListObjectTypesResponse, error) {
+	ctx = request.NewRequestID(ctx)
+
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	var resp ListObjectTypesResponse
+
+	pager, err := pagination.ApplyOptions(options.paginationOptions...)
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	query := pager.Query()
+
+	if err := c.client.Get(ctx, fmt.Sprintf("/authz/objecttypes?%s", query.Encode()), &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
 }
 
 // DeleteObjectType deletes an object type by ID.
@@ -579,8 +608,10 @@ func (c *Client) ListEdgeTypes(ctx context.Context, opts ...Option) ([]EdgeType,
 	for _, opt := range opts {
 		opt.apply(&options)
 	}
+	var useCache = (!options.bypassCache && len(options.paginationOptions) == 0)
+
 	s := cache.NoLockSentinel
-	if !options.bypassCache {
+	if useCache {
 		var v *[]EdgeType
 		var err error
 		v, _, s, err = cache.GetItemsArrayFromCache[EdgeType](ctx, c.cm, c.cm.N.GetKeyNameStatic(EdgeTypeCollectionKeyID), true)
@@ -592,7 +623,8 @@ func (c *Client) ListEdgeTypes(ctx context.Context, opts ...Option) ([]EdgeType,
 	}
 
 	// TODO: we should eventually support pagination arguments to this method, but for now we assume
-	// there aren't that many edge types and just fetch them all.
+	// there aren't that many edge types and just fetch them all. We should do this by combining
+	// the caching behavior here with the pagination behavior of ListEdgeTypesPaginated
 	pager, err := pagination.ApplyOptions()
 	if err != nil {
 		return nil, ucerr.Wrap(err)
@@ -612,16 +644,49 @@ func (c *Client) ListEdgeTypes(ctx context.Context, opts ...Option) ([]EdgeType,
 		}
 
 		edgeTypes = append(edgeTypes, resp.Data...)
-
-		cache.SaveItemsFromCollectionToCache(ctx, c.cm, resp.Data, s)
+		if useCache {
+			cache.SaveItemsFromCollectionToCache(ctx, c.cm, resp.Data, s)
+		}
 
 		if !pager.AdvanceCursor(resp.ResponseFields) {
 			break
 		}
 	}
-	ckey := c.cm.N.GetKeyNameStatic(EdgeTypeCollectionKeyID)
-	cache.SaveItemsToCollection(ctx, c.cm, EdgeType{}, edgeTypes, ckey, ckey, s, true)
+
+	if useCache {
+		ckey := c.cm.N.GetKeyNameStatic(EdgeTypeCollectionKeyID)
+		cache.SaveItemsToCollection(ctx, c.cm, EdgeType{}, edgeTypes, ckey, ckey, s, true)
+	}
 	return edgeTypes, nil
+}
+
+// ListEdgeTypesPaginated lists edges for console in paginated form
+func (c *Client) ListEdgeTypesPaginated(ctx context.Context, opts ...Option) (*ListEdgeTypesResponse, error) {
+	ctx = request.NewRequestID(ctx)
+
+	options := c.options
+	var resp ListEdgeTypesResponse
+
+	pager, err := pagination.ApplyOptions(options.paginationOptions...)
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	query := pager.Query()
+
+	if options.organizationID != uuid.Nil {
+		query.Add("organization_id", options.organizationID.String())
+	}
+
+	if err := c.client.Get(ctx, fmt.Sprintf("/authz/edgetypes?%s", query.Encode()), &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
 }
 
 // DeleteEdgeType deletes an edge type by ID.
