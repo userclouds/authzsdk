@@ -108,7 +108,7 @@ type EdgeType struct {
 	TypeName           string     `db:"type_name" json:"type_name"  validate:"notempty" required:"true"`
 	SourceObjectTypeID uuid.UUID  `db:"source_object_type_id,immutable" json:"source_object_type_id"  validate:"notnil" required:"true"`
 	TargetObjectTypeID uuid.UUID  `db:"target_object_type_id,immutable" json:"target_object_type_id"  validate:"notnil" required:"true"`
-	Attributes         Attributes `db:"attributes" json:"attributes"`
+	Attributes         Attributes `db:"attributes" json:"attributes,omitempty"`
 
 	OrganizationID uuid.UUID `db:"organization_id" json:"organization_id"`
 }
@@ -144,6 +144,7 @@ func (e *EdgeType) EqualsIgnoringID(other *EdgeType) bool {
 func (EdgeType) GetPaginationKeys() pagination.KeyTypes {
 	return pagination.KeyTypes{
 		"id":                    pagination.UUIDKeyType,
+		"type_name":             pagination.StringKeyType,
 		"organization_id":       pagination.UUIDKeyType,
 		"source_object_type_id": pagination.UUIDKeyType,
 		"target_object_type_id": pagination.UUIDKeyType,
