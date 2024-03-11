@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 
 	"github.com/gofrs/uuid"
 
@@ -9,6 +10,14 @@ import (
 	"userclouds.com/infra/ucerr"
 	"userclouds.com/infra/uclog"
 )
+
+func logCacheError(ctx context.Context, method string, err error) {
+	if errors.Is(err, context.Canceled) {
+		uclog.Warningf(ctx, "%s failed: %v", method, err)
+	} else {
+		uclog.Errorf(ctx, "%s failed: %v", method, err)
+	}
+}
 
 // CreateItem creates an item
 func CreateItem[item SingleItem](ctx context.Context, cm *Manager, id uuid.UUID, i *item, keyID KeyNameID, secondaryKey Key, ifNotExists bool,
@@ -33,7 +42,7 @@ func CreateItem[item SingleItem](ctx context.Context, cm *Manager, id uuid.UUID,
 		}
 		v, _, _, err := GetItemFromCache[item](ctx, *cm, keyName, false)
 		if err != nil {
-			uclog.Errorf(ctx, "GetItemFromCache failed to get item from cache: %v", err)
+			logCacheError(ctx, "CreateItem/GetItemFromCache", err)
 		} else if v != nil && equals(i, v) {
 			return v, nil
 		}
@@ -76,9 +85,8 @@ func CreateItemClient[item SingleItem](ctx context.Context, cm *Manager, id uuid
 	val, err := CreateItem[item](ctx, cm, id, i, keyID, secondaryKey, ifNotExists, bypassCache, additionalKeysToClear, action, equals)
 
 	if err != nil {
-		uclog.Errorf(ctx, "CreateItemClient failed to create item %v: %v", *i, err)
+		logCacheError(ctx, "CreateItemClient/CreateItem", err)
 	}
-
 	return val, ucerr.Wrap(err)
 }
 
@@ -96,7 +104,7 @@ func GetItem[item SingleItem](ctx context.Context, cm *Manager, id uuid.UUID, ke
 
 		}
 		if err != nil {
-			uclog.Errorf(ctx, "GetItemFromCache failed to get item from cache: %v", err)
+			logCacheError(ctx, "GetItem/GetItemFromCache", err)
 		} else if cachedObj != nil {
 			return cachedObj, nil
 		}
@@ -116,15 +124,11 @@ func GetItem[item SingleItem](ctx context.Context, cm *Manager, id uuid.UUID, ke
 // GetItemClient returns the item (wrapper for calls from client)
 func GetItemClient[item SingleItem](ctx context.Context, cm Manager, id uuid.UUID, keyID KeyNameID, bypassCache bool, action func(id uuid.UUID, conflict Sentinel, i *item) error) (*item, error) {
 	ctx = request.NewRequestID(ctx)
-
 	uclog.Verbosef(ctx, "ClientGetItem: %v key %v", id, keyID)
-
 	val, err := GetItem[item](ctx, &cm, id, keyID, "", bypassCache, action)
-
 	if err != nil {
-		uclog.Errorf(ctx, "ClientGetItem failed to get item %v: %v", id, err)
+		logCacheError(ctx, "GetItemClient/GetItem", err)
 	}
-
 	return val, ucerr.Wrap(err)
 }
 
