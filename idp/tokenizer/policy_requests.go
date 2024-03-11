@@ -118,5 +118,6 @@ func (o TestAccessPolicyTemplateRequest) Validate() error {
 
 // TestAccessPolicyResponse is the response to a TestAccessPolicy call
 type TestAccessPolicyResponse struct {
-	Allowed bool `json:"allowed"`
+	Allowed bool   `json:"allowed"`
+	Console string `json:"console"`
 }
