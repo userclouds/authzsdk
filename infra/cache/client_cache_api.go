@@ -96,8 +96,8 @@ type Provider interface {
 	Flush(ctx context.Context, prefix string, flushTombstones bool) error
 	// GetCacheName returns the global name of the cache if any
 	GetCacheName(ctx context.Context) string
-	// RegisterInvalidationHandler registers a handler to be called when the cache is invalidated
-	RegisterInvalidationHandler(ctx context.Context, handler InvalidationHandler, prefix string) error
+	// RegisterInvalidationHandler registers a handler to be called when the specified key is invalidated
+	RegisterInvalidationHandler(ctx context.Context, handler InvalidationHandler, key Key) error
 }
 
 // Manager is the bundle cache classes that are needed to interact with the cache
