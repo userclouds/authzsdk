@@ -142,7 +142,7 @@ type KeyNameProvider interface {
 	GetAllKeyIDs() []string
 }
 
-// SentinelManager is the interface for managaing cache sentinels to implement concurrency handling
+// SentinelManager is the interface for managing cache sentinels to implement concurrency handling
 type SentinelManager interface {
 	GenerateSentinel(stype SentinelType) Sentinel
 	CanAlwaysSetSentinel(newVal Sentinel) bool
