@@ -163,7 +163,7 @@ func (c *TokenizerClient) DeleteToken(ctx context.Context, token string) error {
 }
 
 // TestAccessPolicy tests an access policy without saving it
-func (c *TokenizerClient) TestAccessPolicy(ctx context.Context, accessPolicy policy.AccessPolicy, context policy.AccessPolicyContext) (bool, error) {
+func (c *TokenizerClient) TestAccessPolicy(ctx context.Context, accessPolicy policy.AccessPolicy, context policy.AccessPolicyContext) (*tokenizer.TestAccessPolicyResponse, error) {
 	req := tokenizer.TestAccessPolicyRequest{
 		AccessPolicy: accessPolicy,
 		Context:      context,
@@ -171,14 +171,14 @@ func (c *TokenizerClient) TestAccessPolicy(ctx context.Context, accessPolicy pol
 
 	var res tokenizer.TestAccessPolicyResponse
 	if err := c.client.Post(ctx, paths.TestAccessPolicy, req, &res); err != nil {
-		return false, ucerr.Wrap(err)
+		return nil, ucerr.Wrap(err)
 	}
 
-	return res.Allowed, nil
+	return &res, nil
 }
 
 // TestAccessPolicyTemplate tests an access policy without saving it
-func (c *TokenizerClient) TestAccessPolicyTemplate(ctx context.Context, accessPolicyTemplate policy.AccessPolicyTemplate, context policy.AccessPolicyContext, params string) (bool, error) {
+func (c *TokenizerClient) TestAccessPolicyTemplate(ctx context.Context, accessPolicyTemplate policy.AccessPolicyTemplate, context policy.AccessPolicyContext, params string) (*tokenizer.TestAccessPolicyResponse, error) {
 	req := tokenizer.TestAccessPolicyTemplateRequest{
 		AccessPolicyTemplate: accessPolicyTemplate,
 		Context:              context,
@@ -187,10 +187,10 @@ func (c *TokenizerClient) TestAccessPolicyTemplate(ctx context.Context, accessPo
 
 	var res tokenizer.TestAccessPolicyResponse
 	if err := c.client.Post(ctx, paths.TestAccessPolicyTemplate, req, &res); err != nil {
-		return false, ucerr.Wrap(err)
+		return nil, ucerr.Wrap(err)
 	}
 
-	return res.Allowed, nil
+	return &res, nil
 }
 
 // TestTransformer tests an access policy without saving it
