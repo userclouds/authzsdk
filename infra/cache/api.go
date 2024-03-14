@@ -161,7 +161,7 @@ func (cm Manager) Flush(ctx context.Context, objType string) error {
 }
 
 // getItemLockKeys returns the keys to lock for the given item
-func getItemLockKeys[item SingleItem](ctx context.Context, lockType SentinelType, c KeyNameProvider, i item) []Key {
+func getItemLockKeys(lockType SentinelType, c KeyNameProvider, i SingleItem) []Key {
 	keys := []Key{i.GetPrimaryKey(c)} // primary key is always first
 	switch lockType {
 	case Create:
@@ -197,7 +197,7 @@ func getItemLockKeys[item SingleItem](ctx context.Context, lockType SentinelType
 // TakeItemLock takes a lock for the given item. Typically used for Create, Update, Delete operations on an item
 func TakeItemLock[item SingleItem](ctx context.Context, lockType SentinelType, c Manager, i item) (Sentinel, error) {
 	return uctrace.Wrap1(ctx, tracer, "TakeItemLock", true, func(ctx context.Context) (Sentinel, error) {
-		return takeLockWorker(ctx, c, lockType, i, getItemLockKeys[item](ctx, lockType, c.N, i))
+		return takeLockWorker(ctx, c, lockType, i, getItemLockKeys(lockType, c.N, i))
 	})
 }
 
@@ -257,7 +257,7 @@ func ReleaseItemLock[item SingleItem](ctx context.Context, c Manager, lockType S
 		return // nothing to clear if the lock wasn't acquired
 	}
 
-	keys := getItemLockKeys[item](ctx, lockType, c.N, i)
+	keys := getItemLockKeys(lockType, c.N, i)
 
 	c.P.ReleaseSentinel(ctx, keys, sentinel)
 }
@@ -441,7 +441,7 @@ func DeleteItemFromCache[item SingleItem](ctx context.Context, c Manager, i item
 		return // nothing to clear if the lock wasn't acquired
 	}
 
-	keys := getItemLockKeys[item](ctx, Delete, c.N, i)
+	keys := getItemLockKeys(Delete, c.N, i)
 
 	if i.GetIsModifiedKey(c.N) != "" {
 		keys = append(keys, i.GetIsModifiedKey(c.N))
