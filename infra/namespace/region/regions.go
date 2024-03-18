@@ -16,9 +16,9 @@ type MachineRegion string
 
 // machineRegions is a list of regions (real or fake) UC runs in for each universe
 var machineRegions = map[universe.Universe][]MachineRegion{
-	universe.Prod:      {"aws-us-west-2", "aws-us-east-1"},
-	universe.Staging:   {"aws-us-west-2", "aws-us-east-1"},
-	universe.Debug:     {"aws-us-west-2", "aws-us-east-1"},
+	universe.Prod:      {"aws-us-west-2", "aws-us-east-1", "aws-eu-central-1"},
+	universe.Staging:   {"aws-us-west-2", "aws-us-east-1", "aws-eu-central-1"},
+	universe.Debug:     {"aws-us-west-2", "aws-us-east-1", "aws-eu-central-1"},
 	universe.Dev:       {"themoon", "mars"},
 	universe.Container: {""},
 	universe.CI:        {""},
@@ -75,13 +75,13 @@ type DataRegion string
 
 // dataRegions is a list of regions that user data can be hosted in
 var dataRegions = map[universe.Universe][]DataRegion{
-	universe.Prod:      {"aws-us-west-2", "aws-us-east-1"},
+	universe.Prod:      {"aws-us-west-2", "aws-us-east-1", "aws-eu-central-1"},
 	universe.Staging:   {"aws-us-west-2"},
 	universe.Debug:     {""},
 	universe.Dev:       {""},
 	universe.Container: {""},
-	universe.CI:        {"aws-us-west-2", "aws-us-east-1"},
-	universe.Test:      {"aws-us-west-2", "aws-us-east-1"},
+	universe.CI:        {"aws-us-west-2", "aws-us-east-1", "aws-eu-central-1"},
+	universe.Test:      {"aws-us-west-2", "aws-us-east-1", "aws-eu-central-1"},
 }
 
 // DataRegionsForUniverse returns the list of regions for a given universe
