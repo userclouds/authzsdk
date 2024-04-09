@@ -12,7 +12,7 @@ import (
 // InitLoggerAndTransportsForService sets up logging transports for long running serving
 func InitLoggerAndTransportsForService(config *Config, auth *ucjwt.Config, name service.Service) {
 	transports := initConfigInfoInTransports(name, config, auth)
-	fetcher := initConfigInfoInFetcher(config, auth)
+	fetcher := initConfigInfoInFetcher(config)
 	uclog.InitForService(name, transports, fetcher)
 }
 
@@ -80,7 +80,7 @@ func InitTransportsForTests(config *Config, auth *ucjwt.Config, name service.Ser
 // TODO (sgarrity 8/23): this currently lives at the wrong level of abstraction (it's part
 // of generic logtransports, but it's really an implementation detail of a single specific transport,
 // namely the logserver transport), but can be refactored later
-func initConfigInfoInFetcher(config *Config, auth *ucjwt.Config) uclog.EventMetadataFetcher {
+func initConfigInfoInFetcher(config *Config) uclog.EventMetadataFetcher {
 	for _, tr := range config.Transports {
 		if tr.GetType() != TransportTypeServer {
 			continue

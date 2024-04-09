@@ -29,6 +29,7 @@ type KeyType string
 
 // Valid KeyTypes
 const (
+	ArrayKeyType     KeyType = "Array"
 	BoolKeyType      KeyType = "Boolean"
 	IntKeyType       KeyType = "Int"
 	StringKeyType    KeyType = "String"
@@ -40,6 +41,7 @@ const (
 // Validate implements the Validatable interface
 func (kt KeyType) Validate() error {
 	switch kt {
+	case ArrayKeyType:
 	case BoolKeyType:
 	case IntKeyType:
 	case StringKeyType:

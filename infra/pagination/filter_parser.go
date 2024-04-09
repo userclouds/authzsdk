@@ -1,6 +1,7 @@
 package pagination
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -74,6 +75,21 @@ func (fp *filterParser) parse() (*FilterQuery, error) {
 
 var leafFilter = regexp.MustCompile(`'[^']+',[A-Z]+,'.*?[^\\]'[)]`)
 
+func (fp *filterParser) parseKey(key string) (string, error) {
+	jsonbKeyParts := strings.Split(key, "->>")
+	if len(jsonbKeyParts) == 2 {
+		return fmt.Sprintf("%s->>'%s'", jsonbKeyParts[0], jsonbKeyParts[1]), nil
+	}
+	jsonbKeyParts = strings.Split(key, "->")
+	if len(jsonbKeyParts) == 2 {
+		return fmt.Sprintf("%s->'%s'", jsonbKeyParts[0], jsonbKeyParts[1]), nil
+	}
+	if len(jsonbKeyParts) == 1 {
+		return key, nil
+	}
+	return "", ucerr.Wrap(fp.makeError("has invalid key"))
+}
+
 func (fp *filterParser) parseLeaf() error {
 	if !fp.fq.isNested() {
 		return ucerr.Wrap(fp.makeError("has unexpected leaf node"))
@@ -97,7 +113,11 @@ func (fp *filterParser) parseLeaf() error {
 	}
 
 	fp.fq = fp.fq.addChild(op)
-	fp.fq.addChild(key)
+	keyToAdd, err := fp.parseKey(key)
+	if err != nil {
+		return ucerr.Wrap(err)
+	}
+	fp.fq.addChild(keyToAdd)
 	fp.fq.addChild(value)
 	fp.advance(len(key) + len(op) + len(value) + 6)
 	return nil

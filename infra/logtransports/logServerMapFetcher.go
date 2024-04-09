@@ -2,7 +2,6 @@ package logtransports
 
 // Transport directing event stream to our server
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"sync"
@@ -75,7 +74,6 @@ func (l *logServerMapFetcher) Init(updateHandler func(updatedMap *uclog.EventMet
 
 	l.fetchTicker = *time.NewTicker(defaultEventMetadataDownloadInterval)
 	l.done = make(chan bool)
-	ctx := context.Background() // TODO we may want to create unique context for background operations
 	go func() {
 		l.runningBGThread = true
 		for {
@@ -87,7 +85,7 @@ func (l *logServerMapFetcher) Init(updateHandler func(updatedMap *uclog.EventMet
 				return
 			case <-l.fetchTicker.C:
 				l.fetchMutex.Lock()
-				l.updateEventMetadata(ctx)
+				l.updateEventMetadata()
 				l.fetchMutex.Unlock()
 			}
 		}
@@ -103,7 +101,7 @@ func (l *logServerMapFetcher) FetchEventMetadataForTenant(tenantID uuid.UUID) {
 	l.queueLock.Unlock()
 }
 
-func (l *logServerMapFetcher) updateEventMetadata(ctx context.Context) {
+func (l *logServerMapFetcher) updateEventMetadata() {
 	// Check if there are any requests and copy them into a local array
 	l.queueLock.Lock()
 	q := l.eventMetadataRequests

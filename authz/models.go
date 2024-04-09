@@ -164,14 +164,14 @@ type Object struct {
 }
 
 // EqualsIgnoringID returns true if the two objects are equal, ignoring the ID field
-func (o *Object) EqualsIgnoringID(other *Object, includeOrg bool) bool {
+func (o *Object) EqualsIgnoringID(other *Object) bool {
 	if o.Alias == nil && other.Alias == nil {
-		return o.TypeID == other.TypeID && (!includeOrg || o.OrganizationID == other.OrganizationID)
+		return o.TypeID == other.TypeID && o.OrganizationID == other.OrganizationID
 	}
 	if o.Alias == nil || other.Alias == nil {
 		return false
 	}
-	return *o.Alias == *other.Alias && o.TypeID == other.TypeID && (!includeOrg || o.OrganizationID == other.OrganizationID)
+	return *o.Alias == *other.Alias && o.TypeID == other.TypeID && o.OrganizationID == other.OrganizationID
 }
 
 //go:generate genvalidate Object

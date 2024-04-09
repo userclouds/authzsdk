@@ -98,6 +98,8 @@ type Provider interface {
 	GetCacheName(ctx context.Context) string
 	// RegisterInvalidationHandler registers a handler to be called when the specified key is invalidated
 	RegisterInvalidationHandler(ctx context.Context, handler InvalidationHandler, key Key) error
+	// LogKeyValues is debugging only method that logs the values of the keys with the given prefix
+	LogKeyValues(ctx context.Context, prefix string) error
 }
 
 // Manager is the bundle cache classes that are needed to interact with the cache

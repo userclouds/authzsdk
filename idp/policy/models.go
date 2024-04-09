@@ -41,8 +41,10 @@ type Transformer struct {
 	ID                 uuid.UUID                   `json:"id"`
 	Name               string                      `json:"name" validate:"length:1,128" required:"true"`
 	Description        string                      `json:"description"`
+	InputDataType      userstore.ResourceID        `json:"input_data_type" validate:"skip"`
 	InputType          userstore.DataType          `json:"input_type" required:"true"`
 	InputConstraints   userstore.ColumnConstraints `json:"input_type_constraints"`
+	OutputDataType     userstore.ResourceID        `json:"output_data_type" validate:"skip"`
 	OutputType         userstore.DataType          `json:"output_type" validate:"skip"`
 	OutputConstraints  userstore.ColumnConstraints `json:"output_type_constraints"`
 	ReuseExistingToken bool                        `json:"reuse_existing_token" validate:"skip" description:"Specifies if the tokenizing transformer should return existing token instead of creating a new one."`
@@ -51,20 +53,6 @@ type Transformer struct {
 	Function           string                      `json:"function" required:"true"`
 	Parameters         string                      `json:"parameters"`
 	IsSystem           bool                        `json:"is_system" description:"Whether this transformer is a system transformer. System transformers cannot be deleted or modified. This property cannot be changed."`
-}
-
-// GetPaginationKeys is part of the pagination.PageableType interface
-func (Transformer) GetPaginationKeys() pagination.KeyTypes {
-	return pagination.KeyTypes{
-		"id":             pagination.UUIDKeyType,
-		"name":           pagination.StringKeyType,
-		"description":    pagination.StringKeyType,
-		"input_type":     pagination.StringKeyType,
-		"output_type":    pagination.StringKeyType,
-		"transform_type": pagination.StringKeyType,
-		"created":        pagination.TimestampKeyType,
-		"updated":        pagination.TimestampKeyType,
-	}
 }
 
 //go:generate genvalidate Transformer
@@ -89,7 +77,9 @@ func (g Transformer) extraValidate() error {
 	}
 
 	if err := validateJSHelper(g.Function, fmt.Sprintf("%v.js", g.ID)); err != nil {
-		return ucerr.Friendlyf(err, "Transformer validation - Javascript error")
+		// Validation errors (JS syntax errors) contain multiple lines, the 2nd line is the Go  stack trace, which we don't want here.
+		jsError := strings.Split(ucerr.UserFriendlyMessage(err), "\n")[0]
+		return ucerr.Friendlyf(err, "Transformer validation - Javascript error: %s", jsError)
 	}
 
 	if g.OutputType != userstore.DataTypeInvalid {
@@ -109,8 +99,10 @@ func (g Transformer) extraValidate() error {
 func (g *Transformer) EqualsIgnoringNilID(other *Transformer) bool {
 	return (g.ID == other.ID || g.ID.IsNil() || other.ID.IsNil()) &&
 		strings.EqualFold(g.Name, other.Name) &&
+		g.InputDataType.EquivalentTo(other.InputDataType) &&
 		g.InputType == other.InputType &&
 		g.InputConstraints.Equals(other.InputConstraints) &&
+		g.OutputDataType.EquivalentTo(other.OutputDataType) &&
 		g.OutputType == other.OutputType &&
 		g.OutputConstraints.Equals(other.OutputConstraints) &&
 		g.TransformType == other.TransformType &&
@@ -140,12 +132,6 @@ const (
 
 	// PolicyTypeCompositeOr is the type for composite policies in which any component must be satisfied to grant access
 	PolicyTypeCompositeOr = "composite_or"
-
-	// PolicyTypeCompositeIntersectionDeprecated replaced by PolicyTypeCompositeAnd
-	PolicyTypeCompositeIntersectionDeprecated = "compositeintersection"
-
-	// PolicyTypeCompositeUnionDeprecated replaced by PolicyTypeCompositeOr
-	PolicyTypeCompositeUnionDeprecated = "compositeunion"
 )
 
 //go:generate genconstant PolicyType
@@ -266,18 +252,6 @@ func (a AccessPolicy) EqualsIgnoringNilID(other AccessPolicy) bool {
 		}
 	}
 	return false
-}
-
-// GetPaginationKeys is part of the pagination.PageableType interface
-func (AccessPolicy) GetPaginationKeys() pagination.KeyTypes {
-	return pagination.KeyTypes{
-		"id":          pagination.UUIDKeyType,
-		"name":        pagination.StringKeyType,
-		"description": pagination.StringKeyType,
-		"policy_type": pagination.StringKeyType,
-		"created":     pagination.TimestampKeyType,
-		"updated":     pagination.TimestampKeyType,
-	}
 }
 
 //go:generate genvalidate AccessPolicy

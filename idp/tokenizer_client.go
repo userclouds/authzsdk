@@ -194,13 +194,13 @@ func (c *TokenizerClient) TestAccessPolicyTemplate(ctx context.Context, accessPo
 }
 
 // TestTransformer tests an access policy without saving it
-func (c *TokenizerClient) TestTransformer(ctx context.Context, data string, transformer policy.Transformer) (string, error) {
+func (c *TokenizerClient) TestTransformer(ctx context.Context, data string, transformer policy.Transformer) (*tokenizer.TestTransformerResponse, error) {
 	req := tokenizer.TestTransformerRequest{
 		Transformer: transformer,
 		Data:        data,
 	}
 	if err := req.Validate(); err != nil {
-		return "", ucerr.Wrap(err)
+		return nil, ucerr.Wrap(err)
 	}
 	if req.Data == "" {
 		req.Data = "{}"
@@ -208,10 +208,10 @@ func (c *TokenizerClient) TestTransformer(ctx context.Context, data string, tran
 
 	var res tokenizer.TestTransformerResponse
 	if err := c.client.Post(ctx, paths.TestTransformer, req, &res); err != nil {
-		return "", ucerr.Wrap(err)
+		return nil, ucerr.Wrap(err)
 	}
 
-	return res.Value, nil
+	return &res, nil
 }
 
 // ListAccessPoliciesResponse is the paginated response from listing object types.

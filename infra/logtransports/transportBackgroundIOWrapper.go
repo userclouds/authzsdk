@@ -186,7 +186,7 @@ func (t *transportBackgroundIOWrapper) queueCapacityBackoff() uclog.LogLevel {
 	return uclog.LogLevelNone
 }
 
-func (t *transportBackgroundIOWrapper) writeLogRecord(ctx context.Context, event *uclog.LogEvent) {
+func (t *transportBackgroundIOWrapper) writeLogRecord(event *uclog.LogEvent) {
 	// Check if the queue has space for this event to protect from OOM when the writer is too slow to keep up
 	bL := t.queueCapacityBackoff()
 	if bL < event.LogLevel || bL <= uclog.LogLevelWarning && event.LogLevel == uclog.LogLevelNonMessage {
@@ -204,9 +204,9 @@ func (t *transportBackgroundIOWrapper) writeLogRecord(ctx context.Context, event
 
 func (t *transportBackgroundIOWrapper) Write(ctx context.Context, event uclog.LogEvent) {
 	if t.w.supportsCounters() {
-		t.writeLogRecord(ctx, &event)
+		t.writeLogRecord(&event)
 	} else if event.Message != "" && event.LogLevel <= t.w.getMaxLogLevel() {
-		t.writeLogRecord(ctx, &event)
+		t.writeLogRecord(&event)
 	}
 }
 
