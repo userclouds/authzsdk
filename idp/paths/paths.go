@@ -153,9 +153,31 @@ var (
 	TestTransformer    = fmt.Sprintf("%s/actions/test", BaseTransformerPath)
 	ExecuteTransformer = fmt.Sprintf("%s/actions/execute", BaseTransformerPath)
 
+	BaseDataMappingPath = "/userstore/datamapping"
+
+	CreateDataSourcePath = fmt.Sprintf("%s/datasource", BaseDataMappingPath)
+	singleDataSourcePath = func(id uuid.UUID) string {
+		return fmt.Sprintf("%s/%s", CreateDataSourcePath, id)
+	}
+	DeleteDataSourcePath = singleDataSourcePath
+	GetDataSourcePath    = singleDataSourcePath
+	UpdateDataSourcePath = singleDataSourcePath
+	ListDataSourcesPath  = CreateDataSourcePath
+
+	CreateDataSourceElementPath = fmt.Sprintf("%s/element", BaseDataMappingPath)
+	singleDataSourceElementPath = func(id uuid.UUID) string {
+		return fmt.Sprintf("%s/%s", CreateDataSourceElementPath, id)
+	}
+	DeleteDataSourceElementPath = singleDataSourceElementPath
+	GetDataSourceElementPath    = singleDataSourceElementPath
+	UpdateDataSourceElementPath = singleDataSourceElementPath
+	ListDataSourceElementsPath  = CreateDataSourceElementPath
+
 	DownloadGolangSDKPath     = fmt.Sprintf("%s/download/codegensdk.go", UserStoreBasePath)
 	DownloadPythonSDKPath     = fmt.Sprintf("%s/download/codegensdk.py", UserStoreBasePath)
 	DownloadTypescriptSDKPath = fmt.Sprintf("%s/download/codegensdk.ts", UserStoreBasePath)
+
+	ExternalOIDCIssuersPath = fmt.Sprintf("%s/oidcissuers", UserStoreBasePath)
 )
 
 // StripUserstoreBase makes the URLs functional for handler setup

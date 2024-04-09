@@ -754,7 +754,7 @@ func (c *Client) CreateObject(ctx context.Context, id, typeID uuid.UUID, alias s
 			}
 			return &resp, nil
 		}, func(in *Object, curr *Object) bool {
-			return curr.EqualsIgnoringID(in, true) && (id.IsNil() || curr.ID == id)
+			return curr.EqualsIgnoringID(in) && (id.IsNil() || curr.ID == id)
 		})
 }
 

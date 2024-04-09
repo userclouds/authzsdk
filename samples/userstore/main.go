@@ -13,6 +13,7 @@ import (
 	"userclouds.com/idp"
 	"userclouds.com/idp/policy"
 	"userclouds.com/idp/userstore"
+	"userclouds.com/idp/userstore/datatype"
 	"userclouds.com/infra/jsonclient"
 )
 
@@ -48,19 +49,69 @@ func setup(ctx context.Context) (*idp.Client, uuid.UUID, uuid.UUID, uuid.UUID, u
 
 	tc := idpc.TokenizerClient
 
+	// create custom us address data type
+	if _, err := idpc.CreateDataType(ctx, userstore.ColumnDataType{
+		Name:        "us_address",
+		Description: "a US style address",
+		CompositeAttributes: userstore.CompositeAttributes{
+			Fields: []userstore.CompositeField{
+				{
+					Name:     "Street_Address",
+					DataType: datatype.String,
+				},
+				{
+					Name:     "City",
+					DataType: datatype.String,
+				},
+				{
+					Name:     "State",
+					DataType: datatype.String,
+				},
+				{
+					Name:     "Zip",
+					DataType: datatype.String,
+				},
+			},
+		},
+	}, idp.IfNotExists()); err != nil {
+		panic(err)
+	}
+
 	// create phone number and address columns
 	if _, err := idpc.CreateColumn(ctx, userstore.Column{
 		Name:      "phone_number",
+		DataType:  datatype.String,
 		Type:      userstore.DataTypeString,
 		IndexType: userstore.ColumnIndexTypeIndexed,
 	}, idp.IfNotExists()); err != nil {
 		panic(err)
 	}
 	if _, err := idpc.CreateColumn(ctx, userstore.Column{
-		Name:      "home_addresses",
-		Type:      userstore.DataTypeAddress,
+		Name:      "shipping_addresses",
+		DataType:  userstore.ResourceID{Name: "us_address"},
+		Type:      userstore.DataTypeComposite,
 		IsArray:   true,
 		IndexType: userstore.ColumnIndexTypeNone,
+		Constraints: userstore.ColumnConstraints{
+			Fields: []userstore.ColumnField{
+				{
+					Name: "Street_Address",
+					Type: userstore.DataTypeString,
+				},
+				{
+					Name: "City",
+					Type: userstore.DataTypeString,
+				},
+				{
+					Name: "State",
+					Type: userstore.DataTypeString,
+				},
+				{
+					Name: "Zip",
+					Type: userstore.DataTypeString,
+				},
+			},
+		},
 	}, idp.IfNotExists()); err != nil {
 		panic(err)
 	}
@@ -126,11 +177,11 @@ func setup(ctx context.Context) (*idp.Client, uuid.UUID, uuid.UUID, uuid.UUID, u
 			{Column: userstore.ResourceID{Name: "id"}, Transformer: userstore.ResourceID{ID: policy.TransformerPassthrough.ID}},
 			{Column: userstore.ResourceID{Name: "updated"}, Transformer: userstore.ResourceID{ID: policy.TransformerPassthrough.ID}},
 			{Column: userstore.ResourceID{Name: "phone_number"}, Transformer: userstore.ResourceID{ID: policy.TransformerPassthrough.ID}},
-			{Column: userstore.ResourceID{Name: "home_addresses"}, Transformer: userstore.ResourceID{ID: policy.TransformerPassthrough.ID}},
+			{Column: userstore.ResourceID{Name: "shipping_addresses"}, Transformer: userstore.ResourceID{ID: policy.TransformerPassthrough.ID}},
 		},
 		AccessPolicy: userstore.ResourceID{ID: apID},
 		SelectorConfig: userstore.UserSelectorConfig{
-			WhereClause: "{home_addresses}->>'street_address_line_1' LIKE ?",
+			WhereClause: "{shipping_addresses}->>'street_address' LIKE ?",
 		},
 		Purposes: []userstore.ResourceID{{ID: securityPurpose.ID}, {ID: operationalPurpose.ID}},
 	}
@@ -172,7 +223,9 @@ func setup(ctx context.Context) (*idp.Client, uuid.UUID, uuid.UUID, uuid.UUID, u
 		Name:               "TokenizePhoneByValReuse",
 		Function:           transformerBody,
 		Parameters:         ``,
+		InputDataType:      datatype.String,
 		InputType:          userstore.DataTypeString,
+		OutputDataType:     datatype.String,
 		OutputType:         userstore.DataTypeString,
 		ReuseExistingToken: true, // Fixed mapping
 		TransformType:      policy.TransformTypeTokenizeByValue,
@@ -185,10 +238,12 @@ func setup(ctx context.Context) (*idp.Client, uuid.UUID, uuid.UUID, uuid.UUID, u
 
 	// Define a transformer  that will transfomr phone number into a country code (i.e. phone number A -> country code)
 	phoneNumberTransformer := &policy.Transformer{
-		Name:        "TransformPhoneNumberToCountryNamev2",
-		Description: "This transformer gets the country name for the phone number",
-		InputType:   userstore.DataTypeString,
-		OutputType:  userstore.DataTypeString,
+		Name:           "TransformPhoneNumberToCountryNamev2",
+		Description:    "This transformer gets the country name for the phone number",
+		InputDataType:  datatype.String,
+		InputType:      userstore.DataTypeString,
+		OutputDataType: datatype.String,
+		OutputType:     userstore.DataTypeString,
 		Function: `function transform(data, params) {
 			try {
 				return getCountryNameForPhoneNumber(data);
@@ -206,12 +261,34 @@ func setup(ctx context.Context) (*idp.Client, uuid.UUID, uuid.UUID, uuid.UUID, u
 	}
 
 	addressTransformer := &policy.Transformer{
-		Name:        "AddressCountryOnlyV2",
-		Description: "This transformer returns just the zip code of the address.",
-		InputType:   userstore.DataTypeAddress,
-		OutputType:  userstore.DataTypeString,
+		Name:          "AddressZipOnlyV2",
+		Description:   "This transformer returns just the zip code of the address.",
+		InputDataType: userstore.ResourceID{Name: "us_address"},
+		InputType:     userstore.DataTypeComposite,
+		InputConstraints: userstore.ColumnConstraints{
+			Fields: []userstore.ColumnField{
+				{
+					Name: "Street_Address",
+					Type: userstore.DataTypeString,
+				},
+				{
+					Name: "City",
+					Type: userstore.DataTypeString,
+				},
+				{
+					Name: "State",
+					Type: userstore.DataTypeString,
+				},
+				{
+					Name: "Zip",
+					Type: userstore.DataTypeString,
+				},
+			},
+		},
+		OutputDataType: datatype.String,
+		OutputType:     userstore.DataTypeString,
 		Function: `function transform(data, params) {
-			return data.country;
+			return data.zip;
 		}`,
 		Parameters:    ``,
 		TransformType: policy.TransformTypeTransform,
@@ -242,7 +319,7 @@ func setup(ctx context.Context) (*idp.Client, uuid.UUID, uuid.UUID, uuid.UUID, u
 		},
 		Columns: []userstore.ColumnOutputConfig{
 			{Column: userstore.ResourceID{Name: "phone_number"}, Transformer: userstore.ResourceID{ID: phoneNumberTransformer.ID}},
-			{Column: userstore.ResourceID{Name: "home_addresses"}, Transformer: userstore.ResourceID{ID: addressTransformer.ID}},
+			{Column: userstore.ResourceID{Name: "shipping_addresses"}, Transformer: userstore.ResourceID{ID: addressTransformer.ID}},
 		},
 		AccessPolicy:      userstore.ResourceID{ID: policy.AccessPolicyAllowAll.ID},
 		TokenAccessPolicy: userstore.ResourceID{ID: tokenResolvePolicy.ID},
@@ -277,7 +354,7 @@ func setup(ctx context.Context) (*idp.Client, uuid.UUID, uuid.UUID, uuid.UUID, u
 		ID: uuid.Nil,
 		Columns: []userstore.ColumnInputConfig{
 			{Column: userstore.ResourceID{Name: "phone_number"}, Normalizer: userstore.ResourceID{ID: policy.TransformerPassthrough.ID}},
-			{Column: userstore.ResourceID{Name: "home_addresses"}, Normalizer: userstore.ResourceID{ID: policy.TransformerPassthrough.ID}},
+			{Column: userstore.ResourceID{Name: "shipping_addresses"}, Normalizer: userstore.ResourceID{ID: policy.TransformerPassthrough.ID}},
 		},
 		Name:         "MutatorForSecurityTeam",
 		AccessPolicy: userstore.ResourceID{ID: apID},
@@ -314,9 +391,9 @@ func example(ctx context.Context, idpc *idp.Client, accessorID, mutatorID, dsAcc
 				Value:            "14155555555",
 				PurposeAdditions: []userstore.ResourceID{{Name: "operational"}},
 			},
-			"home_addresses": {
-				Value: `[{"country":"usa", "street_address_line_1":"742 Evergreen Terrace", "locality":"Springfield"},
-						 {"country":"usa", "street_address_line_1":"123 Main St", "locality":"Pleasantville"}]`,
+			"shipping_addresses": {
+				Value: `[{"state":"IL", "street_address":"742 Evergreen Terrace", "city":"Springfield", "zip":"62704"},
+						 {"state":"CA", "street_address":"123 Main St", "city":"Pleasantville", "zip":"94566"}]`,
 				PurposeAdditions: []userstore.ResourceID{{Name: "operational"}},
 			},
 		}); err != nil {
@@ -345,9 +422,9 @@ func example(ctx context.Context, idpc *idp.Client, accessorID, mutatorID, dsAcc
 				Value:            "14155555555",
 				PurposeAdditions: []userstore.ResourceID{{Name: "security"}},
 			},
-			"home_addresses": {
-				Value: `[{"country":"usa", "street_address_line_1":"742 Evergreen Terrace", "locality":"Springfield"},
-						 {"country":"usa", "street_address_line_1":"123 Main St", "locality":"Pleasantville"}]`,
+			"shipping_addresses": {
+				Value: `[{"state":"IL", "street_address":"742 Evergreen Terrace", "city":"Springfield", "zip":"62704"},
+						 {"state":"CA", "street_address":"123 Main St", "city":"Pleasantville", "zip":"94566"}]`,
 				PurposeAdditions: []userstore.ResourceID{{Name: "security"}},
 			},
 		}); err != nil {

@@ -50,6 +50,7 @@ func EndingBefore(cursor Cursor) Option {
 // For LEAF queries, KEY must be a valid result type key for type of the result being returned. Valid keys are stored
 // in a KeyTypes map in a configured paginator, mapping a key name to a KeyType. Supported KeyTypes include:
 //
+//	ArrayKeyType     (must be a string value to be searched for in an array of strings)
 //	BoolKeyType      (value may be specified as any string that can be parsed by https://pkg.go.dev/strconv#example-ParseBool)
 //	IntKeyType       (must be a valid string representation of an int64)
 //	StringKeyType    (string value can only have single-quotes or double-quotes in the string that are escaped with a
@@ -68,7 +69,7 @@ func EndingBefore(cursor Cursor) Option {
 //
 //		HAS // ANY
 //
-//	Only UUIDArrayKeyType supports ARRAY operators.
+//	Only ArrayKeyType and UUIDArrayKeyType supports ARRAY operators.
 //
 //	COMPARISON operators include:
 //
@@ -79,7 +80,7 @@ func EndingBefore(cursor Cursor) Option {
 //		LT  // <
 //		NE  // !=
 //
-//	All supported KeyTypes other than UUIDArrayKeyType support COMPARISON operators.
+//	All supported KeyTypes other than ArrayKeyType and UUIDArrayKeyType support COMPARISON operators.
 //
 //	PATTERN operators include:
 //

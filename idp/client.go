@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 type options struct {
 	ifNotExists       bool
 	includeAuthN      bool
+	debug             bool
 	organizationID    uuid.UUID
 	userID            uuid.UUID
 	dataRegion        region.DataRegion
@@ -52,6 +54,13 @@ func IfNotExists() Option {
 func IncludeAuthN() Option {
 	return optFunc(func(opts *options) {
 		opts.includeAuthN = true
+	})
+}
+
+// Debug returns an Option that will cause the client to return debug information, if available
+func Debug() Option {
+	return optFunc(func(opts *options) {
+		opts.debug = true
 	})
 }
 
@@ -234,6 +243,110 @@ func (c *Client) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	}
 
 	return ucerr.Wrap(c.client.Delete(ctx, requestURL.String(), nil))
+}
+
+// CreateDataTypeRequest is the request body for creating a new data type
+type CreateDataTypeRequest struct {
+	DataType userstore.ColumnDataType `json:"data_type"`
+}
+
+//go:generate genvalidate CreateDataTypeRequest
+
+// CreateDataType creates a new data type for the associated tenant
+func (c *Client) CreateDataType(
+	ctx context.Context,
+	dataType userstore.ColumnDataType,
+	opts ...Option,
+) (*userstore.ColumnDataType, error) {
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	req := CreateDataTypeRequest{
+		DataType: dataType,
+	}
+
+	var resp userstore.ColumnDataType
+	if options.ifNotExists {
+		exists, existingID, err := c.client.CreateIfNotExists(ctx, paths.DataTypePath, req, &resp)
+		if err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+		if exists {
+			resp = req.DataType
+			resp.ID = existingID
+		}
+	} else {
+		if err := c.client.Post(ctx, paths.DataTypePath, req, &resp); err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+	}
+
+	return &resp, nil
+}
+
+// DeleteDataType deletes the data type specified by the data type ID for the associated tenant
+func (c *Client) DeleteDataType(ctx context.Context, dataTypeID uuid.UUID) error {
+	return ucerr.Wrap(c.client.Delete(ctx, paths.DataTypePathForID(dataTypeID), nil))
+}
+
+// GetDataType returns the data type specified by the data type ID for the associated tenant
+func (c *Client) GetDataType(ctx context.Context, dataTypeID uuid.UUID) (*userstore.ColumnDataType, error) {
+	var resp userstore.ColumnDataType
+	if err := c.client.Get(ctx, paths.DataTypePathForID(dataTypeID), &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// ListDataTypesResponse is the paginated response struct for listing data types
+type ListDataTypesResponse struct {
+	Data []userstore.ColumnDataType `json:"data"`
+	pagination.ResponseFields
+}
+
+// ListDataTypes lists all data types for the associated tenant
+func (c *Client) ListDataTypes(ctx context.Context, opts ...Option) (*ListDataTypesResponse, error) {
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	pager, err := pagination.ApplyOptions(options.paginationOptions...)
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+	query := pager.Query()
+
+	var res ListDataTypesResponse
+	if err := c.client.Get(ctx, fmt.Sprintf("%s?%s", paths.DataTypePath, query.Encode()), &res); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &res, nil
+}
+
+// UpdateDataTypeRequest is the request body for updating a data type
+type UpdateDataTypeRequest struct {
+	DataType userstore.ColumnDataType `json:"data_type"`
+}
+
+//go:generate genvalidate UpdateDataTypeRequest
+
+// UpdateDataType updates the data type specified by the data type ID with the specified data for the associated tenant
+func (c *Client) UpdateDataType(ctx context.Context, dataTypeID uuid.UUID, updatedDataType userstore.ColumnDataType) (*userstore.ColumnDataType, error) {
+	req := UpdateDataTypeRequest{
+		DataType: updatedDataType,
+	}
+
+	var resp userstore.ColumnDataType
+	if err := c.client.Put(ctx, paths.DataTypePathForID(dataTypeID), req, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
 }
 
 // CreateColumnRequest is the request body for creating a new column
@@ -782,7 +895,7 @@ type ListAccessorsResponse struct {
 }
 
 // ListAccessors lists all the available accessors for the associated tenant
-func (c *Client) ListAccessors(ctx context.Context, opts ...Option) (*ListAccessorsResponse, error) {
+func (c *Client) ListAccessors(ctx context.Context, versioned bool, opts ...Option) (*ListAccessorsResponse, error) {
 	options := c.options
 	for _, opt := range opts {
 		opt.apply(&options)
@@ -793,6 +906,7 @@ func (c *Client) ListAccessors(ctx context.Context, opts ...Option) (*ListAccess
 	}
 
 	query := pager.Query()
+	query.Add("versioned", strconv.FormatBool(versioned))
 
 	var res ListAccessorsResponse
 	if err := c.client.Get(ctx, fmt.Sprintf("%s?%s", paths.ListAccessorsPath, query.Encode()), &res); err != nil {
@@ -893,7 +1007,7 @@ type ListMutatorsResponse struct {
 }
 
 // ListMutators lists all the available mutators for the associated tenant
-func (c *Client) ListMutators(ctx context.Context, opts ...Option) (*ListMutatorsResponse, error) {
+func (c *Client) ListMutators(ctx context.Context, versioned bool, opts ...Option) (*ListMutatorsResponse, error) {
 	options := c.options
 	for _, opt := range opts {
 		opt.apply(&options)
@@ -904,6 +1018,7 @@ func (c *Client) ListMutators(ctx context.Context, opts ...Option) (*ListMutator
 	}
 
 	query := pager.Query()
+	query.Add("versioned", strconv.FormatBool(versioned))
 
 	var res ListMutatorsResponse
 	if err := c.client.Get(ctx, fmt.Sprintf("%s?%s", paths.ListMutatorsPath, query.Encode()), &res); err != nil {
@@ -939,13 +1054,15 @@ type ExecuteAccessorRequest struct {
 	AccessorID     uuid.UUID                    `json:"accessor_id" validate:"notnil"` // the accessor that specifies what data to access
 	Context        policy.ClientContext         `json:"context"`                       // context that is provided to the accessor Access Policy
 	SelectorValues userstore.UserSelectorValues `json:"selector_values"`               // the values to use for the selector
+	Debug          bool                         `json:"debug,omitempty"`               // whether to include debug information in the response
 }
 
 //go:generate genvalidate ExecuteAccessorRequest
 
 // ExecuteAccessorResponse is the response body for accessing user data
 type ExecuteAccessorResponse struct {
-	Data []string `json:"data"`
+	Data  []string               `json:"data"`
+	Debug map[string]interface{} `json:"debug,omitempty"`
 	pagination.ResponseFields
 }
 
@@ -966,6 +1083,7 @@ func (c *Client) ExecuteAccessor(ctx context.Context, accessorID uuid.UUID, clie
 		AccessorID:     accessorID,
 		Context:        clientContext,
 		SelectorValues: selectorValues,
+		Debug:          options.debug,
 	}
 
 	var res ExecuteAccessorResponse
@@ -985,6 +1103,8 @@ const MutatorColumnCurrentValue = "UCCUR-7f55f479-3822-4976-a8a9-b789d5c6f152"
 // ValueAndPurposes is a tuple for specifying the value and the purpose to store for a user column
 type ValueAndPurposes struct {
 	Value            any                    `json:"value"`
+	ValueAdditions   any                    `json:"value_additions"`
+	ValueDeletions   any                    `json:"value_deletions"`
 	PurposeAdditions []userstore.ResourceID `json:"purpose_additions"`
 	PurposeDeletions []userstore.ResourceID `json:"purpose_deletions"`
 }
@@ -1238,4 +1358,23 @@ func (c *Client) DownloadPythonSDK(ctx context.Context) (string, error) {
 	}
 
 	return sdk, nil
+}
+
+// GetExternalOIDCIssuers returns the list of external OIDC issuers for JWT tokens for the tenant
+func (c *Client) GetExternalOIDCIssuers(ctx context.Context) ([]string, error) {
+	var resp []string
+	if err := c.client.Get(ctx, paths.ExternalOIDCIssuersPath, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return resp, nil
+}
+
+// UpdateExternalOIDCIssuers updates the list of external OIDC issuers for JWT tokens for the tenant
+func (c *Client) UpdateExternalOIDCIssuers(ctx context.Context, issuers []string) error {
+	if err := c.client.Put(ctx, paths.ExternalOIDCIssuersPath, issuers, nil); err != nil {
+		return ucerr.Wrap(err)
+	}
+
+	return nil
 }

@@ -66,7 +66,8 @@ func (o TestTransformerRequest) Validate() error {
 
 // TestTransformerResponse is the response to a TestTransformer call
 type TestTransformerResponse struct {
-	Value string `json:"value"`
+	Value string                 `json:"value"`
+	Debug map[string]interface{} `json:"debug,omitempty"`
 }
 
 // TestAccessPolicyRequest lets you run an unsaved policy with a given context for testing
@@ -118,6 +119,6 @@ func (o TestAccessPolicyTemplateRequest) Validate() error {
 
 // TestAccessPolicyResponse is the response to a TestAccessPolicy call
 type TestAccessPolicyResponse struct {
-	Allowed bool   `json:"allowed"`
-	Console string `json:"console"`
+	Allowed bool                   `json:"allowed"`
+	Debug   map[string]interface{} `json:"debug,omitempty"`
 }

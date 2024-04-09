@@ -1,6 +1,14 @@
 # Changelog
 
-## UNPUBLISHED
+## 1.2.0 - 09-04-2024
+
+- Add methods for creating, retrieving, updating, and deleting ColumnDataTypes
+- Add DataType field to Column that refers to a ColumnDataType
+- Add InputDataType and OutputDataType fields to Transformer that refer to ColumnDataTypes
+- Update userstore sample to interact with ColumnDataTypes
+- Breaking change: Add additional boolean parameter to ListAccessors an ListMutators for requesting all versions
+
+## 1.1.0 - 20-03-2024
 
 - Breaking change: idp/userstore/ColumnField parameter "Optional" has been changed to "Required", with fields not required by default
 - Add InputConstraints and OutputConstraints parameters of type idp/userstore/ColumnConstraints to idp/policy/Transformer

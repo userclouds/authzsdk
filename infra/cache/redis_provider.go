@@ -94,6 +94,14 @@ func NewRedisClientCacheProvider(rc *redis.Client, cacheName string, opts ...Opt
 	}
 }
 
+func (c *RedisClientCacheProvider) logError(ctx context.Context, err error, format string, args ...interface{}) {
+	if errors.Is(err, context.Canceled) {
+		uclog.Warningf(ctx, format, args...)
+	} else {
+		uclog.Errorf(ctx, format, args...)
+	}
+}
+
 // WriteSentinel writes the sentinel value into the given keys
 func (c *RedisClientCacheProvider) WriteSentinel(ctx context.Context, stype SentinelType, keysIn []Key) (Sentinel, error) {
 	sentinel := c.sm.GenerateSentinel(stype)
@@ -246,7 +254,7 @@ func (c *RedisClientCacheProvider) ReleaseSentinel(ctx context.Context, keysIn [
 		_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
 			if len(keysToClear) > 0 {
 				if err := pipe.Del(ctx, keysToClear...).Err(); err != nil && err != redis.Nil {
-					uclog.Errorf(ctx, "Cache[%v] error clearing key(s) %v sentinel  %v", c.cacheName, keysToClear, err)
+					c.logError(ctx, err, "Cache[%v] error clearing key(s) %v sentinel  %v", c.cacheName, keysToClear, err)
 				}
 				uclog.Verbosef(ctx, "Cache[%v] cleared key(s) %v sentinel %v", c.cacheName, keysToClear, s)
 			}
@@ -340,7 +348,7 @@ func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn Key, key
 			} else if clear { // Intermediate state detected so clear the cache
 				uclog.Verbosef(ctx, "Cache[%v] cleared on value mismatch or conflict sentinel key %v curr var %v would store %v", c.cacheName, keys, cV, val)
 				if err := pipe.Del(ctx, keys...).Err(); err != nil && err != redis.Nil {
-					uclog.Errorf(ctx, "Cache[%v] - error clearing key(s) %v mismatch -  %v", c.cacheName, keys, err)
+					c.logError(ctx, err, "Cache[%v] - error clearing key(s) %v mismatch -  %v", c.cacheName, keys, err)
 				}
 				return nil
 			} else if conflict { // Conflict detected so upgrade the lock to conflict
@@ -354,7 +362,7 @@ func (c *RedisClientCacheProvider) SetValue(ctx context.Context, lkeyIn Key, key
 				uclog.Verbosef(ctx, "Cache[%v] refreshing TTL in %v got %v added %v", c.cacheName, keys, cV, sentinel)
 				for _, key := range keys {
 					if err := pipe.Expire(ctx, key, c.tombstoneTTL).Err(); err != nil && err != redis.Nil {
-						uclog.Errorf(ctx, "Cache[%v] - error reseting expiration key(s) %v mismatch -  %v", c.cacheName, key, err)
+						c.logError(ctx, err, "Cache[%v] - error reseting expiration key(s) %v mismatch -  %v", c.cacheName, key, err)
 					}
 				}
 				return nil
@@ -540,7 +548,7 @@ func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []Key
 			// If we have multiple keys, use a pipeline to set the tombstone and expiration time
 			pipe := c.rc.Pipeline()
 			if err := multiSetWithPipe(ctx, pipe, keysAll, string(TombstoneSentinel), c.tombstoneTTL); err != nil {
-				uclog.Errorf(ctx, "Cache[%v] error setting tombstone on key(s) %v -  %v", c.cacheName, keysAll, err)
+				c.logError(ctx, err, "Cache[%v] error setting tombstone on key(s) %v -  %v", c.cacheName, keysAll, err)
 				return ucerr.Wrap(err)
 			}
 			_, err = pipe.Exec(ctx)
@@ -580,7 +588,7 @@ func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []Key
 					if len(keysToDelete) > 0 {
 						if setTombstone {
 							if err := multiSetWithPipe(ctx, pipe, keysToDelete, string(TombstoneSentinel), c.tombstoneTTL); err != nil {
-								uclog.Errorf(ctx, "Cache[%v] error setting tombstone on key(s) %v -  %v", c.cacheName, keysToDelete, err)
+								c.logError(ctx, err, "Cache[%v] error setting tombstone on key(s) %v -  %v", c.cacheName, keysToDelete, err)
 								return ucerr.Wrap(err)
 							}
 							uclog.Verbosef(ctx, "Cache[%v] DeleteValue - tombstoned keys %v", c.cacheName, keysToDelete)
@@ -850,4 +858,37 @@ func (c *RedisClientCacheProvider) GetCacheName(ctx context.Context) string {
 // RegisterInvalidationHandler registers a handler for cache invalidation
 func (c *RedisClientCacheProvider) RegisterInvalidationHandler(ctx context.Context, handler InvalidationHandler, key Key) error {
 	return ucerr.Errorf("RegisterInvalidationHandler not supported for RedisClientCacheProvider")
+}
+
+// LogKeyValues logs the key values in the cache with given prefix
+func (c *RedisClientCacheProvider) LogKeyValues(ctx context.Context, prefix string) error {
+
+	iter := c.rc.Scan(ctx, 0, prefix+"*", 0).Iterator()
+
+	for iter.Next(ctx) {
+		val := c.rc.Get(ctx, iter.Val())
+		err := val.Err()
+		var valSet *redis.StringSliceCmd
+		if err != nil && redis.HasErrorPrefix(err, "WRONGTYPE") {
+			// Check for "WRONGTYPE Operation against a key holding the wrong kind of value" and use SMEMBERS instead
+			valSet = c.rc.SMembers(ctx, iter.Val())
+			err = valSet.Err()
+		}
+
+		if err != nil {
+			uclog.Errorf(ctx, "Cache[%v] failed to log value of key %v with error %v", c.cacheName, iter.Val(), err)
+		} else {
+			if valSet != nil {
+				uclog.Verbosef(ctx, "Cache[%v] key %v value %v", c.cacheName, iter.Val(), valSet.Val())
+			} else {
+				uclog.Verbosef(ctx, "Cache[%v] key %v value %v", c.cacheName, iter.Val(), val.Val())
+			}
+		}
+	}
+
+	if iter.Err() != nil {
+		return ucerr.Wrap(iter.Err())
+	}
+
+	return nil
 }

@@ -148,3 +148,40 @@ func NewPaginatorFromQuery(query Query, defaultOptions ...Option) (*Paginator, e
 
 	return pager, nil
 }
+
+// QueryParamsFromRequest creates a QueryParams struct from the query parameters in an http.Request
+func QueryParamsFromRequest(r *http.Request) QueryParams {
+	queryParams := QueryParams{}
+	urlValues := r.URL.Query()
+
+	if urlValues.Has("starting_after") && urlValues.Get("starting_after") != "null" {
+		v := urlValues.Get("starting_after")
+		queryParams.StartingAfter = &v
+	}
+	if urlValues.Has("ending_before") && urlValues.Get("ending_before") != "null" {
+		v := urlValues.Get("ending_before")
+		queryParams.EndingBefore = &v
+	}
+	if urlValues.Has("limit") && urlValues.Get("limit") != "null" {
+		v := urlValues.Get("limit")
+		queryParams.Limit = &v
+	}
+	if urlValues.Has("filter") && urlValues.Get("filter") != "null" {
+		v := urlValues.Get("filter")
+		queryParams.Filter = &v
+	}
+	if urlValues.Has("sort_key") && urlValues.Get("sort_key") != "null" {
+		v := urlValues.Get("sort_key")
+		queryParams.SortKey = &v
+	}
+	if urlValues.Has("sort_order") && urlValues.Get("sort_order") != "null" {
+		v := urlValues.Get("sort_order")
+		queryParams.SortOrder = &v
+	}
+	if urlValues.Has("version") && urlValues.Get("version") != "null" {
+		v := urlValues.Get("version")
+		queryParams.Version = &v
+	}
+
+	return queryParams
+}

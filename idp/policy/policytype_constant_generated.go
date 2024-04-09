@@ -9,12 +9,8 @@ func (t PolicyType) MarshalText() ([]byte, error) {
 	switch t {
 	case PolicyTypeCompositeAnd:
 		return []byte("composite_and"), nil
-	case PolicyTypeCompositeIntersectionDeprecated:
-		return []byte("compositeintersection"), nil
 	case PolicyTypeCompositeOr:
 		return []byte("composite_or"), nil
-	case PolicyTypeCompositeUnionDeprecated:
-		return []byte("compositeunion"), nil
 	case PolicyTypeInvalid:
 		return []byte("invalid"), nil
 	default:
@@ -28,12 +24,8 @@ func (t *PolicyType) UnmarshalText(b []byte) error {
 	switch s {
 	case "composite_and":
 		*t = PolicyTypeCompositeAnd
-	case "compositeintersection":
-		*t = PolicyTypeCompositeIntersectionDeprecated
 	case "composite_or":
 		*t = PolicyTypeCompositeOr
-	case "compositeunion":
-		*t = PolicyTypeCompositeUnionDeprecated
 	case "invalid":
 		*t = PolicyTypeInvalid
 	default:
@@ -47,11 +39,7 @@ func (t *PolicyType) Validate() error {
 	switch *t {
 	case PolicyTypeCompositeAnd:
 		return nil
-	case PolicyTypeCompositeIntersectionDeprecated:
-		return nil
 	case PolicyTypeCompositeOr:
-		return nil
-	case PolicyTypeCompositeUnionDeprecated:
 		return nil
 	default:
 		return ucerr.Errorf("unknown PolicyType value '%s'", *t)
@@ -62,16 +50,12 @@ func (t *PolicyType) Validate() error {
 func (t PolicyType) Enum() []interface{} {
 	return []interface{}{
 		"composite_and",
-		"compositeintersection",
 		"composite_or",
-		"compositeunion",
 	}
 }
 
 // AllPolicyTypes is a slice of all PolicyType values
 var AllPolicyTypes = []PolicyType{
 	PolicyTypeCompositeAnd,
-	PolicyTypeCompositeIntersectionDeprecated,
 	PolicyTypeCompositeOr,
-	PolicyTypeCompositeUnionDeprecated,
 }

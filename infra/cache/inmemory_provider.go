@@ -475,3 +475,16 @@ func (c *InMemoryClientCacheProvider) GetCacheName(ctx context.Context) string {
 func (c *InMemoryClientCacheProvider) RegisterInvalidationHandler(ctx context.Context, handler InvalidationHandler, key Key) error {
 	return ucerr.Errorf("RegisterInvalidationHandler not supported for InMemoryClientCacheProvider")
 }
+
+// LogKeyValues logs all keys and values in the cache
+func (c *InMemoryClientCacheProvider) LogKeyValues(ctx context.Context, prefix string) error {
+	c.keysMutex.Lock()
+	defer c.keysMutex.Unlock()
+
+	for k, v := range c.cache.Items() {
+		if strings.HasPrefix(k, prefix) {
+			uclog.Infof(ctx, "Cache[%v] key %v value %v", c.cacheName, k, v.Object)
+		}
+	}
+	return nil
+}
