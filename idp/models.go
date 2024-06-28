@@ -56,11 +56,10 @@ type UserMFAChannel struct {
 	LastVerified       time.Time           `json:"last_verified"`
 }
 
-// UserProfile is a collection of per-user properties stored in the DB as JSON since
-// they are likely to be sparse and change more frequently.
+// UserBaseProfile is a set of default user profile fields that are common in OIDC claims.
 // Follow conventions of https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims for
 // all standard fields.
-type UserProfile struct {
+type UserBaseProfile struct {
 	Email         string `json:"email"`
 	EmailVerified bool   `json:"email_verified"`
 	Name          string `json:"name,omitempty"`     // Full name in displayable form (incl titles, suffixes, etc) localized to end-user.
@@ -73,7 +72,7 @@ type UserProfile struct {
 	// from the profile, but allow 0+ profile emails (e.g. alternate contacts, merged accounts, etc).
 }
 
-func (up UserProfile) extraValidate() error {
+func (up UserBaseProfile) extraValidate() error {
 	if up.Email == "" {
 		return nil
 	}
@@ -84,6 +83,6 @@ func (up UserProfile) extraValidate() error {
 	return nil
 }
 
-//go:generate gendbjson UserProfile
+//go:generate gendbjson UserBaseProfile
 
-//go:generate genvalidate UserProfile
+//go:generate genvalidate UserBaseProfile

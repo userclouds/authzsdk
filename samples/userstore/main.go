@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 
 	"github.com/gofrs/uuid"
@@ -21,10 +22,23 @@ import (
 // to the data inside those columns. It also shows you how to create, delete and execute accessors and mutators.
 // To learn more about these concepts, see docs.userclouds.com.
 
-func setup(ctx context.Context) (*idp.Client, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) {
+type sample struct {
+	uniqueSuffix                         string
+	createdAccessorIDsByName             map[string]uuid.UUID
+	createdAccessPolicyIDsByName         map[string]uuid.UUID
+	createdAccessPolicyTemplateIDsByName map[string]uuid.UUID
+	createdColumnIDsByName               map[string]uuid.UUID
+	createdDataTypeIDsByName             map[string]uuid.UUID
+	createdMutatorIDsByName              map[string]uuid.UUID
+	createdPurposeIDsByName              map[string]uuid.UUID
+	createdTokens                        map[string]bool
+	createdTransformerIDsByName          map[string]uuid.UUID
+	idpClient                            *idp.Client
+	tokenizerClient                      *idp.TokenizerClient
+}
 
-	err := godotenv.Load()
-	if err != nil {
+func newSample() *sample {
+	if err := godotenv.Load(); err != nil {
 		log.Printf("error loading .env file: %v\n(did you forget to copy `.env.example` to `.env` and substitute values?)", err)
 	}
 
@@ -42,125 +56,194 @@ func setup(ctx context.Context) (*idp.Client, uuid.UUID, uuid.UUID, uuid.UUID, u
 		panic(err)
 	}
 	// we'll need IDP and tokenizer clients
-	idpc, err := idp.NewClient(tenantURL, idp.JSONClient(ts, jsonclient.StopLogging()))
+	idpClient, err := idp.NewClient(tenantURL, idp.JSONClient(ts, jsonclient.StopLogging()))
 	if err != nil {
 		panic(err)
 	}
 
-	tc := idpc.TokenizerClient
+	return &sample{
+		uniqueSuffix:                         fmt.Sprintf("%d", rand.Intn(1000000)),
+		createdAccessorIDsByName:             map[string]uuid.UUID{},
+		createdAccessPolicyIDsByName:         map[string]uuid.UUID{},
+		createdAccessPolicyTemplateIDsByName: map[string]uuid.UUID{},
+		createdColumnIDsByName:               map[string]uuid.UUID{},
+		createdDataTypeIDsByName:             map[string]uuid.UUID{},
+		createdMutatorIDsByName:              map[string]uuid.UUID{},
+		createdPurposeIDsByName:              map[string]uuid.UUID{},
+		createdTokens:                        map[string]bool{},
+		createdTransformerIDsByName:          map[string]uuid.UUID{},
+		idpClient:                            idpClient,
+		tokenizerClient:                      idpClient.TokenizerClient,
+	}
+}
 
+// We append a unique value for any non-default userstore entities used in this sample, so that they don't
+// conflict with any existing entities already in use in the tenant that the sample is running against, allowing
+// us to safely clean up the entities at the end of the sample execution.
+func (s sample) getEntityName(name string) string {
+	return name + s.uniqueSuffix
+}
+
+func (s *sample) setup(ctx context.Context) {
 	// create custom us address data type
-	if _, err := idpc.CreateDataType(ctx, userstore.ColumnDataType{
-		Name:        "us_address",
-		Description: "a US style address",
-		CompositeAttributes: userstore.CompositeAttributes{
-			Fields: []userstore.CompositeField{
-				{
-					Name:     "Street_Address",
-					DataType: datatype.String,
-				},
-				{
-					Name:     "City",
-					DataType: datatype.String,
-				},
-				{
-					Name:     "State",
-					DataType: datatype.String,
-				},
-				{
-					Name:     "Zip",
-					DataType: datatype.String,
+
+	addressDT, err := s.idpClient.CreateDataType(
+		ctx,
+		userstore.ColumnDataType{
+			Name:        s.getEntityName("us_address"),
+			Description: "a US style address",
+			CompositeAttributes: userstore.CompositeAttributes{
+				Fields: []userstore.CompositeField{
+					{
+						Name:     "Street_Address",
+						DataType: datatype.String,
+					},
+					{
+						Name:     "City",
+						DataType: datatype.String,
+					},
+					{
+						Name:     "State",
+						DataType: datatype.String,
+					},
+					{
+						Name:     "Zip",
+						DataType: datatype.String,
+					},
 				},
 			},
 		},
-	}, idp.IfNotExists()); err != nil {
+		idp.IfNotExists(),
+	)
+	if err != nil {
 		panic(err)
 	}
+	s.createdDataTypeIDsByName["us_address"] = addressDT.ID
 
-	// create phone number and address columns
-	if _, err := idpc.CreateColumn(ctx, userstore.Column{
-		Name:      "phone_number",
-		DataType:  datatype.String,
-		Type:      userstore.DataTypeString,
-		IndexType: userstore.ColumnIndexTypeIndexed,
-	}, idp.IfNotExists()); err != nil {
+	// create phone number and shipping addresses columns
+
+	phoneNumberC, err := s.idpClient.CreateColumn(
+		ctx,
+		userstore.Column{
+			Name:      s.getEntityName("phone_number"),
+			DataType:  datatype.String,
+			Type:      userstore.DataTypeString,
+			IndexType: userstore.ColumnIndexTypeIndexed,
+		},
+		idp.IfNotExists(),
+	)
+	if err != nil {
 		panic(err)
 	}
-	if _, err := idpc.CreateColumn(ctx, userstore.Column{
-		Name:      "shipping_addresses",
-		DataType:  userstore.ResourceID{Name: "us_address"},
-		Type:      userstore.DataTypeComposite,
-		IsArray:   true,
-		IndexType: userstore.ColumnIndexTypeNone,
-		Constraints: userstore.ColumnConstraints{
-			Fields: []userstore.ColumnField{
-				{
-					Name: "Street_Address",
-					Type: userstore.DataTypeString,
-				},
-				{
-					Name: "City",
-					Type: userstore.DataTypeString,
-				},
-				{
-					Name: "State",
-					Type: userstore.DataTypeString,
-				},
-				{
-					Name: "Zip",
-					Type: userstore.DataTypeString,
+	s.createdColumnIDsByName["phone_number"] = phoneNumberC.ID
+
+	shippingAddressesC, err := s.idpClient.CreateColumn(
+		ctx,
+		userstore.Column{
+			Name:      s.getEntityName("shipping_addresses"),
+			DataType:  userstore.ResourceID{ID: addressDT.ID},
+			Type:      userstore.DataTypeComposite,
+			IndexType: userstore.ColumnIndexTypeNone,
+			IsArray:   true,
+			Constraints: userstore.ColumnConstraints{
+				PartialUpdates: true,
+				UniqueRequired: true,
+				Fields: []userstore.ColumnField{
+					{
+						Name: "Street_Address",
+						Type: userstore.DataTypeString,
+					},
+					{
+						Name: "City",
+						Type: userstore.DataTypeString,
+					},
+					{
+						Name: "State",
+						Type: userstore.DataTypeString,
+					},
+					{
+						Name: "Zip",
+						Type: userstore.DataTypeString,
+					},
 				},
 			},
 		},
-	}, idp.IfNotExists()); err != nil {
+		idp.IfNotExists(),
+	)
+	if err != nil {
 		panic(err)
 	}
+	s.createdColumnIDsByName["shipping_addresses"] = shippingAddressesC.ID
 
-	var aptID uuid.UUID
-	apt := &policy.AccessPolicyTemplate{
-		Name: "CheckAPIKey",
-		Function: `function policy(context, params) {
-			return context.client.api_key == params.api_key;
-		}`,
-	}
-	if apt, err = tc.CreateAccessPolicyTemplate(ctx, *apt, idp.IfNotExists()); err != nil {
-		panic(err)
-	} else {
-		aptID = apt.ID
-	}
+	// create access policy template and access policy utilizing that template
 
-	var apID uuid.UUID
-	ap := &policy.AccessPolicy{
-		Name: "CheckAPIKeySecurityTeam",
-		Components: []policy.AccessPolicyComponent{{Template: &userstore.ResourceID{ID: aptID},
-			TemplateParameters: `{"api_key": "api_key_for_security_team"}`}},
-		PolicyType: policy.PolicyTypeCompositeAnd,
-	}
-	if ap, err = tc.CreateAccessPolicy(ctx, *ap, idp.IfNotExists()); err != nil {
+	checkAPIKeyAPT, err := s.tokenizerClient.CreateAccessPolicyTemplate(
+		ctx,
+		policy.AccessPolicyTemplate{
+			Name: s.getEntityName("CheckAPIKey"),
+			Function: fmt.Sprintf(`function policy(context, params) {
+                        return context.client.api_key == params.api_key;
+                } // %s`, s.getEntityName("CheckAPIKey")),
+		},
+		idp.IfNotExists(),
+	)
+	if err != nil {
 		panic(err)
-	} else {
-		apID = ap.ID
 	}
+	s.createdAccessPolicyTemplateIDsByName["CheckAPIKey"] = checkAPIKeyAPT.ID
+
+	securityAP, err := s.tokenizerClient.CreateAccessPolicy(
+		ctx,
+		policy.AccessPolicy{
+			Name:       s.getEntityName("CheckAPIKeySecurityTeam"),
+			PolicyType: policy.PolicyTypeCompositeAnd,
+			Components: []policy.AccessPolicyComponent{
+				{
+					Template:           &userstore.ResourceID{ID: checkAPIKeyAPT.ID},
+					TemplateParameters: `{"api_key": "api_key_for_security_team"}`,
+				},
+			},
+		},
+		idp.IfNotExists(),
+	)
+	if err != nil {
+		panic(err)
+	}
+	s.createdAccessPolicyIDsByName["CheckAPIKeySecurityTeam"] = securityAP.ID
 
 	// Purposes are used to specify the purpose for which a client is requesting access to PII. They are assigned
 	// in mutators based on an action of user consent, and they are checked in mutators and accessors to ensure
-	// that the client has access to the data. More on accessors and mutators below. We need to create a purpose
-	// for the security team to access PII for security reasons, as well as an "operational" purpose for the
-	// general operations of the site.
-	securityPurpose, err := idpc.CreatePurpose(ctx, userstore.Purpose{
-		Name:        "security",
-		Description: "This purpose is used to grant access to PII for security reasons.",
-	}, idp.IfNotExists())
+	// that the client has access to the data. More on accessors and mutators below.
+
+	// "operational" is a system purpose used for general operations of the site that should already exist
+	// (so we do not clean it up), but make sure it is there.
+
+	operationalP, err := s.idpClient.CreatePurpose(
+		ctx,
+		userstore.Purpose{
+			Name:        "operational",
+			Description: "This purpose is used to grant access to PII for general site operations.",
+		},
+		idp.IfNotExists(),
+	)
 	if err != nil {
 		panic(err)
 	}
-	operationalPurpose, err := idpc.CreatePurpose(ctx, userstore.Purpose{
-		Name:        "operational",
-		Description: "This purpose is used to grant access to PII for general site operations.",
-	}, idp.IfNotExists())
+
+	// Create a purpose for the security team to access PII for security reasons.
+
+	securityP, err := s.idpClient.CreatePurpose(
+		ctx,
+		userstore.Purpose{
+			Name:        s.getEntityName("security"),
+			Description: "This purpose is used to grant access to PII for security reasons.",
+		},
+		idp.IfNotExists(),
+	)
 	if err != nil {
 		panic(err)
 	}
+	s.createdPurposeIDsByName["security"] = securityP.ID
 
 	// Accessors are configurable APIs that allow a client to retrieve data from the user store. Accessors are
 	// intended to be use-case specific. They enforce data usage policies and minimize outbound data from the
@@ -169,25 +252,46 @@ func setup(ctx context.Context) (*idp.Client, uuid.UUID, uuid.UUID, uuid.UUID, u
 	// Selectors are used to filter the set of users that are returned by an accessor. They are eseentially SQL
 	// WHERE clauses and are configured per-accessor / per-mutator referencing column IDs of the userstore.
 
-	accessor := &userstore.Accessor{
-		ID:                 uuid.Nil,
-		Name:               "AccessorForSecurity",
-		DataLifeCycleState: userstore.DataLifeCycleStateLive,
-		Columns: []userstore.ColumnOutputConfig{
-			{Column: userstore.ResourceID{Name: "id"}, Transformer: userstore.ResourceID{ID: policy.TransformerPassthrough.ID}},
-			{Column: userstore.ResourceID{Name: "updated"}, Transformer: userstore.ResourceID{ID: policy.TransformerPassthrough.ID}},
-			{Column: userstore.ResourceID{Name: "phone_number"}, Transformer: userstore.ResourceID{ID: policy.TransformerPassthrough.ID}},
-			{Column: userstore.ResourceID{Name: "shipping_addresses"}, Transformer: userstore.ResourceID{ID: policy.TransformerPassthrough.ID}},
+	passthroughTransformerID := userstore.ResourceID{ID: policy.TransformerPassthrough.ID}
+
+	securityA, err := s.idpClient.CreateAccessor(
+		ctx,
+		userstore.Accessor{
+			Name:               s.getEntityName("AccessorForSecurity"),
+			DataLifeCycleState: userstore.DataLifeCycleStateLive,
+			AccessPolicy:       userstore.ResourceID{ID: securityAP.ID},
+			Columns: []userstore.ColumnOutputConfig{
+				{
+					Column:      userstore.ResourceID{Name: "id"},
+					Transformer: passthroughTransformerID,
+				},
+				{
+					Column:      userstore.ResourceID{Name: "updated"},
+					Transformer: passthroughTransformerID,
+				},
+				{
+					Column:      userstore.ResourceID{Name: phoneNumberC.Name},
+					Transformer: passthroughTransformerID,
+				},
+				{
+					Column:      userstore.ResourceID{Name: shippingAddressesC.Name},
+					Transformer: passthroughTransformerID,
+				},
+			},
+			SelectorConfig: userstore.UserSelectorConfig{
+				WhereClause: fmt.Sprintf("{%s}->>'street_address' LIKE ?", shippingAddressesC.Name),
+			},
+			Purposes: []userstore.ResourceID{
+				{ID: operationalP.ID},
+				{ID: securityP.ID},
+			},
 		},
-		AccessPolicy: userstore.ResourceID{ID: apID},
-		SelectorConfig: userstore.UserSelectorConfig{
-			WhereClause: "{shipping_addresses}->>'street_address' LIKE ?",
-		},
-		Purposes: []userstore.ResourceID{{ID: securityPurpose.ID}, {ID: operationalPurpose.ID}},
-	}
-	if accessor, err = idpc.CreateAccessor(ctx, *accessor, idp.IfNotExists()); err != nil {
+		idp.IfNotExists(),
+	)
+	if err != nil {
 		panic(err)
 	}
+	s.createdAccessorIDsByName["AccessorForSecurity"] = securityA.ID
 
 	// Transformers are used to transform data in the user store. There are 4 different types of transformers:
 	// - Passthrough - doesn't modify the data
@@ -195,8 +299,11 @@ func setup(ctx context.Context) (*idp.Client, uuid.UUID, uuid.UUID, uuid.UUID, u
 	// - TokenizeByValue - transforms the data into a token that is resolvable to the value passed in
 	// - TokenizeByReference - transforms the data into a token that is resolvable to the value stored in input column at the time of resolution
 
-	// Code for transformer that will tokenize phone number into a token which a random sequence of digits in a format of a phone number
-	transformerBody := `function id(len) {
+	// Define a transformer that will tokenize a phone number into a fixed token (i.e. phone number A always maps to token A)
+
+	// Code that will tokenize phone number into a token which a random sequence of digits in a format of a phone number.
+
+	tokenizePhoneNumberFunction := `function id(len) {
 		var s = "0123456789";
 		return Array(len).join().split(',').map(function() {
 			return s.charAt(Math.floor(Math.random() * s.length));
@@ -218,192 +325,252 @@ func setup(ctx context.Context) (*idp.Client, uuid.UUID, uuid.UUID, uuid.UUID, u
 	  return '1' + id(10);
 	}`
 
-	// Define a transformer  that will tokenize phone number into a fixed token (i.e. phone number A always maps to token A)
-	phoneNumberTokenTransformer := &policy.Transformer{
-		Name:               "TokenizePhoneByValReuse",
-		Function:           transformerBody,
-		Parameters:         ``,
-		InputDataType:      datatype.String,
-		InputType:          userstore.DataTypeString,
-		OutputDataType:     datatype.String,
-		OutputType:         userstore.DataTypeString,
-		ReuseExistingToken: true, // Fixed mapping
-		TransformType:      policy.TransformTypeTokenizeByValue,
-	}
-
-	phoneNumberTokenTransformer, err = tc.CreateTransformer(ctx, *phoneNumberTokenTransformer, idp.IfNotExists())
+	phoneNumberTokenT, err := s.tokenizerClient.CreateTransformer(
+		ctx,
+		policy.Transformer{
+			Name:               s.getEntityName("TokenizePhoneByValReuse"),
+			TransformType:      policy.TransformTypeTokenizeByValue,
+			ReuseExistingToken: true, // Fixed mapping
+			InputDataType:      datatype.String,
+			InputType:          userstore.DataTypeString,
+			OutputDataType:     datatype.String,
+			OutputType:         userstore.DataTypeString,
+			Function:           fmt.Sprintf("%s // %s", tokenizePhoneNumberFunction, s.getEntityName("TokenizePhoneByValReuse")),
+			Parameters:         ``,
+		},
+		idp.IfNotExists(),
+	)
 	if err != nil {
 		panic(err)
 	}
+	s.createdTransformerIDsByName["TokenizePhoneByValReuse"] = phoneNumberTokenT.ID
 
-	// Define a transformer  that will transfomr phone number into a country code (i.e. phone number A -> country code)
-	phoneNumberTransformer := &policy.Transformer{
-		Name:           "TransformPhoneNumberToCountryNamev2",
-		Description:    "This transformer gets the country name for the phone number",
-		InputDataType:  datatype.String,
-		InputType:      userstore.DataTypeString,
-		OutputDataType: datatype.String,
-		OutputType:     userstore.DataTypeString,
-		Function: `function transform(data, params) {
+	// Define a transformer that will transform a phone number into a country code (i.e. phone number A -> country code)
+
+	phoneNumberT, err := s.tokenizerClient.CreateTransformer(
+		ctx,
+		policy.Transformer{
+			Name:           s.getEntityName("TransformPhoneNumberToCountryName"),
+			Description:    "This transformer gets the country name for the phone number",
+			TransformType:  policy.TransformTypeTransform,
+			InputDataType:  datatype.String,
+			InputType:      userstore.DataTypeString,
+			OutputDataType: datatype.String,
+			OutputType:     userstore.DataTypeString,
+			Function: fmt.Sprintf(`function transform(data, params) {
 			try {
 				return getCountryNameForPhoneNumber(data);
 			} catch (e) {
 				return "";
 			}
-		}`,
-		Parameters:    ``,
-		TransformType: policy.TransformTypeTransform,
-	}
-
-	phoneNumberTransformer, err = tc.CreateTransformer(ctx, *phoneNumberTransformer, idp.IfNotExists())
+		} // %s`, s.getEntityName("TransformPhoneNumberToCountryName")),
+			Parameters: ``,
+		},
+		idp.IfNotExists(),
+	)
 	if err != nil {
 		panic(err)
 	}
+	s.createdTransformerIDsByName["TransformPhoneNumberToCountryName"] = phoneNumberT.ID
 
-	addressTransformer := &policy.Transformer{
-		Name:          "AddressZipOnlyV2",
-		Description:   "This transformer returns just the zip code of the address.",
-		InputDataType: userstore.ResourceID{Name: "us_address"},
-		InputType:     userstore.DataTypeComposite,
-		InputConstraints: userstore.ColumnConstraints{
-			Fields: []userstore.ColumnField{
-				{
-					Name: "Street_Address",
-					Type: userstore.DataTypeString,
+	// Define a transformer that will return the zip code of an address
+
+	addressT, err := s.tokenizerClient.CreateTransformer(
+		ctx,
+		policy.Transformer{
+			Name:          s.getEntityName("AddressZipOnly"),
+			Description:   "This transformer returns just the zip code of the address.",
+			TransformType: policy.TransformTypeTransform,
+			InputDataType: userstore.ResourceID{ID: addressDT.ID},
+			InputType:     userstore.DataTypeComposite,
+			InputConstraints: userstore.ColumnConstraints{
+				Fields: []userstore.ColumnField{
+					{
+						Name: "Street_Address",
+						Type: userstore.DataTypeString,
+					},
+					{
+						Name: "City",
+						Type: userstore.DataTypeString,
+					},
+					{
+						Name: "State",
+						Type: userstore.DataTypeString,
+					},
+					{
+						Name: "Zip",
+						Type: userstore.DataTypeString,
+					},
 				},
+			},
+			OutputDataType: datatype.String,
+			OutputType:     userstore.DataTypeString,
+			Function: fmt.Sprintf(`function transform(data, params) {
+			return data.zip;
+		} // %s`, s.getEntityName("AddressZipOnly")),
+			Parameters: ``,
+		},
+		idp.IfNotExists(),
+	)
+	if err != nil {
+		panic(err)
+	}
+	s.createdTransformerIDsByName["AddressZipOnly"] = addressT.ID
+
+	// Define data science accessor with associated access policy
+
+	dataScienceAP, err := s.tokenizerClient.CreateAccessPolicy(
+		ctx,
+		policy.AccessPolicy{
+			Name:       s.getEntityName("CheckAPIKeyDataScienceTeam"),
+			PolicyType: policy.PolicyTypeCompositeAnd,
+			Components: []policy.AccessPolicyComponent{
 				{
-					Name: "City",
-					Type: userstore.DataTypeString,
-				},
-				{
-					Name: "State",
-					Type: userstore.DataTypeString,
-				},
-				{
-					Name: "Zip",
-					Type: userstore.DataTypeString,
+					Template:           &userstore.ResourceID{ID: checkAPIKeyAPT.ID},
+					TemplateParameters: `{"api_key": "api_key_for_data_science"}`,
 				},
 			},
 		},
-		OutputDataType: datatype.String,
-		OutputType:     userstore.DataTypeString,
-		Function: `function transform(data, params) {
-			return data.zip;
-		}`,
-		Parameters:    ``,
-		TransformType: policy.TransformTypeTransform,
-	}
-
-	addressTransformer, err = tc.CreateTransformer(ctx, *addressTransformer, idp.IfNotExists())
+		idp.IfNotExists(),
+	)
 	if err != nil {
 		panic(err)
 	}
+	s.createdAccessPolicyIDsByName["CheckAPIKeyDataScienceTeam"] = dataScienceAP.ID
 
-	tokenResolvePolicy := &policy.AccessPolicy{
-		Name: "CheckAPIKeyDataScienceTeam",
-		Components: []policy.AccessPolicyComponent{{Template: &userstore.ResourceID{ID: aptID},
-			TemplateParameters: `{"api_key": "api_key_for_data_science"}`}},
-		PolicyType: policy.PolicyTypeCompositeAnd,
-	}
-
-	if tokenResolvePolicy, err = tc.CreateAccessPolicy(ctx, *tokenResolvePolicy, idp.IfNotExists()); err != nil {
+	dataScienceA, err := s.idpClient.CreateAccessor(
+		ctx,
+		userstore.Accessor{
+			Name:               s.getEntityName("AccessorForDataScience"),
+			DataLifeCycleState: userstore.DataLifeCycleStateLive,
+			AccessPolicy:       userstore.ResourceID{ID: policy.AccessPolicyAllowAll.ID},
+			Columns: []userstore.ColumnOutputConfig{
+				{
+					Column:      userstore.ResourceID{ID: phoneNumberC.ID},
+					Transformer: userstore.ResourceID{ID: phoneNumberT.ID},
+				},
+				{
+					Column:      userstore.ResourceID{ID: shippingAddressesC.ID},
+					Transformer: userstore.ResourceID{ID: addressT.ID},
+				},
+			},
+			SelectorConfig: userstore.UserSelectorConfig{
+				WhereClause: fmt.Sprintf("{%s} != ?", phoneNumberC.Name),
+			},
+			Purposes: []userstore.ResourceID{
+				{ID: operationalP.ID},
+			},
+		},
+		idp.IfNotExists(),
+	)
+	if err != nil {
 		panic(err)
 	}
+	s.createdAccessorIDsByName["AccessorForDataScience"] = dataScienceA.ID
 
-	dsAccessor := &userstore.Accessor{
-		ID:                 uuid.Nil,
-		Name:               "AccessorForDataScienceV3",
-		DataLifeCycleState: userstore.DataLifeCycleStateLive,
-		SelectorConfig: userstore.UserSelectorConfig{
-			WhereClause: "{phone_number} != ?",
+	// Define an accessor that can be used to log user data safely while not exposing user information, using a fixed phone number token to identify the user in logs
+
+	securityLoggingA, err := s.idpClient.CreateAccessor(
+		ctx,
+		userstore.Accessor{
+			Name:               s.getEntityName("AccessorForSecurityLogging"),
+			DataLifeCycleState: userstore.DataLifeCycleStateLive,
+			AccessPolicy:       userstore.ResourceID{ID: policy.AccessPolicyAllowAll.ID},
+			TokenAccessPolicy:  userstore.ResourceID{ID: securityAP.ID},
+			Columns: []userstore.ColumnOutputConfig{
+				{
+					Column:      userstore.ResourceID{Name: "email"},
+					Transformer: userstore.ResourceID{ID: policy.TransformerEmail.ID},
+				},
+				{
+					Column:      userstore.ResourceID{Name: phoneNumberC.Name},
+					Transformer: userstore.ResourceID{ID: phoneNumberTokenT.ID},
+				},
+			},
+			SelectorConfig: userstore.UserSelectorConfig{WhereClause: "{id} = ANY(?)"},
+			Purposes: []userstore.ResourceID{
+				{ID: operationalP.ID},
+			},
 		},
-		Columns: []userstore.ColumnOutputConfig{
-			{Column: userstore.ResourceID{Name: "phone_number"}, Transformer: userstore.ResourceID{ID: phoneNumberTransformer.ID}},
-			{Column: userstore.ResourceID{Name: "shipping_addresses"}, Transformer: userstore.ResourceID{ID: addressTransformer.ID}},
-		},
-		AccessPolicy:      userstore.ResourceID{ID: policy.AccessPolicyAllowAll.ID},
-		TokenAccessPolicy: userstore.ResourceID{ID: tokenResolvePolicy.ID},
-		Purposes:          []userstore.ResourceID{{ID: operationalPurpose.ID}},
-	}
-	if dsAccessor, err = idpc.CreateAccessor(ctx, *dsAccessor, idp.IfNotExists()); err != nil {
+		idp.IfNotExists(),
+	)
+	if err != nil {
 		panic(err)
 	}
+	s.createdAccessorIDsByName["AccessorForSecurityLogging"] = securityLoggingA.ID
 
-	// Define accessor that can be used to log user data safely while not exposing user information and using a fixed phone number token to identify the user in logs
-	securityLoggingAccessor := &userstore.Accessor{
-		ID: uuid.Must(uuid.NewV4()),
-		Columns: []userstore.ColumnOutputConfig{
-			{Column: userstore.ResourceID{Name: "email"}, Transformer: userstore.ResourceID{ID: uuid.Must(uuid.FromString("0cedf7a4-86ab-450a-9426-478ad0a60faa"))}},
-			{Column: userstore.ResourceID{Name: "phone_number"}, Transformer: userstore.ResourceID{ID: phoneNumberTokenTransformer.ID}},
-		},
-		Name:               "AccessorForSecurityLogging",
-		DataLifeCycleState: userstore.DataLifeCycleStateLive,
-		AccessPolicy:       userstore.ResourceID{ID: policy.AccessPolicyAllowAll.ID},
-		TokenAccessPolicy:  userstore.ResourceID{ID: apID},
-		SelectorConfig:     userstore.UserSelectorConfig{WhereClause: "{id} = ANY(?)"},
-		Purposes:           []userstore.ResourceID{{ID: operationalPurpose.ID}},
-	}
-
-	if securityLoggingAccessor, err = idpc.CreateAccessor(ctx, *securityLoggingAccessor, idp.IfNotExists()); err != nil || securityLoggingAccessor == nil {
-		panic(err)
-	}
 	// Mutators are configurable APIs that allow a client to write data to the User Store. Mutators (setters)
 	// can be thought of as the complement to accessors (getters).
 
-	mutator := &userstore.Mutator{
-		ID: uuid.Nil,
-		Columns: []userstore.ColumnInputConfig{
-			{Column: userstore.ResourceID{Name: "phone_number"}, Normalizer: userstore.ResourceID{ID: policy.TransformerPassthrough.ID}},
-			{Column: userstore.ResourceID{Name: "shipping_addresses"}, Normalizer: userstore.ResourceID{ID: policy.TransformerPassthrough.ID}},
+	// Define a mutator that allows the security team to update phone numbers and shipping addresses
+
+	securityM, err := s.idpClient.CreateMutator(
+		ctx,
+		userstore.Mutator{
+			Name:         s.getEntityName("MutatorForSecurityTeam"),
+			AccessPolicy: userstore.ResourceID{ID: securityAP.ID},
+			Columns: []userstore.ColumnInputConfig{
+				{
+					Column:     userstore.ResourceID{Name: phoneNumberC.Name},
+					Normalizer: passthroughTransformerID,
+				},
+				{
+					Column:     userstore.ResourceID{Name: shippingAddressesC.Name},
+					Normalizer: passthroughTransformerID,
+				},
+			},
+			SelectorConfig: userstore.UserSelectorConfig{WhereClause: "{id} = ?"},
 		},
-		Name:         "MutatorForSecurityTeam",
-		AccessPolicy: userstore.ResourceID{ID: apID},
-		SelectorConfig: userstore.UserSelectorConfig{
-			WhereClause: "{id} = ?",
-		},
-	}
-	if mutator, err = idpc.CreateMutator(ctx, *mutator, idp.IfNotExists()); err != nil {
+		idp.IfNotExists(),
+	)
+	if err != nil {
 		panic(err)
 	}
-
-	return idpc, accessor.ID, mutator.ID, dsAccessor.ID, securityLoggingAccessor.ID
+	s.createdMutatorIDsByName["MutatorForSecurityTeam"] = securityM.ID
 }
 
-func example(ctx context.Context, idpc *idp.Client, accessorID, mutatorID, dsAccessorID uuid.UUID, logAccessor uuid.UUID) {
-
-	uid, err := idpc.CreateUser(ctx, userstore.Record{"email": "test@test.org"})
+func (s *sample) example(ctx context.Context) {
+	userEmail := fmt.Sprintf("%s@test.org", s.getEntityName("test"))
+	uid, err := s.idpClient.CreateUser(ctx, userstore.Record{"email": userEmail})
 	if err != nil {
 		panic(err)
 	}
 	defer func() {
-		if err := idpc.DeleteUser(ctx, uid); err != nil {
+		if err := s.idpClient.DeleteUser(ctx, uid); err != nil {
 			panic(err)
 		}
 	}()
 
-	// add the phone number or address using a mutator, but only store with "operational" purpose
-	if _, err := idpc.ExecuteMutator(ctx,
-		mutatorID,
+	// Add the phone number or address using a mutator, but only store with "operational" purpose.
+
+	if _, err := s.idpClient.ExecuteMutator(
+		ctx,
+		s.createdMutatorIDsByName["MutatorForSecurityTeam"],
 		policy.ClientContext{"api_key": "api_key_for_security_team"},
 		[]interface{}{uid.String()},
 		map[string]idp.ValueAndPurposes{
-			"phone_number": {
-				Value:            "14155555555",
-				PurposeAdditions: []userstore.ResourceID{{Name: "operational"}},
+			s.getEntityName("phone_number"): {
+				Value: "14155555555",
+				PurposeAdditions: []userstore.ResourceID{
+					{Name: "operational"},
+				},
 			},
-			"shipping_addresses": {
-				Value: `[{"state":"IL", "street_address":"742 Evergreen Terrace", "city":"Springfield", "zip":"62704"},
+			s.getEntityName("shipping_addresses"): {
+				ValueAdditions: `[{"state":"IL", "street_address":"742 Evergreen Terrace", "city":"Springfield", "zip":"62704"},
 						 {"state":"CA", "street_address":"123 Main St", "city":"Pleasantville", "zip":"94566"}]`,
-				PurposeAdditions: []userstore.ResourceID{{Name: "operational"}},
+				PurposeAdditions: []userstore.ResourceID{
+					{Name: "operational"},
+				},
 			},
 		}); err != nil {
 
 		panic(err)
 	}
 
-	// use security accessor to get the user details
-	resolved, err := idpc.ExecuteAccessor(ctx,
-		accessorID,
+	// Use security accessor to get the user details.
+
+	resolved, err := s.idpClient.ExecuteAccessor(ctx,
+		s.createdAccessorIDsByName["AccessorForSecurity"],
 		policy.ClientContext{"api_key": "api_key_for_security_team"},
 		[]interface{}{"%Evergreen%"})
 	if err != nil {
@@ -412,29 +579,36 @@ func example(ctx context.Context, idpc *idp.Client, accessorID, mutatorID, dsAcc
 
 	fmt.Printf("user details for security team are (after first mutator):\n%v\n\n", resolved)
 
-	// add the phone number or address using a mutator, adding the "security" purpose
-	if _, err := idpc.ExecuteMutator(ctx,
-		mutatorID,
+	// Add the phone number or address using a mutator, adding the "security" purpose.
+
+	if _, err := s.idpClient.ExecuteMutator(
+		ctx,
+		s.createdMutatorIDsByName["MutatorForSecurityTeam"],
 		policy.ClientContext{"api_key": "api_key_for_security_team"},
 		[]interface{}{uid.String()},
 		map[string]idp.ValueAndPurposes{
-			"phone_number": {
-				Value:            "14155555555",
-				PurposeAdditions: []userstore.ResourceID{{Name: "security"}},
+			s.getEntityName("phone_number"): {
+				Value: "14155555555",
+				PurposeAdditions: []userstore.ResourceID{
+					{Name: s.getEntityName("security")},
+				},
 			},
-			"shipping_addresses": {
-				Value: `[{"state":"IL", "street_address":"742 Evergreen Terrace", "city":"Springfield", "zip":"62704"},
+			s.getEntityName("shipping_addresses"): {
+				ValueAdditions: `[{"state":"IL", "street_address":"742 Evergreen Terrace", "city":"Springfield", "zip":"62704"},
 						 {"state":"CA", "street_address":"123 Main St", "city":"Pleasantville", "zip":"94566"}]`,
-				PurposeAdditions: []userstore.ResourceID{{Name: "security"}},
+				PurposeAdditions: []userstore.ResourceID{
+					{Name: s.getEntityName("security")},
+				},
 			},
 		}); err != nil {
-
 		panic(err)
 	}
 
-	// use security accessor to get the user details a second time
-	resolved, err = idpc.ExecuteAccessor(ctx,
-		accessorID,
+	// Use security accessor to get the user details a second time.
+
+	resolved, err = s.idpClient.ExecuteAccessor(
+		ctx,
+		s.createdAccessorIDsByName["AccessorForSecurity"],
 		policy.ClientContext{"api_key": "api_key_for_security_team"},
 		[]interface{}{"%Evergreen%"})
 	if err != nil {
@@ -443,9 +617,11 @@ func example(ctx context.Context, idpc *idp.Client, accessorID, mutatorID, dsAcc
 
 	fmt.Printf("user details for security are (after second mutator):\n%v\n\n", resolved)
 
-	// use data science accessor to get the user details
-	resolved, err = idpc.ExecuteAccessor(ctx,
-		dsAccessorID,
+	// Use data science accessor to get the user details.
+
+	resolved, err = s.idpClient.ExecuteAccessor(
+		ctx,
+		s.createdAccessorIDsByName["AccessorForDataScience"],
 		policy.ClientContext{"api_key": "api_key_for_data_science_team"},
 		[]interface{}{"usa"})
 	if err != nil {
@@ -454,9 +630,13 @@ func example(ctx context.Context, idpc *idp.Client, accessorID, mutatorID, dsAcc
 
 	fmt.Printf("user details for data science are:\n%v\n\n", resolved)
 
-	// use security logging accessor to get the user details for logs emulating two different calls sites
-	resolved, err = idpc.ExecuteAccessor(ctx,
-		logAccessor,
+	// Use security logging accessor to get the user details for logs emulating two different calls sites.
+	// Since the associated phone number transformer is set up to reuse tokens, the same tokens should be
+	// returned for both calls.
+
+	resolved, err = s.idpClient.ExecuteAccessor(
+		ctx,
+		s.createdAccessorIDsByName["AccessorForSecurityLogging"],
 		policy.ClientContext{"api_key": "api_key_for_data_science_team"},
 		[]interface{}{[]uuid.UUID{uid}})
 	if err != nil {
@@ -464,8 +644,12 @@ func example(ctx context.Context, idpc *idp.Client, accessorID, mutatorID, dsAcc
 	}
 
 	fmt.Printf("user details for used for logging at call site 1 are:\n%v\n\n", resolved)
-	resolved, err = idpc.ExecuteAccessor(ctx,
-		logAccessor,
+
+	s.getCreatedTokens(resolved.Data)
+
+	resolved, err = s.idpClient.ExecuteAccessor(
+		ctx,
+		s.createdAccessorIDsByName["AccessorForSecurityLogging"],
 		policy.ClientContext{"api_key": "api_key_for_data_science_team"},
 		[]interface{}{[]uuid.UUID{uid}})
 	if err != nil {
@@ -475,14 +659,16 @@ func example(ctx context.Context, idpc *idp.Client, accessorID, mutatorID, dsAcc
 	fmt.Printf("user details for used for logging at call site 2:\n%v\n\n", resolved)
 
 	// Resolve the tokenized phone numbers from logs to the original phone numbers for security team
+
 	for _, value := range resolved.Data {
 		var m map[string]string
 		if err = json.Unmarshal([]byte(value), &m); err != nil {
 			panic(err)
 		}
-		phoneNumberToken := m["phone_number"]
+		phoneNumberToken := m[s.getEntityName("phone_number")]
 
-		resolvedPhoneNumber, err := idpc.ResolveToken(ctx,
+		resolvedPhoneNumber, err := s.idpClient.ResolveToken(
+			ctx,
 			phoneNumberToken,
 			policy.ClientContext{"api_key": "api_key_for_security_team"},
 			nil)
@@ -492,30 +678,96 @@ func example(ctx context.Context, idpc *idp.Client, accessorID, mutatorID, dsAcc
 
 		fmt.Printf("resolving phone number token %s to phone number %s\n", phoneNumberToken, resolvedPhoneNumber)
 	}
+
+	s.getCreatedTokens(resolved.Data)
 }
 
-func cleanup(ctx context.Context, idpc *idp.Client, accessorID, mutatorID, dsAccessorID, logAccessor uuid.UUID) {
-	if err := idpc.DeleteAccessor(ctx, accessorID); err != nil {
-		panic(err)
+func (s *sample) getCreatedTokens(responses []string) {
+	for _, response := range responses {
+		var m map[string]string
+		if err := json.Unmarshal([]byte(response), &m); err != nil {
+			panic(err)
+		}
+		if emailToken, found := m["email"]; found {
+			s.createdTokens[emailToken] = true
+		}
+
+		if phoneNumberToken, found := m[s.getEntityName("phone_number")]; found {
+			s.createdTokens[phoneNumberToken] = true
+		}
 	}
-	if err := idpc.DeleteAccessor(ctx, dsAccessorID); err != nil {
-		panic(err)
+}
+
+func (s *sample) cleanup(ctx context.Context) {
+	for token := range s.createdTokens {
+		if err := s.tokenizerClient.DeleteToken(ctx, token); err != nil {
+			panic(err)
+		}
 	}
-	if err := idpc.DeleteAccessor(ctx, logAccessor); err != nil {
-		panic(err)
+	s.createdTokens = map[string]bool{}
+
+	for _, mid := range s.createdMutatorIDsByName {
+		if err := s.idpClient.DeleteMutator(ctx, mid); err != nil {
+			panic(err)
+		}
 	}
-	if err := idpc.DeleteMutator(ctx, mutatorID); err != nil {
-		panic(err)
+	s.createdMutatorIDsByName = map[string]uuid.UUID{}
+
+	for _, aid := range s.createdAccessorIDsByName {
+		if err := s.idpClient.DeleteAccessor(ctx, aid); err != nil {
+			panic(err)
+		}
 	}
+	s.createdAccessorIDsByName = map[string]uuid.UUID{}
+
+	for _, tid := range s.createdTransformerIDsByName {
+		if err := s.tokenizerClient.DeleteTransformer(ctx, tid); err != nil {
+			panic(err)
+		}
+	}
+	s.createdTransformerIDsByName = map[string]uuid.UUID{}
+
+	for _, apid := range s.createdAccessPolicyIDsByName {
+		if err := s.tokenizerClient.DeleteAccessPolicy(ctx, apid, 0); err != nil {
+			panic(err)
+		}
+	}
+	s.createdAccessPolicyIDsByName = map[string]uuid.UUID{}
+
+	for _, aptid := range s.createdAccessPolicyTemplateIDsByName {
+		if err := s.tokenizerClient.DeleteAccessPolicyTemplate(ctx, aptid, 0); err != nil {
+			panic(err)
+		}
+	}
+	s.createdAccessPolicyTemplateIDsByName = map[string]uuid.UUID{}
+
+	for _, cid := range s.createdColumnIDsByName {
+		if err := s.idpClient.DeleteColumn(ctx, cid); err != nil {
+			panic(err)
+		}
+	}
+	s.createdColumnIDsByName = map[string]uuid.UUID{}
+
+	for _, pid := range s.createdPurposeIDsByName {
+		if err := s.idpClient.DeletePurpose(ctx, pid); err != nil {
+			panic(err)
+		}
+	}
+	s.createdPurposeIDsByName = map[string]uuid.UUID{}
+
+	for _, id := range s.createdDataTypeIDsByName {
+		if err := s.idpClient.DeleteDataType(ctx, id); err != nil {
+			panic(err)
+		}
+	}
+	s.createdDataTypeIDsByName = map[string]uuid.UUID{}
 }
 
 func main() {
 	ctx := context.Background()
 
-	idpc, accessorID, mutatorID, dsAccessorID, logAccessor := setup(ctx)
-
-	example(ctx, idpc, accessorID, mutatorID, dsAccessorID, logAccessor)
-
-	cleanup(ctx, idpc, accessorID, mutatorID, dsAccessorID, logAccessor)
-
+	s := newSample()
+	s.setup(ctx)
+	s.example(ctx)
+	s.cleanup(ctx)
 }

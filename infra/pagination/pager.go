@@ -132,7 +132,7 @@ func (p Paginator) IsForward() bool {
 
 // IsCachable returns true if the paginator is configured to be default and cached value can be returned
 func (p Paginator) IsCachable() bool {
-	return p.filter == "" && p.sortKey == "id" && p.sortOrder == OrderAscending && p.cursor == ""
+	return p.filter == "" && p.sortKey == "id" && p.sortOrder == OrderAscending
 }
 
 // Query converts the paginator settings into HTTP GET query parameters.

@@ -40,6 +40,7 @@ type options struct {
 	paginationOptions     []pagination.Option
 	jsonclientOptions     []jsonclient.Option
 	bypassAuthHeaderCheck bool // if we're using per-request header forwarding via PassthroughAuthorization, don't check for auth header
+	source                *string
 }
 
 // Option makes authz.Client extensible
@@ -81,6 +82,13 @@ func TenantID(tenantID uuid.UUID) Option {
 	})
 }
 
+// Source returns an Option that will cause the client to include the specified source in the request
+func Source(source string) Option {
+	return optFunc(func(opts *options) {
+		opts.source = &source
+	})
+}
+
 // Pagination is a wrapper around pagination.Option
 func Pagination(opt ...pagination.Option) Option {
 	return optFunc(func(opts *options) {
@@ -119,9 +127,10 @@ type Client struct {
 
 	// Object type root cache contains:
 	//    ObjTypeID (primary key) -> ObjType and objTypePrefix + TypeName (secondary key) -> ObjType
-	//    ObjTypeCollection(global collection key) -> []ObjType (all object types
+	//    ObjTypeCollection(global collection key) -> []ObjType (all object types)
 	// Edge type root cache contains:
 	//    EdgeTypeID (primary key) -> EdgeType and edgeTypePrefix + TypeName (secondary key) -> EdgeType
+	//    EdgeTypeCollection(global collection key) -> []EdgeType (all edge types)
 	// Object root cache contains:
 	//    ObjectID (primary key) -> Object and typeID + Object.Alias (secondary key) -> Object
 	//    ObjectCollection(global collection key) -> lock only
@@ -175,7 +184,7 @@ func NewCustomClient(objTypeTTL time.Duration, edgeTypeTTL time.Duration, objTTL
 		edgeTTL = cache.SkipCacheTTL
 	}
 
-	ttlP := NewCacheTTLProvider(objTypeTTL, edgeTypeTTL, objTTL, edgeTTL)
+	ttlP := NewCacheTTLProvider(objTypeTTL, edgeTypeTTL, objTTL, edgeTTL, 0)
 
 	var np cache.KeyNameProvider
 	if !options.tenantID.IsNil() {
@@ -822,6 +831,58 @@ func (c *Client) GetObjectForName(ctx context.Context, typeID uuid.UUID, name st
 		return &resp.Data[0], nil
 	}
 	return nil, ErrObjectNotFound
+}
+
+// UpdateObjectRequest is the request struct for updating an object
+type UpdateObjectRequest struct {
+	ID     uuid.UUID `json:"id" validate:"notnil"`
+	Alias  *string   `json:"alias"`
+	Source *string   `json:"source"` // internal use only
+}
+
+// UpdateObject updates the alias of an existing user object in the authz system
+func (c *Client) UpdateObject(ctx context.Context, id uuid.UUID, alias *string, opts ...Option) (*Object, error) {
+	ctx = request.NewRequestID(ctx)
+
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	if !options.bypassCache {
+		var o *Object
+		var err error
+
+		o, _, _, err = cache.GetItemFromCache[Object](ctx, c.cm, c.cm.N.GetKeyNameWithID(ObjectKeyID, id), false)
+		if err != nil {
+			uclog.Errorf(ctx, "UpdateObject failed to get item from cache: %v", err)
+		} else if o != nil && ((o.Alias == nil && alias == nil) || (o.Alias != nil && alias != nil && *o.Alias == *alias)) {
+			return o, nil
+		}
+	}
+
+	obj := Object{BaseModel: ucdb.NewBaseWithID(id), TypeID: UserObjectTypeID} // TODO: we don't know the object's original alias, so we can't invalidate it
+	s, err := cache.TakeItemLock(ctx, cache.Update, c.cm, obj)
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+	defer cache.ReleaseItemLock(ctx, c.cm, cache.Update, obj, s)
+
+	req := UpdateObjectRequest{
+		ID:     id,
+		Alias:  alias,
+		Source: options.source,
+	}
+	var resp Object
+	if err := c.client.Put(ctx, fmt.Sprintf("/authz/objects/%s", id), req, &resp); err != nil {
+		if jsonclient.IsHTTPNotFound(err) {
+			return nil, ErrObjectNotFound
+		}
+		return nil, ucerr.Wrap(err)
+	}
+
+	cache.SaveItemToCache(ctx, c.cm, resp, s, true, nil)
+	return &resp, nil
 }
 
 // DeleteObject deletes an object by ID.

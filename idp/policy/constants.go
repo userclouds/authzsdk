@@ -6,6 +6,12 @@ import (
 	"userclouds.com/infra/ucdb"
 )
 
+// AccessPolicyGlobalAccessorID is the ID of the global accessor policy
+var AccessPolicyGlobalAccessorID = uuid.Must(uuid.FromString("a78f1f88-3684-4e59-a01d-c121e259ec96"))
+
+// AccessPolicyGlobalMutatorID is the ID of the global mutator policy
+var AccessPolicyGlobalMutatorID = uuid.Must(uuid.FromString("804e84f1-7fa4-4bb4-b785-4c89e1ceaba0"))
+
 // AccessPolicyAllowAll access policy that allows anything
 var AccessPolicyAllowAll = AccessPolicy{
 	ID: uuid.Must(uuid.FromString("3f380e42-0b21-4570-a312-91e1b80386fa")),

@@ -6,12 +6,6 @@ import (
 	"userclouds.com/idp/userstore"
 )
 
-// Address is a resource id for the system address data type
-var Address = userstore.ResourceID{
-	ID:   uuid.Must(uuid.FromString("db6f892c-be7a-4779-947d-2cfcc699f48c")),
-	Name: "address",
-}
-
 // Birthdate is a resource id for the system birthdate data type
 var Birthdate = userstore.ResourceID{
 	ID:   uuid.Must(uuid.FromString("76f0685b-dd42-4b3f-8c33-4c72e4eff73e")),
@@ -22,6 +16,12 @@ var Birthdate = userstore.ResourceID{
 var Boolean = userstore.ResourceID{
 	ID:   uuid.Must(uuid.FromString("e16b5ead-54db-4b42-a55f-f21907cda9e4")),
 	Name: "boolean",
+}
+
+// CanonicalAddress is a resource id for the canonical address data type
+var CanonicalAddress = userstore.ResourceID{
+	ID:   uuid.Must(uuid.FromString("33dc5de6-94b6-4f08-94b6-e04d1f981671")),
+	Name: "canonical_address",
 }
 
 // Date is a resource id for the system date data type

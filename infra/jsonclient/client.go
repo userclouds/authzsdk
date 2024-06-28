@@ -95,7 +95,8 @@ func New(url string, opts ...Option) *Client {
 	c := &Client{
 		baseURL: url,
 		options: options{
-			headers: make(http.Header),
+			headers:            make(http.Header),
+			retryNetworkErrors: true,
 		},
 	}
 
@@ -259,7 +260,7 @@ func (c *Client) Delete(ctx context.Context, path string, body interface{}, opts
 
 func isNetworkError(err error) bool {
 	var ne net.Error
-	return errors.As(err, &ne)
+	return errors.As(err, &ne) || errors.Is(err, io.EOF)
 }
 
 func (c *Client) makeRequest(ctx context.Context, method, path string, bs []byte, response interface{}, opts []Option) error {
@@ -285,7 +286,7 @@ func (c *Client) makeRequestRetry(ctx context.Context,
 
 	return uctrace.Wrap0(ctx, tracer, fmt.Sprintf("Client.makeRequestRetry retry %d", retries), true, func(ctx context.Context) error {
 		// auto-refresh bearer token if needed
-		// do this before cloning (it's threadsafe) so we don't "lose" the refresh
+		// do this before cloning (it's thread safe) so we don't "lose" the refresh
 		if c.hasTokenSource() {
 			if err := c.refreshBearerToken(ctx); err != nil {
 				return ucerr.Wrap(err)

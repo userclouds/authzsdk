@@ -44,7 +44,12 @@ var tracer = uctrace.NewTracer("infra/cache/client")
 //
 // The cache support one global collection per item type. This collection is meant to contain every item of given type. It makes sense for items with low change volume
 // and is invalidate on any create/delete/update operation to any item of that type. This is done by locking per type global collection key on every create/delete/update
-// operation and by every read operation (read lock).
+// operation and by every read operation (read lock). The global collection key is also used as a marker for tracking follower reads but setting it to a tombstone value for a
+// short Tombstone TTL post create/delete/update operation to any item of that type. That means for a tombstone TTL time period after the create/delete/update operation to any item
+// all reads will go against master DB region holding the data. This is done to ensure that the follower reads don't return stale data. If global collection page caching is enabled,
+// the global collection pages key is used to store set of the pages of the global collection that have been cached. In this case the follower reads tracking is done via a dedicated
+// IsGlobalCollection modified key and the global collection key is used for locking/tombstones only. This allows pages of the global collection to be cached without tombstone TTL
+// delay post create/delete/update operation to any item of that type as locks can be obtains on global collection key while IsGlobalCollection modified key is set to tombstone value.
 
 // The cache supports any number of per item collection (ie. []Edges on Object). We use that functionality to store paths between two objects as well as edges.
 
@@ -52,30 +57,59 @@ var tracer = uctrace.NewTracer("infra/cache/client")
 // This interface also links the type (ObjectType, EdgeType, Object, Edge) with the cache key names for each type of use
 type SingleItem interface {
 	// GetPrimaryKey returns the primary cache key where the item is stored and which is used to lock the item
-	GetPrimaryKey(c KeyNameProvider) Key
+	GetPrimaryKey(KeyNameProvider) Key
 	// GetSecondaryKeys returns any secondary keys which also contain the item for lookup by another dimension (ie TypeName, Alias, etc)
-	GetSecondaryKeys(c KeyNameProvider) []Key
+	GetSecondaryKeys(KeyNameProvider) []Key
 	// GetGlobalCollectionKey returns the key for the collection of all items of this type (ie all ObjectTypes, all EdgeTypes, etc)
-	GetGlobalCollectionKey(c KeyNameProvider) Key
+	GetGlobalCollectionKey(KeyNameProvider) Key
+	// GetGlobalCollectionPagesKey returns the for storing the pages of the global collection
+	GetGlobalCollectionPagesKey(KeyNameProvider) Key
 	// GetPerItemCollectionKey returns the key for the collection of per item items of another type (ie Edges in/out of a specific Object)
-	GetPerItemCollectionKey(c KeyNameProvider) Key
+	GetPerItemCollectionKey(KeyNameProvider) Key
 	// GetDependenciesKey returns the key containing dependent keys that should invalidated if the item is invalidated
-	GetDependenciesKey(c KeyNameProvider) Key
+	GetDependenciesKey(KeyNameProvider) Key
 	// GetDependencyKeys returns the list of keys for items this item depends on (ie Edge depends on both source and target objects)
-	GetDependencyKeys(c KeyNameProvider) []Key
+	GetDependencyKeys(KeyNameProvider) []Key
 	// GetIsModifiedKey returns the key containing a tombstone sentinel if the item has been modified in last TTL seconds
-	GetIsModifiedKey(c KeyNameProvider) Key
+	GetIsModifiedKey(KeyNameProvider) Key
+	// GetIsModifiedCollectionKey returns the key containing a tombstone sentinel if the global colleciton has been modified in last TTL seconds
+	GetIsModifiedCollectionKey(KeyNameProvider) Key
 	// TTL returns the TTL for the item
-	TTL(c TTLProvider) time.Duration
-	// Validate method is used to validate the item. Every CacheSingleItem is expected to implement Validatable interface
+	TTL(TTLProvider) time.Duration
+	// Validate method is used to validate the item. Every SingleItem is expected to implement the Validateable interface
+	infra.Validateable
+}
+
+// RateLimitKey represents a key for storing rate limits in the cache
+type RateLimitKey string
+
+// RateLimitableItem is an interface for an item that can have an associated rate limit that is monitored in the cache
+type RateLimitableItem interface {
+	// GetRateLimitKeys returns the keys that should be retrieved when evaluating the rate limit for the item
+	GetRateLimitKeys(KeyNameProvider) []RateLimitKey
+	// GetLimit returns the maximum number of executions allowed for the rate limitable item
+	GetRateLimit() int64
+	// TTL returns the TTL for rate limit buckets for the item
+	TTL(TTLProvider) time.Duration
+	// Validate method is used to validate the item. Every RateLimitableItem is expected to implement the Validateable interface
 	infra.Validateable
 }
 
 // InvalidationHandler is the type for a function that is called when the cache is invalidated
 type InvalidationHandler func(ctx context.Context, key Key) error
 
+// Capabilities is the interface for expressing the capabilities of a cache provider
+type Capabilities interface {
+	// Layered returns true if the cache provider is a multi-layered cache
+	Layered(context.Context) bool
+	// SupportsRateLimits returns true if the cache provider supports rate limiting
+	SupportsRateLimits(context.Context) bool
+}
+
 // Provider is the interface for the cache backend for a given tenant which can be implemented by in-memory, redis, memcache, etc
 type Provider interface {
+	Capabilities
+
 	// GetValue gets the value in cache key (if any) and tries to lock the key for Read is lockOnMiss = true
 	GetValue(ctx context.Context, key Key, lockOnMiss bool) (*string, *string, Sentinel, error)
 	// GetValues gets the value in cache key (if any) and tries to lock the key for Read is lockOnMiss = true
@@ -83,7 +117,7 @@ type Provider interface {
 	// SetValue sets the value in cache key(s) to val with given expiration time if the sentinel matches lkey and returns true if the value was set
 	SetValue(ctx context.Context, lkey Key, keysToSet []Key, val string, sentinel Sentinel, ttl time.Duration) (bool, bool, error)
 	// DeleteValue deletes the value(s) in passed in keys, force is true also deletes keys with sentinel or tombstone values
-	DeleteValue(ctx context.Context, key []Key, setTombstone bool, force bool) error
+	DeleteValue(ctx context.Context, keys []Key, setTombstone bool, force bool) error
 	// WriteSentinel writes the sentinel value into the given keys, returns NoLockSentinel if it couldn't acquire the lock
 	WriteSentinel(ctx context.Context, stype SentinelType, keys []Key) (Sentinel, error)
 	// ReleaseSentinel clears the sentinel value from the given keys
@@ -100,18 +134,48 @@ type Provider interface {
 	RegisterInvalidationHandler(ctx context.Context, handler InvalidationHandler, key Key) error
 	// LogKeyValues is debugging only method that logs the values of the keys with the given prefix
 	LogKeyValues(ctx context.Context, prefix string) error
+	// ReleaseRateLimitSlot will release a rate limit slot
+	ReleaseRateLimitSlot(ctx context.Context, keys []RateLimitKey) (int64, error)
+	// ReserveRateLimitSlot will return whether a slot can be reserved based on the specified rate limit, actually reserving the slot if requested
+	ReserveRateLimitSlot(ctx context.Context, keys []RateLimitKey, limit int64, ttl time.Duration, takeSlot bool) (bool, int64, error)
+}
+
+// NoLayeringProvider should be embedded in Provider implementations that do not support layering
+type NoLayeringProvider struct{}
+
+// Layered is from the Capabilities interface
+func (NoLayeringProvider) Layered(context.Context) bool {
+	return false
+}
+
+// NoRateLimitProvider should be embedded in Provider implementations that do not support rate limiting
+type NoRateLimitProvider struct{}
+
+// ReleaseRateLimitSlot is from the Provider interface
+func (NoRateLimitProvider) ReleaseRateLimitSlot(context.Context, []RateLimitKey) (int64, error) {
+	return 0, nil
+}
+
+// ReserveRateLimitSlot is from the Provider interface
+func (NoRateLimitProvider) ReserveRateLimitSlot(context.Context, []RateLimitKey, int64, time.Duration, bool) (bool, int64, error) {
+	return true, 1, nil
+}
+
+// SupportsRateLimits is from the Capabilities interface
+func (NoRateLimitProvider) SupportsRateLimits(context.Context) bool {
+	return false
 }
 
 // Manager is the bundle cache classes that are needed to interact with the cache
 type Manager struct {
-	P Provider
 	N KeyNameProvider
+	P Provider
 	T TTLProvider
 }
 
 // NewManager returns a new CacheManager with given contents
 func NewManager(p Provider, n KeyNameProvider, t TTLProvider) Manager {
-	return Manager{P: p, N: n, T: t}
+	return Manager{N: n, P: p, T: t}
 }
 
 // KeyTTLID is the type for the ID used to identify the cache key TTL via CacheTTLProvider interface
@@ -140,8 +204,17 @@ type KeyNameProvider interface {
 	GetKeyNameStatic(id KeyNameID) Key
 	// GetPrefix returns the prefix for the cache keys
 	GetPrefix() string
+	GetRateLimitKeyName(id KeyNameID, keySuffix string) RateLimitKey
 	// GetAllKeyIDs returns all the key IDs that are used by the cache
 	GetAllKeyIDs() []string
+}
+
+// NoRateLimitKeyNameProvider should be embedded in KeyNameProvider implementations that do not support rate limiting
+type NoRateLimitKeyNameProvider struct{}
+
+// GetRateLimitKeyName is from the KeyNameProvider interface
+func (NoRateLimitKeyNameProvider) GetRateLimitKeyName(KeyNameID, string) RateLimitKey {
+	return ""
 }
 
 // SentinelManager is the interface for managing cache sentinels to implement concurrency handling
@@ -218,6 +291,20 @@ func TakePerItemCollectionLock[item SingleItem](ctx context.Context, lockType Se
 	})
 }
 
+// TakeGlobalCollectionLock takes a lock for the global collection associated with a given item type
+func TakeGlobalCollectionLock[item SingleItem](ctx context.Context, lockType SentinelType, c Manager, i item) (Sentinel, error) {
+	return uctrace.Wrap1(ctx, tracer, "TakeGlobalCollectionLock", true, func(ctx context.Context) (Sentinel, error) {
+		if lockType != Delete && lockType != Read {
+			return NoLockSentinel, ucerr.New("Unexpected lock type for global collection lock")
+		}
+
+		// Lock the global collection
+		keys := []Key{i.GetGlobalCollectionKey(c.N)}
+
+		return takeLockWorker(ctx, c, lockType, i, keys)
+	})
+}
+
 func takeLockWorker[item SingleItem](ctx context.Context, c Manager, lockType SentinelType, i item, keys []Key) (Sentinel, error) {
 	s := NoLockSentinel
 
@@ -235,8 +322,16 @@ func takeLockWorker[item SingleItem](ctx context.Context, c Manager, lockType Se
 
 	// If we are deleting, clear the dependencies and tombstone the dependency key prior to starting the delete
 	// to ensure that stale data is not returned after the server registers the delete
-	if lockType == Delete && err == nil && i.GetDependenciesKey(c.N) != "" {
-		err = c.P.ClearDependencies(ctx, i.GetDependenciesKey(c.N), true)
+	if lockType == Delete && err == nil {
+		if i.GetGlobalCollectionPagesKey(c.N) != "" {
+			// We don't need to tombstone the global collection pages key since follower reads are tracked through isModified key
+			if err := c.P.ClearDependencies(ctx, i.GetGlobalCollectionPagesKey(c.N), false); err != nil {
+				uclog.Warningf(ctx, "Failed to clear global collection pages for key %v: %v", i.GetGlobalCollectionPagesKey(c.N), err)
+			}
+		}
+		if i.GetDependenciesKey(c.N) != "" {
+			err = c.P.ClearDependencies(ctx, i.GetDependenciesKey(c.N), true)
+		}
 	}
 
 	// Return a friendly error to the user indicating that the call should be retried
@@ -363,12 +458,23 @@ func getItemFromCacheWorker[item any](ctx context.Context, c Manager, key Key, i
 	if isModifiedKey == "" {
 		rawValue, conflictValue, s, err = c.P.GetValue(ctx, key, lockOnMiss)
 	} else {
-		rawValues, conflictValues, sentinels, errl := c.P.GetValues(ctx, []Key{key, isModifiedKey}, []bool{lockOnMiss, false})
-		err = errl
-		if err == nil && len(rawValues) == 2 && len(conflictValues) == 2 && len(sentinels) == 2 {
-			rawValue = rawValues[0]
-			conflictValue = conflictValues[1]
-			s = sentinels[0]
+
+		// If the cache is layered we don't want to try to fetch isModifiedkey from outer cache if
+		// the value itself is preset in the inner cache (in that case isModified is unused)
+		if c.P.Layered(ctx) {
+			rawValue, conflictValue, s, err = c.P.GetValue(ctx, key, lockOnMiss)
+			lockOnMiss = false
+		}
+		if err != nil || rawValue == nil {
+			rawValues, conflictValues, sentinels, errl := c.P.GetValues(ctx, []Key{key, isModifiedKey}, []bool{lockOnMiss, false})
+			err = errl
+			if err == nil && len(rawValues) == 2 && len(conflictValues) == 2 && len(sentinels) == 2 {
+				rawValue = rawValues[0]
+				conflictValue = conflictValues[1]
+				if !c.P.Layered(ctx) {
+					s = sentinels[0]
+				}
+			}
 		}
 	}
 	took := time.Now().UTC().Sub(start)
@@ -448,6 +554,9 @@ func DeleteItemFromCache[item SingleItem](ctx context.Context, c Manager, i item
 	if i.GetIsModifiedKey(c.N) != "" {
 		keys = append(keys, i.GetIsModifiedKey(c.N))
 	}
+	if i.GetIsModifiedCollectionKey(c.N) != "" {
+		keys = append(keys, i.GetIsModifiedCollectionKey(c.N))
+	}
 
 	if err := c.P.DeleteValue(ctx, keys, true, true); err != nil {
 		uclog.Warningf(ctx, "Failed to delete keys %v from cache: %v", keys, err)
@@ -497,13 +606,16 @@ func saveItemToCacheWorker[item SingleItem](ctx context.Context, c Manager, i it
 		ckeys := []Key{}
 		clearKeysOnError := false
 		if clearCollection && !conflict {
-			// Check if there is a default global collection for all items of this type
-			if i.GetGlobalCollectionKey(c.N) != "" {
+			// Check if there is a default global collection for all items of this type and it is being used directly for follower reads
+			if i.GetGlobalCollectionKey(c.N) != "" && i.GetIsModifiedCollectionKey(c.N) == "" {
 				ckeys = append(ckeys, i.GetGlobalCollectionKey(c.N))
 			}
-
+			// Put tombstone into isModified keys to disable follower reads
 			if i.GetIsModifiedKey(c.N) != "" {
 				ckeys = append(ckeys, i.GetIsModifiedKey(c.N))
+			}
+			if i.GetIsModifiedCollectionKey(c.N) != "" {
+				ckeys = append(ckeys, i.GetIsModifiedCollectionKey(c.N))
 			}
 
 			// Check if there are any additional collections that this item might appear in passed in by the caller
@@ -523,7 +635,11 @@ func saveItemToCacheWorker[item SingleItem](ctx context.Context, c Manager, i it
 					clearKeysOnError = true
 					keyset = false
 				}
-
+			}
+			if i.GetGlobalCollectionPagesKey(c.N) != "" {
+				if err := c.P.ClearDependencies(ctx, i.GetGlobalCollectionPagesKey(c.N), false); err != nil {
+					uclog.Errorf(ctx, "Error clearing pages of global collection %v from cache: %v", i.GetGlobalCollectionPagesKey(c.N), err)
+				}
 			}
 			uclog.Verbosef(ctx, "Cleared collection keys %v from cache", ckeys)
 		}
@@ -578,37 +694,48 @@ func SaveItemsToCollection[item SingleItem, cItem SingleItem](ctx context.Contex
 	}
 
 	if b, err := json.Marshal(colItems); err == nil {
-		// Get a list of items this collection depends on so that can add our collection key to their dependencies list
-		dependentItems := map[Key]bool{}
-		dependentKeys := make([]Key, 0, len(colItems))
-		for _, ci := range colItems {
-			depKeys := ci.GetDependencyKeys(c.N)
-			for _, depKey := range depKeys {
-				if !dependentItems[depKey] && depKey != "" {
-					dependentItems[depKey] = true
+
+		saveCollection := true
+
+		// For non-global collections, get a list of items this collection depends on so that can add our collection key to their dependencies list
+		if !isGlobal {
+			dependentItems := map[Key]bool{}
+			dependentKeys := make([]Key, 0, len(colItems))
+
+			for _, ci := range colItems {
+				depKeys := ci.GetDependencyKeys(c.N)
+				for _, depKey := range depKeys {
+					if !dependentItems[depKey] && depKey != "" {
+						dependentItems[depKey] = true
+						dependentKeys = append(dependentKeys, depKey)
+					}
+				}
+				depKey := ci.GetDependenciesKey(c.N)
+				if depKey != "" && !dependentItems[depKey] { // Some items can't be individually deleted/updated so they have no dependencies key
 					dependentKeys = append(dependentKeys, depKey)
 				}
 			}
-			depKey := ci.GetDependenciesKey(c.N)
-			if depKey != "" && !dependentItems[depKey] { // Some items can't be individually deleted/updated so they have no dependencies key
-				dependentKeys = append(dependentKeys, depKey)
+			// Don't cache the collection if it has too many dependencies
+			if len(dependentKeys) > 100 /* TODO figure out the optimal number */ {
+				return
 			}
-		}
-		// Don't cache the collection if it has too many dependencies
-		if len(dependentKeys) > 100 /* TODO figure out the optimal number */ {
-			return
-		}
 
-		if !isGlobal && i.GetDependenciesKey(c.N) != "" && !dependentItems[i.GetDependenciesKey(c.N)] {
-			dependentKeys = append(dependentKeys, i.GetDependenciesKey(c.N))
-		}
-		saveCollection := true
+			if i.GetDependenciesKey(c.N) != "" && !dependentItems[i.GetDependenciesKey(c.N)] {
+				dependentKeys = append(dependentKeys, i.GetDependenciesKey(c.N))
+			}
 
-		// We write the collection key into the dependency lists of items it depends on before saving it/
-		// That way we save the collection if and only if all the lists are updated successfully.
-		if len(dependentKeys) > 0 {
-			if err := c.P.AddDependency(ctx, dependentKeys, []Key{colKey}, i.TTL(c.T)); err != nil {
-				uclog.Warningf(ctx, "Didn't cache collection failed to add dependency %v to key %v: %v", dependentKeys, colKey, err)
+			// We write the collection key into the dependency lists of items it depends on before saving it/
+			// That way we save the collection if and only if all the lists are updated successfully.
+			if len(dependentKeys) > 0 {
+				if err := c.P.AddDependency(ctx, dependentKeys, []Key{colKey}, i.TTL(c.T)); err != nil {
+					uclog.Warningf(ctx, "Didn't cache collection failed to add dependency %v to key %v: %v", dependentKeys, colKey, err)
+					saveCollection = false
+				}
+			}
+		} else if i.GetGlobalCollectionPagesKey(c.N) != "" && colKey != i.GetGlobalCollectionKey(c.N) {
+			// Check if this is a page of a global collection vs the whole thing
+			if err := c.P.AddDependency(ctx, []Key{i.GetGlobalCollectionPagesKey(c.N)}, []Key{colKey}, i.TTL(c.T)); err != nil {
+				uclog.Warningf(ctx, "Didn't cache global collection page failed to add dependency %v to key %v: %v", i.GetGlobalCollectionPagesKey(c.N), colKey, err)
 				saveCollection = false
 			}
 		}

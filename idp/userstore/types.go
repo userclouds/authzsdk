@@ -168,6 +168,7 @@ const (
 type Column struct {
 	// Columns may be renamed, but their ID cannot be changed.
 	ID           uuid.UUID         `json:"id"`
+	Table        string            `json:"table"` // TODO (sgarrity 6/24): validate & mark as required once people update
 	Name         string            `json:"name" validate:"length:1,128" required:"true"`
 	DataType     ResourceID        `json:"data_type" validate:"skip"`
 	Type         DataType          `json:"type" required:"true"`
@@ -181,8 +182,12 @@ type Column struct {
 var validIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_-]*$`)
 
 func (c *Column) extraValidate() error {
+	// TODO (sgarrity 6/24): see above validation comment, remove the != "" check when ready
+	if c.Table != "" && !validIdentifier.MatchString(c.Table) {
+		return ucerr.Friendlyf(nil, `"%s" is not a valid table name`, c.Table)
+	}
 
-	if !validIdentifier.MatchString(string(c.Name)) {
+	if !validIdentifier.MatchString(c.Name) {
 		return ucerr.Friendlyf(nil, `"%s" is not a valid column name`, c.Name)
 	}
 
@@ -204,6 +209,9 @@ func (Column) GetPaginationKeys() pagination.KeyTypes {
 // EqualsIgnoringNilID returns true if the two columns are equal, ignoring ID if one is nil
 func (c *Column) EqualsIgnoringNilID(other *Column) bool {
 	return (c.ID == other.ID || c.ID.IsNil() || other.ID.IsNil()) &&
+		(strings.EqualFold(c.Table, other.Table) ||
+			c.Table == "" && other.Table == "users" ||
+			c.Table == "users" && other.Table == "") &&
 		strings.EqualFold(c.Name, other.Name) &&
 		c.Type == other.Type &&
 		c.DataType.EquivalentTo(other.DataType) &&
@@ -230,7 +238,7 @@ func typedValue[T any](r Record, key string, defaultValue T) T {
 
 // BoolValue returns a boolean value for the specified key
 func (r Record) BoolValue(key string) bool {
-	return typedValue(r, key, false)
+	return typedValue(r, key, false) || r.StringValue(key) == "true"
 }
 
 // StringValue returns a string value for the specified key
@@ -558,3 +566,26 @@ func (p *Purpose) extraValidate() error {
 }
 
 //go:generate genvalidate Purpose
+
+// SQLShimDatabase represents an external database that tenant customers can connect to via a SQLShim proxy
+type SQLShimDatabase struct {
+	ID       uuid.UUID `json:"id"`
+	Name     string    `json:"name" validate:"notempty"`
+	Type     string    `json:"type" validate:"notempty"`
+	Host     string    `json:"host" validate:"notempty"`
+	Port     int       `json:"port" validate:"notzero"`
+	Username string    `json:"username" validate:"notempty"`
+	Password string    `json:"password" validate:"skip"`
+}
+
+//go:generate genvalidate SQLShimDatabase
+
+// EqualsIgnoringNilIDAndPassword returns true if the two columns are equal, ignoring ID if one is nil, and ignoring password field
+func (s SQLShimDatabase) EqualsIgnoringNilIDAndPassword(other SQLShimDatabase) bool {
+	return (s.ID == other.ID || s.ID.IsNil() || other.ID.IsNil()) &&
+		strings.EqualFold(s.Name, other.Name) &&
+		strings.EqualFold(s.Type, other.Type) &&
+		strings.EqualFold(s.Host, other.Host) &&
+		s.Port == other.Port &&
+		strings.EqualFold(s.Username, other.Username)
+}

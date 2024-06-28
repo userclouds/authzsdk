@@ -1,7 +1,13 @@
 # Changelog
 
+## 1.3.0 - 28-06-2024
+
+- Retry getting access token on EOF type network errors which occur when connection is lost.
+- Breaking change: RetryNetworkErrors option for jsonclient now takes a boolean, and the option is on by default
+
 ## 1.2.0 - 09-04-2024
 
+- Update userstore sample to exercise partial update columns
 - Add methods for creating, retrieving, updating, and deleting ColumnDataTypes
 - Add DataType field to Column that refers to a ColumnDataType
 - Add InputDataType and OutputDataType fields to Transformer that refer to ColumnDataTypes

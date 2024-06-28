@@ -1,6 +1,7 @@
 package authz
 
 import (
+	"math/rand"
 	"time"
 
 	"userclouds.com/infra/cache"
@@ -13,11 +14,12 @@ type CacheTTLProvider struct {
 	objTTL      time.Duration
 	edgeTTL     time.Duration
 	orgTTL      time.Duration
+	exprWindow  time.Duration
 }
 
 // NewCacheTTLProvider creates a new Configurablecache.CacheTTLProvider
-func NewCacheTTLProvider(objTypeTTL time.Duration, edgeTypeTTL time.Duration, objTTL time.Duration, edgeTTL time.Duration) *CacheTTLProvider {
-	return &CacheTTLProvider{objTypeTTL: objTypeTTL, edgeTypeTTL: edgeTypeTTL, objTTL: objTTL, edgeTTL: edgeTTL, orgTTL: objTypeTTL}
+func NewCacheTTLProvider(objTypeTTL time.Duration, edgeTypeTTL time.Duration, objTTL time.Duration, edgeTTL time.Duration, exprWindow time.Duration) *CacheTTLProvider {
+	return &CacheTTLProvider{objTypeTTL: objTypeTTL, edgeTypeTTL: edgeTypeTTL, objTTL: objTTL, edgeTTL: edgeTTL, orgTTL: objTypeTTL, exprWindow: exprWindow}
 }
 
 const (
@@ -35,17 +37,22 @@ const (
 
 // TTL returns the TTL for given type
 func (c *CacheTTLProvider) TTL(id cache.KeyTTLID) time.Duration {
+	var shiftTTL time.Duration
+
+	if c.exprWindow != 0 {
+		shiftTTL = time.Duration(rand.Intn(int(c.exprWindow.Nanoseconds())))
+	}
 	switch id {
 	case ObjectTypeTTL:
-		return c.objTypeTTL
+		return c.objTypeTTL + shiftTTL
 	case EdgeTypeTTL:
-		return c.edgeTypeTTL
+		return c.edgeTypeTTL + shiftTTL
 	case ObjectTTL:
-		return c.objTTL
+		return c.objTTL + shiftTTL
 	case EdgeTTL:
-		return c.edgeTTL
+		return c.edgeTTL + shiftTTL
 	case OrganizationTTL:
-		return c.orgTTL
+		return c.orgTTL + shiftTTL
 	}
 	return cache.SkipCacheTTL
 }
