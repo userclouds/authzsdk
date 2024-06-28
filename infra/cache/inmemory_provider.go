@@ -21,6 +21,8 @@ const memSentinelTTL = 70 * time.Second
 
 // InMemoryClientCacheProvider is the base implementation of the CacheProvider interface
 type InMemoryClientCacheProvider struct {
+	NoLayeringProvider
+	NoRateLimitProvider
 	cache        *cache.Cache
 	keysMutex    sync.Mutex
 	sm           SentinelManager
@@ -438,6 +440,7 @@ func (c *InMemoryClientCacheProvider) AddDependency(ctx context.Context, keysIn 
 
 // ClearDependencies clears the dependencies of an item represented by key and removes all dependent keys from the cache
 func (c *InMemoryClientCacheProvider) ClearDependencies(ctx context.Context, key Key, setTombstone bool) error {
+	setTombstone = setTombstone && c.tombstoneTTL > 0 // don't actually set tombstone if tombstoneTTL is 0
 	if key == "" {
 		return ucerr.New("Expected at least one key passed to ClearDependencies")
 	}

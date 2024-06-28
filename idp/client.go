@@ -23,7 +23,6 @@ import (
 
 type options struct {
 	ifNotExists       bool
-	includeAuthN      bool
 	debug             bool
 	organizationID    uuid.UUID
 	userID            uuid.UUID
@@ -47,13 +46,6 @@ func (o optFunc) apply(opts *options) {
 func IfNotExists() Option {
 	return optFunc(func(opts *options) {
 		opts.ifNotExists = true
-	})
-}
-
-// IncludeAuthN returns a ManagementOption that will have the called method include AuthN fields
-func IncludeAuthN() Option {
-	return optFunc(func(opts *options) {
-		opts.includeAuthN = true
 	})
 }
 
@@ -143,18 +135,14 @@ type CreateUserAndAuthnRequest struct {
 
 //go:generate genvalidate CreateUserAndAuthnRequest
 
-// UserAndAuthnResponse is the response body for methods which return user data.
-type UserAndAuthnResponse struct {
+// UserResponse is the response body for methods which return user data.
+type UserResponse struct {
 	ID        uuid.UUID `json:"id"`
 	UpdatedAt int64     `json:"updated_at"` // seconds since the Unix Epoch (UTC)
 
 	Profile userstore.Record `json:"profile"`
 
 	OrganizationID uuid.UUID `json:"organization_id"`
-
-	Authns []UserAuthn `json:"authns"`
-
-	MFAChannels []UserMFAChannel `json:"mfa_channels"`
 }
 
 // AuthN user methods
@@ -176,7 +164,7 @@ func (c *Client) CreateUser(ctx context.Context, profile userstore.Record, opts 
 		DataRegion:     options.dataRegion,
 	}
 
-	var res UserAndAuthnResponse
+	var res UserResponse
 	if err := c.client.Post(ctx, paths.CreateUser, req, &res); err != nil {
 		return uuid.Nil, ucerr.Wrap(err)
 	}
@@ -185,24 +173,13 @@ func (c *Client) CreateUser(ctx context.Context, profile userstore.Record, opts 
 }
 
 // GetUser gets a user by ID
-func (c *Client) GetUser(ctx context.Context, id uuid.UUID, opts ...Option) (*UserAndAuthnResponse, error) {
+func (c *Client) GetUser(ctx context.Context, id uuid.UUID) (*UserResponse, error) {
 
 	requestURL := url.URL{
 		Path: fmt.Sprintf("/authn/users/%s", id),
 	}
 
-	options := c.options
-	for _, opt := range opts {
-		opt.apply(&options)
-	}
-
-	if options.includeAuthN {
-		requestURL.RawQuery = url.Values{
-			"include_authn": []string{"true"},
-		}.Encode()
-	}
-
-	var res UserAndAuthnResponse
+	var res UserResponse
 	if err := c.client.Get(ctx, requestURL.String(), &res); err != nil {
 		return nil, ucerr.Wrap(err)
 	}
@@ -222,12 +199,12 @@ type UpdateUserRequest struct {
 //go:generate genvalidate UpdateUserRequest
 
 // UpdateUser updates user profile data for a given user ID
-func (c *Client) UpdateUser(ctx context.Context, id uuid.UUID, req UpdateUserRequest) (*UserAndAuthnResponse, error) {
+func (c *Client) UpdateUser(ctx context.Context, id uuid.UUID, req UpdateUserRequest) (*UserResponse, error) {
 	requestURL := url.URL{
 		Path: fmt.Sprintf("/authn/users/%s", id),
 	}
 
-	var resp UserAndAuthnResponse
+	var resp UserResponse
 
 	if err := c.client.Put(ctx, requestURL.String(), &req, &resp); err != nil {
 		return nil, ucerr.Wrap(err)
@@ -243,6 +220,142 @@ func (c *Client) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	}
 
 	return ucerr.Wrap(c.client.Delete(ctx, requestURL.String(), nil))
+}
+
+// ListUsersResponse is the paginated response from listing users.
+type ListUsersResponse struct {
+	Data []UserResponse `json:"data"`
+	pagination.ResponseFields
+}
+
+// ListUsers lists all users
+func (c *Client) ListUsers(ctx context.Context, opts ...Option) (*ListUsersResponse, error) {
+
+	var options options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	pager, err := pagination.ApplyOptions(options.paginationOptions...)
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	var res ListUsersResponse
+	query := pager.Query()
+	if options.organizationID != uuid.Nil {
+		query.Set("organization_id", options.organizationID.String())
+	}
+	requestURL := url.URL{
+		Path:     "/authn/users",
+		RawQuery: query.Encode(),
+	}
+
+	if err := c.client.Get(ctx, requestURL.String(), &res); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &res, nil
+}
+
+// CreateDatabaseRequest is the request body for creating a new database
+type CreateDatabaseRequest struct {
+	Database userstore.SQLShimDatabase `json:"database"`
+}
+
+//go:generate genvalidate CreateDatabaseRequest
+
+// CreateDatabase creates a new sqlshim database for the tenant
+func (c *Client) CreateDatabase(ctx context.Context, database userstore.SQLShimDatabase, opts ...Option) (*userstore.SQLShimDatabase, error) {
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	req := CreateDatabaseRequest{
+		Database: database,
+	}
+
+	var resp userstore.SQLShimDatabase
+	if options.ifNotExists {
+		exists, existingID, err := c.client.CreateIfNotExists(ctx, paths.CreateDatabasePath, req, &resp)
+		if err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+		if exists {
+			resp = req.Database
+			resp.ID = existingID
+		}
+	} else {
+		if err := c.client.Post(ctx, paths.CreateDatabasePath, req, &resp); err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+	}
+
+	return &resp, nil
+}
+
+// DeleteDatabase deletes the database specified by the database ID for the associated tenant
+func (c *Client) DeleteDatabase(ctx context.Context, databaseID uuid.UUID) error {
+	return ucerr.Wrap(c.client.Delete(ctx, paths.DeleteDatabasePath(databaseID), nil))
+}
+
+// GetDatabase returns the database specified by the database ID for the associated tenant
+func (c *Client) GetDatabase(ctx context.Context, databaseID uuid.UUID) (*userstore.SQLShimDatabase, error) {
+	var resp userstore.SQLShimDatabase
+	if err := c.client.Get(ctx, paths.GetDatabasePath(databaseID), &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// ListDatabasesResponse is the paginated response struct for listing databases
+type ListDatabasesResponse struct {
+	Data []userstore.SQLShimDatabase `json:"data"`
+	pagination.ResponseFields
+}
+
+// ListDatabases lists all databases for the associated tenant
+func (c *Client) ListDatabases(ctx context.Context, opts ...Option) (*ListDatabasesResponse, error) {
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	pager, err := pagination.ApplyOptions(options.paginationOptions...)
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	query := pager.Query()
+	var res ListDatabasesResponse
+	if err := c.client.Get(ctx, fmt.Sprintf("%s?%s", paths.DatabasePath, query.Encode()), &res); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &res, nil
+}
+
+// UpdateDatabaseRequest is the request body for updating a database
+type UpdateDatabaseRequest struct {
+	Database userstore.SQLShimDatabase `json:"database"`
+}
+
+//go:generate genvalidate UpdateDatabaseRequest
+
+// UpdateDatabase updates the database specified by the database ID with the specified data for the associated tenant
+func (c *Client) UpdateDatabase(ctx context.Context, databaseID uuid.UUID, updatedDatabase userstore.SQLShimDatabase) (*userstore.SQLShimDatabase, error) {
+	req := UpdateDatabaseRequest{
+		Database: updatedDatabase,
+	}
+
+	var resp userstore.SQLShimDatabase
+	if err := c.client.Put(ctx, paths.UpdateDatabasePath(databaseID), req, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
 }
 
 // CreateDataTypeRequest is the request body for creating a new data type

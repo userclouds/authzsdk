@@ -66,8 +66,8 @@ func InitForService(name service.Service, transports []Transport, fetcher EventM
 func InitForTools(ctx context.Context, toolName string, fileLogName string, transports []Transport) {
 	initialize(toolName, loggerToolMode, transports, nil)
 	// Log basic debugging information that is useful across all tools
-	Debugf(ctx, "------------------------------------------------------") // Log a visual separator to make break out multi run logs
-	Debugf(ctx, "Command Line: \"%v\" Logfile - %s", os.Args, fileLogName)
+	Infof(ctx, "------------------------------------------------------") // Log a visual separator to make break out multi run logs
+	Infof(ctx, "Command Line: \"%v\" Logfile - %s", os.Args, fileLogName)
 }
 
 // called with logging config to "really" init the logger

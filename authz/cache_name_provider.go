@@ -11,26 +11,28 @@ import (
 
 const (
 	// CachePrefix is the prefix for all keys in authz cache
-	CachePrefix                 = "authz"
-	objTypePrefix               = "OBJTYPE"      // Primary key for object type
-	objTypeCollectionKeyString  = "OBJTYPE_COL"  // Global collection for object type
-	edgeTypePrefix              = "EDGETYPE"     // Primary key for edge type
-	edgeTypeCollectionKeyString = "EDGETYPE_COL" // Global collection for edge type
-	objPrefix                   = "OBJ"          // Primary key for object
-	objCollectionKeyString      = "OBJ_COL"      // Global collection for object
-	objEdgeCollection           = "OBJEDGES"     // Per object collection of all in/out edges
-	perObjectEdgesPrefix        = "E"            // Per object collection of source/target edges
-	perObjectPathPrefix         = "P"            // Per object collection containing path for a particular source/target/attribute
-	edgePrefix                  = "EDGE"         // Primary key for edge
-	edgeCollectionKeyString     = "EDGE_COL"     // Global collection for edge
-	orgPrefix                   = "ORG"          // Primary key for organization
-	orgCollectionKeyString      = "ORG_COL"      // Global collection for organizations
-	dependencyPrefix            = "DEP"          // Shared dependency key prefix among all items
-	isModifiedPrefix            = "MOD"          // Shared is modified key prefix among all items
+	CachePrefix                     = "authz"
+	objTypePrefix                   = "OBJTYPE"      // Primary key for object type
+	objTypeCollectionKeyString      = "OBJTYPE_COL"  // Global collection for object type
+	edgeTypePrefix                  = "EDGETYPE"     // Primary key for edge type
+	edgeTypeCollectionKeyString     = "EDGETYPE_COL" // Global collection for edge type
+	objPrefix                       = "OBJ"          // Primary key for object
+	objCollectionKeyString          = "OBJ_COL"      // Global collection for object
+	objEdgeCollection               = "OBJEDGES"     // Per object collection of all in/out edges
+	perObjectEdgesPrefix            = "E"            // Per object collection of source/target edges
+	perObjectPathPrefix             = "P"            // Per object collection containing path for a particular source/target/attribute
+	edgePrefix                      = "EDGE"         // Primary key for edge
+	edgeCollectionKeyString         = "EDGE_COL"     // Global collection for edge
+	edgeCollectionPagesPrefixString = "PAGES"        // Pages making up global collection of edges
+	orgPrefix                       = "ORG"          // Primary key for organization
+	orgCollectionKeyString          = "ORG_COL"      // Global collection for organizations
+	dependencyPrefix                = "DEP"          // Shared dependency key prefix among all items
+	isModifiedPrefix                = "MOD"          // Shared is modified key prefix among all items
 )
 
 // CacheNameProvider is the base implementation of the CacheNameProvider interface
 type CacheNameProvider struct {
+	cache.NoRateLimitKeyNameProvider
 	basePrefix string // Base prefix for all keys TenantID_OrgID
 }
 
@@ -73,6 +75,8 @@ const (
 	DependencyKeyID = "DependencyKeyID"
 	// IsModifiedKeyID is the key value indicating change in last TTL
 	IsModifiedKeyID = "IsModifiedKeyID"
+	// IsModifiedCollectionKeyID is the key value indicating change for global colleciton in last TTL
+	IsModifiedCollectionKeyID = "IsModifiedCollectionKeyID"
 	// ObjectTypeCollectionKeyID is the key for global collection of object types
 	ObjectTypeCollectionKeyID = "ObjTypeCollectionKeyID"
 	// EdgeTypeCollectionKeyID is the key for global collection of edge types
@@ -81,6 +85,10 @@ const (
 	ObjectCollectionKeyID = "ObjCollectionKeyID"
 	// EdgeCollectionKeyID is the key for global collection of edges
 	EdgeCollectionKeyID = "EdgeCollectionKeyID"
+	// EdgeCollectionPagesKeyID is the key for pages making up global collection of edges
+	EdgeCollectionPagesKeyID = "EdgeCollectionPagesKeyID"
+	// EdgeCollectionPageKeyID is the key for each individual page in the global collection of edges
+	EdgeCollectionPageKeyID = "EdgeCollectionPageKeyID"
 	// OrganizationCollectionKeyID is the key for global collection of organizations
 	OrganizationCollectionKeyID = "OrgCollectionKeyID"
 	// AttributePathObjToObjID is the primary key for attribute path
@@ -109,10 +117,13 @@ func (c *CacheNameProvider) GetAllKeyIDs() []string {
 		EdgesObjToObjID,
 		DependencyKeyID,
 		IsModifiedKeyID,
+		IsModifiedCollectionKeyID,
 		ObjectTypeCollectionKeyID,
 		EdgeTypeCollectionKeyID,
 		ObjectCollectionKeyID,
 		EdgeCollectionKeyID,
+		EdgeCollectionPagesKeyID,
+		EdgeCollectionPageKeyID,
 		OrganizationCollectionKeyID,
 		AttributePathObjToObjID,
 	}
@@ -165,6 +176,10 @@ func (c *CacheNameProvider) GetKeyName(id cache.KeyNameID, components []string) 
 		return c.objCollectionKey()
 	case EdgeCollectionKeyID:
 		return c.edgeCollectionKey()
+	case EdgeCollectionPagesKeyID:
+		return c.edgeCollectionPagesKey()
+	case EdgeCollectionPageKeyID:
+		return c.edgeCollectionPageKey(components[0], components[1])
 	case OrganizationCollectionKeyID:
 		return c.orgCollectionKey()
 	case ObjEdgesKeyID:
@@ -173,6 +188,8 @@ func (c *CacheNameProvider) GetKeyName(id cache.KeyNameID, components []string) 
 		return c.dependencyKey(components[0])
 	case IsModifiedKeyID:
 		return c.isModifiedKey(components[0])
+	case IsModifiedCollectionKeyID:
+		return c.isModifiedCollectionKey(components[0])
 	case EdgeFullKeyID:
 		return c.edgeFullKeyNameFromIDs(components[0], components[1], components[2])
 	case AttributePathObjToObjID:
@@ -271,6 +288,20 @@ func (c *CacheNameProvider) edgeCollectionKey() cache.Key {
 	return cache.Key(fmt.Sprintf("%v_%v", c.basePrefix, edgeCollectionKeyString))
 }
 
+// edgeCollectionModifiedKey returns key name for edge collection
+func (c *CacheNameProvider) isModifiedCollectionKey(colKey string) cache.Key {
+	return cache.Key(fmt.Sprintf("%v_%v", colKey, isModifiedPrefix))
+}
+
+// edgeCollectionKey returns key name for edge collection
+func (c *CacheNameProvider) edgeCollectionPagesKey() cache.Key {
+	return cache.Key(fmt.Sprintf("%v_%v_%v", c.basePrefix, edgeCollectionKeyString, edgeCollectionPagesPrefixString))
+}
+
+func (c *CacheNameProvider) edgeCollectionPageKey(cursor string, limit string) cache.Key {
+	return cache.Key(fmt.Sprintf("%v_%v_%v_%v", c.basePrefix, edgeCollectionKeyString, cursor, limit))
+}
+
 // orgCollectionKey returns key name for edge collection
 func (c *CacheNameProvider) orgCollectionKey() cache.Key {
 	return cache.Key(fmt.Sprintf("%v_%v", c.basePrefix, orgCollectionKeyString))
@@ -289,6 +320,11 @@ func (ot ObjectType) GetPrimaryKey(c cache.KeyNameProvider) cache.Key {
 // GetGlobalCollectionKey returns the global collection key name for object type
 func (ot ObjectType) GetGlobalCollectionKey(c cache.KeyNameProvider) cache.Key {
 	return c.GetKeyNameStatic(ObjectTypeCollectionKeyID)
+}
+
+// GetGlobalCollectionPagesKey returns the global collection key name for object type
+func (ot ObjectType) GetGlobalCollectionPagesKey(c cache.KeyNameProvider) cache.Key {
+	return "" // Unused since there is no pagination for object types
 }
 
 // GetSecondaryKeys returns the secondary cache key names for object type
@@ -311,6 +347,11 @@ func (ot ObjectType) GetIsModifiedKey(c cache.KeyNameProvider) cache.Key {
 	return c.GetKeyNameWithID(IsModifiedKeyID, ot.ID)
 }
 
+// GetIsModifiedCollectionKey returns the IsModifiedCollectionKeyID key name for object type
+func (ot ObjectType) GetIsModifiedCollectionKey(c cache.KeyNameProvider) cache.Key {
+	return "" // Unused until we turn one page caching
+}
+
 // GetDependencyKeys returns the list of keys for object type dependencies
 func (ot ObjectType) GetDependencyKeys(c cache.KeyNameProvider) []cache.Key {
 	return []cache.Key{} // ObjectTypes don't depend on anything
@@ -331,6 +372,11 @@ func (et EdgeType) GetGlobalCollectionKey(c cache.KeyNameProvider) cache.Key {
 	return c.GetKeyNameStatic(EdgeTypeCollectionKeyID)
 }
 
+// GetGlobalCollectionPagesKey returns the global collection key name for edge type
+func (et EdgeType) GetGlobalCollectionPagesKey(c cache.KeyNameProvider) cache.Key {
+	return "" // Unused since there is no pagination for edge types
+}
+
 // GetPerItemCollectionKey returns the per item collection key name for edge type
 func (et EdgeType) GetPerItemCollectionKey(c cache.KeyNameProvider) cache.Key {
 	return "" // Unused since there nothing stored per edge type, could store edges of this type in the future
@@ -349,6 +395,11 @@ func (et EdgeType) GetDependenciesKey(c cache.KeyNameProvider) cache.Key {
 // GetIsModifiedKey returns the isModifiedKey key name for edge type
 func (et EdgeType) GetIsModifiedKey(c cache.KeyNameProvider) cache.Key {
 	return c.GetKeyNameWithID(IsModifiedKeyID, et.ID)
+}
+
+// GetIsModifiedCollectionKey returns the IsModifiedCollectionKeyID key name for edge type
+func (et EdgeType) GetIsModifiedCollectionKey(c cache.KeyNameProvider) cache.Key {
+	return "" // Unused until we turn one page caching
 }
 
 // GetDependencyKeys returns the list of keys for edge type dependencies
@@ -380,6 +431,11 @@ func (o Object) GetGlobalCollectionKey(c cache.KeyNameProvider) cache.Key {
 	return c.GetKeyNameStatic(ObjectCollectionKeyID)
 }
 
+// GetGlobalCollectionPagesKey returns the global collection key name for objects
+func (o Object) GetGlobalCollectionPagesKey(c cache.KeyNameProvider) cache.Key {
+	return "" // Unused since there is no pagination for objects
+}
+
 // GetPerItemCollectionKey returns the per item collection key name for object
 func (o Object) GetPerItemCollectionKey(c cache.KeyNameProvider) cache.Key {
 	return c.GetKeyNameWithID(ObjEdgesKeyID, o.ID)
@@ -393,6 +449,11 @@ func (o Object) GetDependenciesKey(c cache.KeyNameProvider) cache.Key {
 // GetIsModifiedKey returns the isModifiedKey key name for object
 func (o Object) GetIsModifiedKey(c cache.KeyNameProvider) cache.Key {
 	return c.GetKeyNameWithID(IsModifiedKeyID, o.ID)
+}
+
+// GetIsModifiedCollectionKey returns the IsModifiedCollectionKeyID key name for object
+func (o Object) GetIsModifiedCollectionKey(c cache.KeyNameProvider) cache.Key {
+	return "" // Unused until we turn one page caching
 }
 
 // GetDependencyKeys returns the list of keys for object dependencies
@@ -416,6 +477,11 @@ func (e Edge) GetGlobalCollectionKey(c cache.KeyNameProvider) cache.Key {
 	return c.GetKeyNameStatic(EdgeCollectionKeyID)
 }
 
+// GetGlobalCollectionPagesKey returns the global collection key name for edge
+func (e Edge) GetGlobalCollectionPagesKey(c cache.KeyNameProvider) cache.Key {
+	return c.GetKeyNameStatic(EdgeCollectionPagesKeyID)
+}
+
 // GetPerItemCollectionKey returns the per item collection key name for edge
 func (e Edge) GetPerItemCollectionKey(c cache.KeyNameProvider) cache.Key {
 	return ""
@@ -429,6 +495,11 @@ func (e Edge) GetDependenciesKey(c cache.KeyNameProvider) cache.Key {
 // GetIsModifiedKey returns the isModifiedKey key name for edge
 func (e Edge) GetIsModifiedKey(c cache.KeyNameProvider) cache.Key {
 	return c.GetKeyNameWithID(IsModifiedKeyID, e.ID)
+}
+
+// GetIsModifiedCollectionKey returns the IsModifiedCollectionKeyID key name for edge
+func (e Edge) GetIsModifiedCollectionKey(c cache.KeyNameProvider) cache.Key {
+	return c.GetKeyNameWithString(IsModifiedCollectionKeyID, string(e.GetGlobalCollectionKey(c)))
 }
 
 // GetDependencyKeys returns the list of keys for edge dependencies
@@ -447,7 +518,7 @@ func (e Edge) TTL(c cache.TTLProvider) time.Duration {
 	return c.TTL(EdgeTTL)
 }
 
-// GetPrimaryKey returns the primary cache key name for edge
+// GetPrimaryKey returns the primary cache key name for path node
 func (e AttributePathNode) GetPrimaryKey(c cache.KeyNameProvider) cache.Key {
 	return "" // Unused since  AttributePathNode is not stored in cache directly
 }
@@ -455,6 +526,11 @@ func (e AttributePathNode) GetPrimaryKey(c cache.KeyNameProvider) cache.Key {
 // GetGlobalCollectionKey returns the global collection cache key names for  path node
 func (e AttributePathNode) GetGlobalCollectionKey(c cache.KeyNameProvider) cache.Key {
 	return ""
+}
+
+// GetGlobalCollectionPagesKey returns the global collection key name for path node
+func (e AttributePathNode) GetGlobalCollectionPagesKey(c cache.KeyNameProvider) cache.Key {
+	return "" // Unused since there is no pagination for path node
 }
 
 // GetPerItemCollectionKey returns the per item collection key name for  path node
@@ -470,6 +546,11 @@ func (e AttributePathNode) GetDependenciesKey(c cache.KeyNameProvider) cache.Key
 // GetIsModifiedKey returns the isModifiedKey key name for attribute path
 func (e AttributePathNode) GetIsModifiedKey(c cache.KeyNameProvider) cache.Key {
 	return ""
+}
+
+// GetIsModifiedCollectionKey returns the IsModifiedCollectionKeyID key name for attribute path
+func (e AttributePathNode) GetIsModifiedCollectionKey(c cache.KeyNameProvider) cache.Key {
+	return "" // Unused until we turn one page caching
 }
 
 // GetDependencyKeys returns the list of keys for path node dependencies
@@ -501,6 +582,11 @@ func (o Organization) GetGlobalCollectionKey(c cache.KeyNameProvider) cache.Key 
 	return c.GetKeyNameStatic(OrganizationCollectionKeyID)
 }
 
+// GetGlobalCollectionPagesKey returns the global collection key name for organization
+func (o Organization) GetGlobalCollectionPagesKey(c cache.KeyNameProvider) cache.Key {
+	return "" // Unused since there is no pagination for organization
+}
+
 // GetPerItemCollectionKey returns the per item collection key name for organization (none)
 func (o Organization) GetPerItemCollectionKey(c cache.KeyNameProvider) cache.Key {
 	return ""
@@ -514,6 +600,11 @@ func (o Organization) GetDependenciesKey(c cache.KeyNameProvider) cache.Key {
 // GetIsModifiedKey returns the isModifiedKey key name for organization
 func (o Organization) GetIsModifiedKey(c cache.KeyNameProvider) cache.Key {
 	return c.GetKeyNameWithID(IsModifiedKeyID, o.ID)
+}
+
+// GetIsModifiedCollectionKey returns the IsModifiedCollectionKeyID key name for organization
+func (o Organization) GetIsModifiedCollectionKey(c cache.KeyNameProvider) cache.Key {
+	return "" // Unused until we turn one page caching
 }
 
 // GetDependencyKeys returns the list of keys for organization dependencies

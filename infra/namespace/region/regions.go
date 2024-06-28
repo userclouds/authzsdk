@@ -21,8 +21,8 @@ var machineRegions = map[universe.Universe][]MachineRegion{
 	universe.Debug:     {"aws-us-west-2", "aws-us-east-1", "aws-eu-west-1"},
 	universe.Dev:       {"themoon", "mars"},
 	universe.Container: {""},
-	universe.CI:        {""},
-	universe.Test:      {""},
+	universe.CI:        {"themoon", "mars"},
+	universe.Test:      {"themoon", "mars"},
 }
 
 // MachineRegionsForUniverse returns the list of regions for a given universe

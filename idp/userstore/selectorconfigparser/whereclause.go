@@ -20,7 +20,7 @@ func ParseWhereClause(clause string) error {
 	input := strings.NewReader(clause)
 	cl := &customLexer{newLexer(input), ""}
 	if yyParse(cl) != 0 {
-		return ucerr.Friendlyf(nil, "error parsing where clause: %s", cl.ErrorOutput)
+		return ucerr.Friendlyf(nil, "error parsing where clause \"%s\": %s", clause, cl.ErrorOutput)
 	}
 	return nil
 }

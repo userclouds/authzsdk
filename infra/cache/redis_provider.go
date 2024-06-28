@@ -3,6 +3,8 @@ package cache
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,6 +26,7 @@ const (
 
 // RedisClientCacheProvider is the base implementation of the CacheProvider interface
 type RedisClientCacheProvider struct {
+	NoLayeringProvider
 	rc           *redis.Client
 	prefix       string
 	sm           SentinelManager
@@ -190,12 +193,12 @@ func (c *RedisClientCacheProvider) WriteSentinel(ctx context.Context, stype Sent
 }
 
 // getValidatedStringKeysFromCacheKeys filters out any empty keys and does the type conversion
-func getValidatedStringKeysFromCacheKeys(keys []Key, prefix string) ([]string, error) {
+func getValidatedStringKeysFromCacheKeys[KeyType any](keys []KeyType, prefix string) ([]string, error) {
 	strKeys := make([]string, 0, len(keys))
 	for _, k := range keys {
-		if k != "" {
-			if strings.HasPrefix(string(k), prefix) {
-				strKeys = append(strKeys, string(k))
+		if s := fmt.Sprintf("%v", k); s != "" {
+			if strings.HasPrefix(s, prefix) {
+				strKeys = append(strKeys, s)
 			} else {
 				return nil, ucerr.Errorf("Key %v does not have prefix %v", k, prefix)
 			}
@@ -204,12 +207,13 @@ func getValidatedStringKeysFromCacheKeys(keys []Key, prefix string) ([]string, e
 	return strKeys, nil
 }
 
-func getValidatedStringKeyFromCacheKey(key Key, prefix string, methodName string) (string, error) {
-	if key == "" {
+func getValidatedStringKeyFromCacheKey[KeyType any](key KeyType, prefix string, methodName string) (string, error) {
+	s := fmt.Sprintf("%v", key)
+	if s == "" {
 		return "", ucerr.Errorf("Empty key provided to %s", methodName)
 	}
-	if strings.HasPrefix(string(key), prefix) {
-		return string(key), nil
+	if strings.HasPrefix(s, prefix) {
+		return s, nil
 	}
 	return "", ucerr.Errorf("Key %v does not have prefix %v", key, prefix)
 }
@@ -445,8 +449,9 @@ func (c *RedisClientCacheProvider) GetValues(ctx context.Context, keysIn []Key, 
 			}
 			uclog.Verbosef(ctx, "Cache[%v] key %v is locked for in progress op %v", c.cacheName, keys[i], v)
 			continue
+		} else if !lockOnMiss[i] {
+			uclog.Verbosef(ctx, "Cache[%v] miss on key %v lock not request", c.cacheName, keys[i])
 		}
-
 	}
 
 	if c.readOnly {
@@ -705,6 +710,7 @@ func (c *RedisClientCacheProvider) AddDependency(ctx context.Context, keysIn []K
 
 // ClearDependencies clears the dependencies of an item represented by key and removes all dependent keys from the cache
 func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn Key, setTombstone bool) error {
+	setTombstone = setTombstone && c.tombstoneTTL > 0 // don't actually set tombstone if tombstoneTTL is 0
 	key, err := getValidatedStringKeyFromCacheKey(keyIn, c.prefix, "ClearDependencies")
 	if err != nil {
 		return ucerr.Wrap(err)
@@ -891,4 +897,178 @@ func (c *RedisClientCacheProvider) LogKeyValues(ctx context.Context, prefix stri
 	}
 
 	return nil
+}
+
+func (c *RedisClientCacheProvider) coerceValueToInt64(key string, value any) (int64, error) {
+	if value == nil {
+		return 0, nil
+	}
+
+	strValue, ok := value.(string)
+	if !ok {
+		return 0,
+			ucerr.Errorf(
+				"Cache[%v] key %v - value %v is not a string",
+				c.cacheName,
+				key,
+				value,
+			)
+	}
+
+	intValue, err := strconv.ParseInt(strValue, 10, 64)
+	if err != nil {
+		return 0,
+			ucerr.Errorf(
+				"Cache[%v] key %v - value %v cannot be converted to an int64",
+				c.cacheName,
+				key,
+				value,
+			)
+	}
+
+	return intValue, nil
+}
+
+// ReleaseRateLimitSlot will release the earliest rate limit slot for the provided set of keys
+func (c *RedisClientCacheProvider) ReleaseRateLimitSlot(
+	ctx context.Context,
+	keysIn []RateLimitKey,
+) (int64, error) {
+	keys, err := getValidatedStringKeysFromCacheKeys(keysIn, c.prefix)
+	if err != nil {
+		return 0, ucerr.Wrap(err)
+	}
+
+	values, err := c.rc.MGet(ctx, keys...).Result()
+	if err != nil && err != redis.Nil {
+		return 0, ucerr.Wrap(err)
+	}
+
+	var totalSlots int64
+	var bucketsWithValues []int
+
+	for i := 0; i < len(keys); i++ {
+		value, err := c.coerceValueToInt64(keys[i], values[i])
+		if err != nil {
+			return 0, ucerr.Wrap(err)
+		}
+
+		if value > 0 {
+			bucketsWithValues = append(bucketsWithValues, i)
+			totalSlots += value
+		}
+	}
+
+	if totalSlots > 0 {
+		for _, i := range bucketsWithValues {
+			bucketSlots, err := c.rc.Decr(ctx, keys[i]).Result()
+			if err != nil {
+				return 0, ucerr.Wrap(err)
+			}
+
+			if bucketSlots >= 0 {
+				break
+			}
+
+			_, err = c.rc.Incr(ctx, keys[i]).Result()
+			if err != nil {
+				return 0, ucerr.Wrap(err)
+			}
+		}
+		totalSlots--
+	}
+
+	return totalSlots, nil
+}
+
+// ReserveRateLimitSlot will return if a rate limit slot can be reserved, given the specified limit
+// and provided keys, actually reserving the slot if requested
+func (c *RedisClientCacheProvider) ReserveRateLimitSlot(
+	ctx context.Context,
+	keysIn []RateLimitKey,
+	limit int64,
+	ttl time.Duration,
+	takeSlot bool,
+) (bool, int64, error) {
+	// validate the bucket keys and retrieve the associated values
+
+	keys, err := getValidatedStringKeysFromCacheKeys(keysIn, c.prefix)
+	if err != nil {
+		return false, 0, ucerr.Wrap(err)
+	}
+	finalBucketIndex := len(keys) - 1
+
+	values, err := c.rc.MGet(ctx, keys...).Result()
+	if err != nil && err != redis.Nil {
+		return false, 0, ucerr.Wrap(err)
+	}
+
+	// count the number of used slots of all but the final bucket
+
+	var totalSlots int64
+	for i := 0; i < finalBucketIndex; i++ {
+		value, err := c.coerceValueToInt64(keys[i], values[i])
+		if err != nil {
+			return false, 0, ucerr.Wrap(err)
+		}
+
+		if value > 0 {
+			totalSlots += value
+		}
+	}
+
+	// keep track of the number of used slots in the final bucket separately
+
+	finalBucketSlots, err := c.coerceValueToInt64(keys[finalBucketIndex], values[finalBucketIndex])
+	if err != nil {
+		return false, 0, ucerr.Wrap(err)
+	}
+	totalSlots += finalBucketSlots
+
+	// return if we do need to take a new slot or have reached the limit
+
+	if !takeSlot {
+		return totalSlots < limit, totalSlots, nil
+	}
+
+	if totalSlots >= limit {
+		return false, totalSlots, nil
+	}
+
+	// add a slot to the final bucket
+
+	totalSlots -= finalBucketSlots
+	finalBucketSlots, err = c.rc.Incr(ctx, keys[finalBucketIndex]).Result()
+	if err != nil {
+		return false, 0, ucerr.Wrap(err)
+	}
+	totalSlots += finalBucketSlots
+
+	// set the ttl for the final bucket if this is the first slot in that bucket
+
+	if values[finalBucketIndex] == nil {
+		c.rc.Expire(ctx, keys[finalBucketIndex], ttl)
+	}
+
+	// remove a slot from the final bucket and return false if we have exceeded the limit
+
+	if totalSlots > limit {
+		totalSlots -= finalBucketSlots
+		finalBucketSlots, err = c.rc.Decr(ctx, keys[finalBucketIndex]).Result()
+		if err != nil {
+			return false, 0, ucerr.Wrap(err)
+		}
+		totalSlots += finalBucketSlots
+
+		return false, totalSlots, nil
+	}
+
+	// return true if we have not exceeded the limit
+
+	return totalSlots <= limit, totalSlots, nil
+}
+
+// SupportsRateLimits returns true if rate limiting is supported
+func (*RedisClientCacheProvider) SupportsRateLimits(context.Context) bool {
+	return true
 }

@@ -19,6 +19,14 @@ var (
 
 	BaseConfigPath = fmt.Sprintf("%s/config", UserStoreBasePath)
 
+	DatabasePath       = fmt.Sprintf("%s/databases", BaseConfigPath)
+	CreateDatabasePath = DatabasePath
+	ListDatabasesPath  = DatabasePath
+	singleDatabasePath = func(id uuid.UUID) string { return fmt.Sprintf("%s/%s", DatabasePath, id) }
+	GetDatabasePath    = singleDatabasePath
+	UpdateDatabasePath = singleDatabasePath
+	DeleteDatabasePath = singleDatabasePath
+
 	BaseConfigColumnsPath  = fmt.Sprintf("%s/columns", BaseConfigPath)
 	singleConfigColumnPath = func(id uuid.UUID) string {
 		return fmt.Sprintf("%s/%s", BaseConfigColumnsPath, id)

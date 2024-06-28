@@ -178,11 +178,11 @@ func CustomDecoder(f DecodeFunc) Option {
 	})
 }
 
-// RetryNetworkErrors causes the client to retry on underlying network errors
+// RetryNetworkErrors sets whether the client retries on underlying network errors
 // TODO: is this a good idea?
 // TODO: should we have a max retry count, backoff, etc config?
-func RetryNetworkErrors() Option {
+func RetryNetworkErrors(retry bool) Option {
 	return optFunc(func(opts *options) {
-		opts.retryNetworkErrors = true
+		opts.retryNetworkErrors = retry
 	})
 }
