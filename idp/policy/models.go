@@ -39,12 +39,12 @@ type Transformer struct {
 	ID                 uuid.UUID                   `json:"id"`
 	Name               string                      `json:"name" validate:"length:1,128" required:"true"`
 	Description        string                      `json:"description"`
-	InputDataType      userstore.ResourceID        `json:"input_data_type" validate:"skip"`
-	InputType          userstore.DataType          `json:"input_type" required:"true"`
-	InputConstraints   userstore.ColumnConstraints `json:"input_type_constraints"`
-	OutputDataType     userstore.ResourceID        `json:"output_data_type" validate:"skip"`
+	InputDataType      userstore.ResourceID        `json:"input_data_type" required:"true"`
+	InputType          userstore.DataType          `json:"input_type" validate:"skip"`
+	InputConstraints   userstore.ColumnConstraints `json:"input_type_constraints" validate:"skip"`
+	OutputDataType     userstore.ResourceID        `json:"output_data_type" required:"true"`
 	OutputType         userstore.DataType          `json:"output_type" validate:"skip"`
-	OutputConstraints  userstore.ColumnConstraints `json:"output_type_constraints"`
+	OutputConstraints  userstore.ColumnConstraints `json:"output_type_constraints" validate:"skip"`
 	ReuseExistingToken bool                        `json:"reuse_existing_token" validate:"skip" description:"Specifies if the tokenizing transformer should return existing token instead of creating a new one."`
 	TransformType      TransformType               `json:"transform_type" required:"true"`
 	TagIDs             uuidarray.UUIDArray         `json:"tag_ids" validate:"skip"`
@@ -74,34 +74,11 @@ func (g Transformer) extraValidate() error {
 		}
 	}
 
-	if g.OutputType != userstore.DataTypeInvalid {
-		if err := g.OutputType.Validate(); err != nil {
-			return ucerr.Wrap(err)
-		}
-	}
-
 	if g.ReuseExistingToken && g.TransformType != TransformTypeTokenizeByValue && g.TransformType != TransformTypeTokenizeByReference {
 		return ucerr.Friendlyf(nil, "ReuseExistingToken can only be true for tokenization transformers")
 	}
 
 	return nil
-}
-
-// EqualsIgnoringNilID returns true if the two policies are equal, ignoring the description and ID if one is nil
-func (g *Transformer) EqualsIgnoringNilID(other *Transformer) bool {
-	return (g.ID == other.ID || g.ID.IsNil() || other.ID.IsNil()) &&
-		strings.EqualFold(g.Name, other.Name) &&
-		g.InputDataType.EquivalentTo(other.InputDataType) &&
-		g.InputType == other.InputType &&
-		g.InputConstraints.Equals(other.InputConstraints) &&
-		g.OutputDataType.EquivalentTo(other.OutputDataType) &&
-		g.OutputType == other.OutputType &&
-		g.OutputConstraints.Equals(other.OutputConstraints) &&
-		g.TransformType == other.TransformType &&
-		g.ReuseExistingToken == other.ReuseExistingToken &&
-		g.Function == other.Function &&
-		g.Parameters == other.Parameters &&
-		g.IsSystem == other.IsSystem
 }
 
 // UserstoreDataProvenance is used by TransformTypeTokenizeByReference to describe the provenance of the data

@@ -16,10 +16,11 @@ type Client struct {
 // New constructs a new UserClouds SDK client
 func New(url, clientName string, opts ...jsonclient.Option) *Client {
 	url = strings.TrimSuffix(url, "/")
-	opts = append(opts,
+	opts = append([]jsonclient.Option{
 		jsonclient.Header(request.HeaderSDKVersion, sdkVersion),
 		jsonclient.HeaderUserAgent(fmt.Sprintf("UserClouds %s Go SDK %s", clientName, sdkVersion)),
-	)
+		jsonclient.RetryNetworkErrors(retryNetworkErrors),
+	}, opts...)
 	c := jsonclient.New(url, opts...)
 	return &Client{c}
 }

@@ -95,8 +95,7 @@ func New(url string, opts ...Option) *Client {
 	c := &Client{
 		baseURL: url,
 		options: options{
-			headers:            make(http.Header),
-			retryNetworkErrors: true,
+			headers: make(http.Header),
 		},
 	}
 

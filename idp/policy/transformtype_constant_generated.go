@@ -16,7 +16,7 @@ func (t TransformType) MarshalText() ([]byte, error) {
 	case TransformTypeTransform:
 		return []byte("transform"), nil
 	default:
-		return nil, ucerr.Errorf("unknown TransformType value '%s'", t)
+		return nil, ucerr.Friendlyf(nil, "unknown TransformType value '%s'", t)
 	}
 }
 
@@ -33,7 +33,7 @@ func (t *TransformType) UnmarshalText(b []byte) error {
 	case "transform":
 		*t = TransformTypeTransform
 	default:
-		return ucerr.Errorf("unknown TransformType value '%s'", s)
+		return ucerr.Friendlyf(nil, "unknown TransformType value '%s'", s)
 	}
 	return nil
 }
@@ -50,7 +50,7 @@ func (t *TransformType) Validate() error {
 	case TransformTypeTransform:
 		return nil
 	default:
-		return ucerr.Errorf("unknown TransformType value '%s'", *t)
+		return ucerr.Friendlyf(nil, "unknown TransformType value '%s'", *t)
 	}
 }
 

@@ -14,7 +14,7 @@ func (t PolicyType) MarshalText() ([]byte, error) {
 	case PolicyTypeInvalid:
 		return []byte("invalid"), nil
 	default:
-		return nil, ucerr.Errorf("unknown PolicyType value '%s'", t)
+		return nil, ucerr.Friendlyf(nil, "unknown PolicyType value '%s'", t)
 	}
 }
 
@@ -29,7 +29,7 @@ func (t *PolicyType) UnmarshalText(b []byte) error {
 	case "invalid":
 		*t = PolicyTypeInvalid
 	default:
-		return ucerr.Errorf("unknown PolicyType value '%s'", s)
+		return ucerr.Friendlyf(nil, "unknown PolicyType value '%s'", s)
 	}
 	return nil
 }
@@ -42,7 +42,7 @@ func (t *PolicyType) Validate() error {
 	case PolicyTypeCompositeOr:
 		return nil
 	default:
-		return ucerr.Errorf("unknown PolicyType value '%s'", *t)
+		return ucerr.Friendlyf(nil, "unknown PolicyType value '%s'", *t)
 	}
 }
 

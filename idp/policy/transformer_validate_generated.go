@@ -8,17 +8,13 @@ import (
 
 // Validate implements Validateable
 func (o Transformer) Validate() error {
-	fieldLen := len(o.Name)
-	if fieldLen < 1 || fieldLen > 128 {
-		return ucerr.Friendlyf(nil, "Transformer.Name length has to be between 1 and 128 (length: %v)", fieldLen)
+	if len(o.Name) < 1 || len(o.Name) > 128 {
+		return ucerr.Friendlyf(nil, "Transformer.Name length has to be between 1 and 128 (length: %v)", len(o.Name))
 	}
-	if err := o.InputType.Validate(); err != nil {
+	if err := o.InputDataType.Validate(); err != nil {
 		return ucerr.Wrap(err)
 	}
-	if err := o.InputConstraints.Validate(); err != nil {
-		return ucerr.Wrap(err)
-	}
-	if err := o.OutputConstraints.Validate(); err != nil {
+	if err := o.OutputDataType.Validate(); err != nil {
 		return ucerr.Wrap(err)
 	}
 	if err := o.TransformType.Validate(); err != nil {

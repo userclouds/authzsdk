@@ -11,7 +11,6 @@ import (
 
 	"userclouds.com/infra/namespace/service"
 	"userclouds.com/infra/request"
-	"userclouds.com/infra/ucerr"
 )
 
 // loggerStatus represents current state of the logger
@@ -81,7 +80,6 @@ func initialize(name string, l loggerStatus, transports []Transport, fetcher Eve
 	}
 	loggerInst.loggerState = l
 	loggerInst.serviceName = name
-	status.initStatus()
 	loggerInst.eventMetadataFetcher = fetcher
 	loggerInst.eventMetadata = make(map[uuid.UUID]EventMetadataMap)
 
@@ -147,58 +145,6 @@ func GetStats() []LogTransportStats {
 		}
 	}
 	return logStats
-}
-
-// AddTransport adds another transport to the logger
-func AddTransport(t Transport) error {
-	loggerInst.loggerConfigMutex.Lock()
-	defer loggerInst.loggerConfigMutex.Unlock()
-
-	// Check if we are in a state that allows for addition of a logger
-	if loggerInst.loggerState == loggerNotInitialized || loggerInst.loggerState == loggerShuttingDownMode {
-		return ucerr.New("Logger is not in a valid state for addition of a transport")
-	}
-
-	// Initialize the transports and add it
-	c, err := t.Init()
-	if err != nil {
-		return ucerr.New("Transport failed to initialize")
-	}
-	loggerInst.transports = append(loggerInst.transports, t)
-	loggerInst.transportConfigs = append(loggerInst.transportConfigs, *c)
-
-	return nil
-}
-
-// RemoveTransport removes named transport if it is active
-func RemoveTransport(name string) error {
-	loggerInst.loggerConfigMutex.Lock()
-	defer loggerInst.loggerConfigMutex.Unlock()
-
-	// Check if we are in a state that allows for addition of a logger
-	if loggerInst.loggerState == loggerNotInitialized || loggerInst.loggerState == loggerShuttingDownMode {
-		return ucerr.New("Logger is not in a valid state for removal of a transport")
-	}
-
-	// Try to find transport by name
-	var t Transport
-	for i := range loggerInst.transports {
-		if loggerInst.transports[i].GetName() == name {
-			t = loggerInst.transports[i]
-			loggerInst.transports = append(loggerInst.transports[:i], loggerInst.transports[i+1:len(loggerInst.transports)]...)
-			loggerInst.transportConfigs = append(loggerInst.transportConfigs[:i], loggerInst.transportConfigs[i+1:len(loggerInst.transportConfigs)]...)
-			break
-		}
-	}
-
-	if t == nil {
-		return ucerr.New("Transport not found")
-	}
-
-	// Close the transport being removed
-	t.Close()
-
-	return nil
 }
 
 // Close shuts down logging transports

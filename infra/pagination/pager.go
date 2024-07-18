@@ -60,17 +60,7 @@ func ApplyOptions(options ...Option) (*Paginator, error) {
 		p.direction = DirectionBackward
 	}
 
-	uniqueSortKeys := map[string]bool{}
-	for _, key := range strings.Split(string(p.sortKey), ",") {
-		if uniqueSortKeys[key] {
-			p.anyDuplicateSortKeys = true
-		} else if p.isKeySupported != nil {
-			if !p.isKeySupported(key) {
-				p.anyUnsupportedSortKeys = true
-			}
-		}
-		uniqueSortKeys[key] = true
-	}
+	p.classifySortKeys()
 
 	if p.filter != "" {
 		filterQuery, err := CreateFilterQuery(p.filter)
@@ -103,6 +93,20 @@ func (p *Paginator) AdvanceCursor(rf ResponseFields) bool {
 	}
 
 	return false
+}
+
+func (p *Paginator) classifySortKeys() {
+	uniqueSortKeys := map[string]bool{}
+	for _, key := range strings.Split(string(p.sortKey), ",") {
+		if uniqueSortKeys[key] {
+			p.anyDuplicateSortKeys = true
+		} else if p.isKeySupported != nil {
+			if !p.isKeySupported(key) {
+				p.anyUnsupportedSortKeys = true
+			}
+		}
+		uniqueSortKeys[key] = true
+	}
 }
 
 // GetCursor returns the current Cursor

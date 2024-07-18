@@ -8,9 +8,8 @@ import (
 
 // Validate implements Validateable
 func (o AccessPolicy) Validate() error {
-	fieldLen := len(o.Name)
-	if fieldLen < 1 || fieldLen > 128 {
-		return ucerr.Friendlyf(nil, "AccessPolicy.Name length has to be between 1 and 128 (length: %v)", fieldLen)
+	if len(o.Name) < 1 || len(o.Name) > 128 {
+		return ucerr.Friendlyf(nil, "AccessPolicy.Name length has to be between 1 and 128 (length: %v)", len(o.Name))
 	}
 	if err := o.PolicyType.Validate(); err != nil {
 		return ucerr.Wrap(err)

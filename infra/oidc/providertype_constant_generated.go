@@ -22,7 +22,7 @@ func (t ProviderType) MarshalText() ([]byte, error) {
 	case ProviderTypeUnsupported:
 		return []byte("unsupported"), nil
 	default:
-		return nil, ucerr.Errorf("unknown ProviderType value '%d'", t)
+		return nil, ucerr.Friendlyf(nil, "unknown ProviderType value '%d'", t)
 	}
 }
 
@@ -45,7 +45,7 @@ func (t *ProviderType) UnmarshalText(b []byte) error {
 	case "unsupported":
 		*t = ProviderTypeUnsupported
 	default:
-		return ucerr.Errorf("unknown ProviderType value '%s'", s)
+		return ucerr.Friendlyf(nil, "unknown ProviderType value '%s'", s)
 	}
 	return nil
 }
@@ -68,7 +68,7 @@ func (t *ProviderType) Validate() error {
 	case ProviderTypeUnsupported:
 		return nil
 	default:
-		return ucerr.Errorf("unknown ProviderType value '%d'", *t)
+		return ucerr.Friendlyf(nil, "unknown ProviderType value '%d'", *t)
 	}
 }
 

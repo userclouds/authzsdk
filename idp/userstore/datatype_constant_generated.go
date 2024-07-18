@@ -36,7 +36,7 @@ func (t DataType) MarshalText() ([]byte, error) {
 	case DataTypeUUID:
 		return []byte("uuid"), nil
 	default:
-		return nil, ucerr.Errorf("unknown DataType value '%s'", t)
+		return nil, ucerr.Friendlyf(nil, "unknown DataType value '%s'", t)
 	}
 }
 
@@ -73,7 +73,7 @@ func (t *DataType) UnmarshalText(b []byte) error {
 	case "uuid":
 		*t = DataTypeUUID
 	default:
-		return ucerr.Errorf("unknown DataType value '%s'", s)
+		return ucerr.Friendlyf(nil, "unknown DataType value '%s'", s)
 	}
 	return nil
 }
@@ -108,7 +108,7 @@ func (t *DataType) Validate() error {
 	case DataTypeUUID:
 		return nil
 	default:
-		return ucerr.Errorf("unknown DataType value '%s'", *t)
+		return ucerr.Friendlyf(nil, "unknown DataType value '%s'", *t)
 	}
 }
 

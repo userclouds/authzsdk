@@ -20,7 +20,7 @@ var machineRegions = map[universe.Universe][]MachineRegion{
 	universe.Staging:   {"aws-us-west-2", "aws-us-east-1", "aws-eu-west-1"},
 	universe.Debug:     {"aws-us-west-2", "aws-us-east-1", "aws-eu-west-1"},
 	universe.Dev:       {"themoon", "mars"},
-	universe.Container: {""},
+	universe.Container: {"themoon", "mars"},
 	universe.CI:        {"themoon", "mars"},
 	universe.Test:      {"themoon", "mars"},
 }
@@ -63,11 +63,13 @@ func IsValid(region MachineRegion, u universe.Universe) bool {
 
 // Validate implements Validateable
 func (r MachineRegion) Validate() error {
+	if r == "" {
+		return ucerr.Friendlyf(nil, "empty machine region")
+	}
 	if IsValid(r, universe.Current()) {
 		return nil
 	}
-
-	return ucerr.Friendlyf(nil, "invalid machine region: %s", r)
+	return ucerr.Friendlyf(nil, "invalid machine region: %s for %v", r, universe.Current())
 }
 
 // DataRegion represents a region for where user data should be hosted
