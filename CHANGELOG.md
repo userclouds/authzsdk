@@ -3,6 +3,10 @@
 ## 1.4.0 - 18-07-2024
 
 - Deprecate v1.0.0 and v1.1.0
+- require DataType and remove requirement for Type for Column
+- require InputDataType and OutputDataType, and remove requirement for InputType, InputConstraints, OutputType, and OutputConstraints for Transformer
+- enforce length limit of 128 characters for ColumnDataType Description
+- expand allowable length to 256 characters for ResourceID Name
 
 ## 1.3.0 - 28-06-2024
 
