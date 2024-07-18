@@ -20,7 +20,7 @@ func (t DurationUnit) MarshalText() ([]byte, error) {
 	case DurationUnitYear:
 		return []byte("year"), nil
 	default:
-		return nil, ucerr.Errorf("unknown DurationUnit value '%s'", t)
+		return nil, ucerr.Friendlyf(nil, "unknown DurationUnit value '%s'", t)
 	}
 }
 
@@ -41,7 +41,7 @@ func (t *DurationUnit) UnmarshalText(b []byte) error {
 	case "year":
 		*t = DurationUnitYear
 	default:
-		return ucerr.Errorf("unknown DurationUnit value '%s'", s)
+		return ucerr.Friendlyf(nil, "unknown DurationUnit value '%s'", s)
 	}
 	return nil
 }
@@ -62,7 +62,7 @@ func (t *DurationUnit) Validate() error {
 	case DurationUnitYear:
 		return nil
 	default:
-		return ucerr.Errorf("unknown DurationUnit value '%s'", *t)
+		return ucerr.Friendlyf(nil, "unknown DurationUnit value '%s'", *t)
 	}
 }
 

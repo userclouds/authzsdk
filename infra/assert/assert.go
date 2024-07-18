@@ -84,6 +84,16 @@ func Contains(t testing.TB, body, substr string, opts ...Option) bool {
 	return false
 }
 
+// DoesNotContain asserts that one string does not contain another
+func DoesNotContain(t testing.TB, body, substr string, opts ...Option) bool {
+	t.Helper()
+	if !strings.Contains(body, substr) {
+		return true
+	}
+	logFailure(t, body, fmt.Sprintf("a string not containing '%s'", substr), opts)
+	return false
+}
+
 // FailContinue marks the test as failed, but continues execution
 func FailContinue(t testing.TB, fmt string, args ...interface{}) {
 	t.Helper()

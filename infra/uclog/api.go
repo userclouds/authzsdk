@@ -10,7 +10,7 @@ import (
 
 // Fatalf is equivalent to Printf() followed by a call to os.Exit(1).
 func Fatalf(ctx context.Context, f string, args ...interface{}) {
-	logWithLevelf(ctx, LogLevelError, "F", f, args...)
+	logWithLevelf(ctx, LogLevelError, f, args...)
 	// Because os.Exit doesn't run deferred functions close the transports before calling it so the
 	// last messages end up in the log
 	Close()
@@ -19,34 +19,34 @@ func Fatalf(ctx context.Context, f string, args ...interface{}) {
 
 // Errorf logs an error with optional format-string parsing
 func Errorf(ctx context.Context, f string, args ...interface{}) {
-	logWithLevelf(ctx, LogLevelError, "E", f, args...)
+	logWithLevelf(ctx, LogLevelError, f, args...)
 }
 
 // Warningf logs a string at info level (default visible in user console)
 func Warningf(ctx context.Context, f string, args ...interface{}) {
-	logWithLevelf(ctx, LogLevelWarning, "W", f, args...)
+	logWithLevelf(ctx, LogLevelWarning, f, args...)
 }
 
 // Infof logs a string at info level (default visible in user console)
 func Infof(ctx context.Context, f string, args ...interface{}) {
-	logWithLevelf(ctx, LogLevelInfo, "I", f, args...)
+	logWithLevelf(ctx, LogLevelInfo, f, args...)
 }
 
 // Debugf logs a string with optional format-string parsing
 // by default these are internal-to-Userclouds logs
 func Debugf(ctx context.Context, f string, args ...interface{}) {
-	logWithLevelf(ctx, LogLevelDebug, "D", f, args...)
+	logWithLevelf(ctx, LogLevelDebug, f, args...)
 }
 
 // Verbosef is the loudest
 // Originally introduced to log DB queries / timing without killing dev console
 func Verbosef(ctx context.Context, f string, args ...interface{}) {
-	logWithLevelf(ctx, LogLevelVerbose, "V", f, args...)
+	logWithLevelf(ctx, LogLevelVerbose, f, args...)
 }
 
-func logWithLevelf(ctx context.Context, level LogLevel, levelPrefix, f string, args ...interface{}) {
+func logWithLevelf(ctx context.Context, level LogLevel, f string, args ...interface{}) {
 	s := fmt.Sprintf(f, args...)
-	s = fmt.Sprintf("[%s] %s", levelPrefix, s)
+	s = fmt.Sprintf("[%s] %s", level.GetPrefix(), s)
 	Log(ctx, LogEvent{LogLevel: level, Code: EventCodeNone, Message: s, Count: 1})
 }
 

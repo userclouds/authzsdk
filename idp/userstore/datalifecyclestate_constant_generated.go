@@ -18,7 +18,7 @@ func (t DataLifeCycleState) MarshalText() ([]byte, error) {
 	case DataLifeCycleStateSoftDeleted:
 		return []byte("softdeleted"), nil
 	default:
-		return nil, ucerr.Errorf("unknown DataLifeCycleState value '%s'", t)
+		return nil, ucerr.Friendlyf(nil, "unknown DataLifeCycleState value '%s'", t)
 	}
 }
 
@@ -37,7 +37,7 @@ func (t *DataLifeCycleState) UnmarshalText(b []byte) error {
 	case "softdeleted":
 		*t = DataLifeCycleStateSoftDeleted
 	default:
-		return ucerr.Errorf("unknown DataLifeCycleState value '%s'", s)
+		return ucerr.Friendlyf(nil, "unknown DataLifeCycleState value '%s'", s)
 	}
 	return nil
 }
@@ -56,7 +56,7 @@ func (t *DataLifeCycleState) Validate() error {
 	case DataLifeCycleStateSoftDeleted:
 		return nil
 	default:
-		return ucerr.Errorf("unknown DataLifeCycleState value '%s'", *t)
+		return ucerr.Friendlyf(nil, "unknown DataLifeCycleState value '%s'", *t)
 	}
 }
 

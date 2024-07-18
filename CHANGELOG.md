@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.0 - 18-07-2024
+
+- Deprecate v1.0.0 and v1.1.0
+
 ## 1.3.0 - 28-06-2024
 
 - Retry getting access token on EOF type network errors which occur when connection is lost.

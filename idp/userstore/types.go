@@ -1,9 +1,7 @@
 package userstore
 
 import (
-	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -12,8 +10,9 @@ import (
 	"userclouds.com/idp/userstore/selectorconfigparser"
 	"userclouds.com/infra/pagination"
 	"userclouds.com/infra/ucerr"
-	"userclouds.com/infra/uctypes/set"
 )
+
+var validIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_\-]*$`)
 
 // DataType is an enum for supported data types
 type DataType string
@@ -41,7 +40,7 @@ const (
 
 // CompositeField represents the settings for a composite data type field
 type CompositeField struct {
-	DataType            ResourceID `json:"data_type"`
+	DataType            ResourceID `json:"data_type" required:"true"`
 	Name                string     `json:"name" validate:"length:1,128" required:"true" description:"Each part of name must be capitalized or all-caps, separated by underscores. Names may contain alphanumeric characters, and the first part must start with a letter, while other parts may start with a number. (ex. ID_Field_1)"`
 	CamelCaseName       string     `json:"camel_case_name" description:"Read-only camel-case version of field name, with underscores stripped out. (ex. IDField1)"`
 	StructName          string     `json:"struct_name" description:"Read-only snake-case version of field name, with all letters lowercase. (ex. id_field_1)"`
@@ -63,7 +62,7 @@ type CompositeAttributes struct {
 type ColumnDataType struct {
 	ID                   uuid.UUID           `json:"id"`
 	Name                 string              `json:"name" validate:"length:1,128" required:"true"`
-	Description          string              `json:"description"`
+	Description          string              `json:"description" validate:"length:1,128" required:"true"`
 	IsCompositeFieldType bool                `json:"is_composite_field_type" description:"Whether the data type can be used for a composite field."`
 	IsNative             bool                `json:"is_native" description:"Whether this is a native non-editable data type."`
 	CompositeAttributes  CompositeAttributes `json:"composite_attributes"`
@@ -92,25 +91,6 @@ type ColumnConstraints struct {
 	Fields            []ColumnField `json:"fields" description:"The set of fields associated with a column of type composite. Fields cannot be specified if the column type is not composite."`
 }
 
-// Equals returns true if the column constraints are equal
-func (cc ColumnConstraints) Equals(other ColumnConstraints) bool {
-	if cc.ImmutableRequired != other.ImmutableRequired ||
-		cc.PartialUpdates != other.PartialUpdates ||
-		cc.UniqueIDRequired != other.UniqueIDRequired ||
-		cc.UniqueRequired != other.UniqueRequired ||
-		len(cc.Fields) != len(other.Fields) {
-		return false
-	}
-
-	for i, field := range cc.Fields {
-		if field != other.Fields[i] {
-			return false
-		}
-	}
-
-	return true
-}
-
 //go:generate genvalidate ColumnConstraints
 
 // Address is a native userstore type that represents a physical address
@@ -126,18 +106,6 @@ type Address struct {
 	AdministrativeArea string `json:"administrative_area,omitempty"`
 	PostCode           string `json:"post_code,omitempty"`
 	SortingCode        string `json:"sorting_code,omitempty"`
-}
-
-// NewAddressSet returns a set of addresses
-func NewAddressSet(items ...Address) set.Set[Address] {
-	return set.New(
-		func(items []Address) {
-			sort.Slice(items, func(i, j int) bool {
-				return fmt.Sprintf("%+v", items[i]) < fmt.Sprintf("%+v", items[j])
-			})
-		},
-		items...,
-	)
 }
 
 //go:generate gendbjson Address
@@ -170,8 +138,8 @@ type Column struct {
 	ID           uuid.UUID         `json:"id"`
 	Table        string            `json:"table"` // TODO (sgarrity 6/24): validate & mark as required once people update
 	Name         string            `json:"name" validate:"length:1,128" required:"true"`
-	DataType     ResourceID        `json:"data_type" validate:"skip"`
-	Type         DataType          `json:"type" required:"true"`
+	DataType     ResourceID        `json:"data_type" required:"true"`
+	Type         DataType          `json:"type" validate:"skip"`
 	IsArray      bool              `json:"is_array" required:"true"`
 	DefaultValue string            `json:"default_value"`
 	IndexType    ColumnIndexType   `json:"index_type" required:"true"`
@@ -179,48 +147,7 @@ type Column struct {
 	Constraints  ColumnConstraints `json:"constraints" description:"Optional constraints for configuring the behavior of the associated column Type."`
 }
 
-var validIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_-]*$`)
-
-func (c *Column) extraValidate() error {
-	// TODO (sgarrity 6/24): see above validation comment, remove the != "" check when ready
-	if c.Table != "" && !validIdentifier.MatchString(c.Table) {
-		return ucerr.Friendlyf(nil, `"%s" is not a valid table name`, c.Table)
-	}
-
-	if !validIdentifier.MatchString(c.Name) {
-		return ucerr.Friendlyf(nil, `"%s" is not a valid column name`, c.Name)
-	}
-
-	return nil
-}
-
 //go:generate genvalidate Column
-
-// GetPaginationKeys is part of the pagination.PageableType interface
-func (Column) GetPaginationKeys() pagination.KeyTypes {
-	return pagination.KeyTypes{
-		"id":      pagination.UUIDKeyType,
-		"name":    pagination.StringKeyType,
-		"created": pagination.TimestampKeyType,
-		"updated": pagination.TimestampKeyType,
-	}
-}
-
-// EqualsIgnoringNilID returns true if the two columns are equal, ignoring ID if one is nil
-func (c *Column) EqualsIgnoringNilID(other *Column) bool {
-	return (c.ID == other.ID || c.ID.IsNil() || other.ID.IsNil()) &&
-		(strings.EqualFold(c.Table, other.Table) ||
-			c.Table == "" && other.Table == "users" ||
-			c.Table == "users" && other.Table == "") &&
-		strings.EqualFold(c.Name, other.Name) &&
-		c.Type == other.Type &&
-		c.DataType.EquivalentTo(other.DataType) &&
-		c.IsArray == other.IsArray &&
-		c.DefaultValue == other.DefaultValue &&
-		c.IndexType == other.IndexType &&
-		c.IsSystem == other.IsSystem &&
-		c.Constraints.Equals(other.Constraints)
-}
 
 // Record is a single "row" of data containing 0 or more Columns from userstore's schema
 // The key is the name of the column
@@ -374,7 +301,7 @@ type Accessor struct {
 	ID uuid.UUID `json:"id"`
 
 	// Name of accessor, must be unique
-	Name string `json:"name" validate:"length:1,128" required:"true"`
+	Name string `json:"name" validate:"length:1,256" required:"true"`
 
 	// Description of the accessor
 	Description string `json:"description"`

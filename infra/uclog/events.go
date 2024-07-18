@@ -47,6 +47,28 @@ func (l LogLevel) String() string {
 	}
 }
 
+// GetPrefix returns the single character prefix for the log level used to identify the log level in logs
+func (l LogLevel) GetPrefix() string {
+	switch l {
+	case LogLevelNone:
+		fallthrough
+	case LogLevelNonMessage:
+		return "N"
+	case LogLevelVerbose:
+		return "V"
+	case LogLevelDebug:
+		return "D"
+	case LogLevelInfo:
+		return "I"
+	case LogLevelWarning:
+		return "W"
+	case LogLevelError:
+		return "E"
+	default:
+		return "U"
+	}
+}
+
 // GetLogLevel returns the log level for a given string log level name
 func GetLogLevel(name string) (LogLevel, error) {
 	switch strings.ToLower(name) {

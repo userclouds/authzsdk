@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 	"time"
-
-	"userclouds.com/infra/namespace/region"
 )
 
 // LocalStatus contains basic approximate statistics about the service
@@ -13,14 +11,10 @@ type LocalStatus struct {
 	CallCount          int       `json:"callcount"`           // total calls received by the service
 	InputErrorCount    int       `json:"input_errorcount"`    // number of input errors
 	InternalErrorCount int       `json:"internal_errorcount"` // number of internal errors
-	StartupTime        time.Time `json:"startup_time"`        // time the service started
 	LastCall           time.Time `json:"lastcall_time"`       // timestamp of last successful call
 	LastErrorCall      time.Time `json:"lasterror_time"`      // timestamp of last error
 	LastErrorCode      int       `json:"lasterror_code"`      // last error code
 	ComputeTime        int       `json:"computetime"`         // amount of time spent in handlers
-
-	Hostname string               `json:"hostname"` // for understanding the response
-	Region   region.MachineRegion `json:"region"`
 
 	LoggerStats []LogTransportStats `json:"loggerstats"`
 }
@@ -29,8 +23,6 @@ var status LocalStatus
 
 // GetStatus return approximate statistics about the service
 func GetStatus() LocalStatus {
-	status.Hostname = Hostname()
-	status.Region = region.Current()
 	status.LoggerStats = GetStats()
 	return status
 }
@@ -51,11 +43,6 @@ func Hostname() string {
 		host = fmt.Sprintf("error getting hostname: %v", err)
 	}
 	return host
-}
-
-// initStatus initializes stats
-func (s *LocalStatus) initStatus() {
-	s.StartupTime = time.Now().UTC()
 }
 
 // updateStatus updates stats, last writer wins some the results are approximate

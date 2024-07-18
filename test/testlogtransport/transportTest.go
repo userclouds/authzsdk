@@ -136,7 +136,7 @@ func (tt *TransportTest) AssertLogsDoesntContainString(s string) {
 	tt.t.Helper()
 	messages := tt.getLogMessages()
 	for _, msg := range messages {
-		assert.False(tt.t, strings.Contains(msg, s), assert.Errorf("Log message '%s' contains string: '%s'", msg, s))
+		assert.DoesNotContain(tt.t, msg, s)
 	}
 }
 
