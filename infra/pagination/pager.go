@@ -19,15 +19,18 @@ type Paginator struct {
 	hasResultType          bool                       // set if type of result has been specified
 	limit                  int                        // set via Limit option or defaulted to DefaultLimit
 	sortKey                Key                        // set via SortKey option, defaults to "id"
-	sortOrder              Order                      // set via SortOrder option, defaults to SortAscending
+	sortOrder              Order                      // set via SortOrder option, defaults to OrderAscending
 	filter                 string                     // set via Filter option
 	filterQuery            *FilterQuery               // parsed filter
 	supportedKeys          KeyTypes                   // set based on type of result
 	anyDuplicateSortKeys   bool                       // set as part of initialization and validation of sort keys
 	anyUnsupportedSortKeys bool                       // set as part of initialization and validation of sort keys
+	finalSortKeyValid      bool                       // set as part of initialization and validation of sort keys
 	options                []Option                   // collection of options used to produce the Paginator
 	version                Version                    // the pagination request version
 	isKeySupported         func(string) bool          // function that checks whether key is supported
+	isNullableKey          func(string) bool          // function that checks whether key has a nullable key type
+	isValidFinalSortKey    func(string) bool          // function that checks whether key is a valid final sort key
 	keyValueValidator      func(string, string) error // function that returns an error if key or value are invalid
 	supportedKeysValidator func() error               // function that returns an error if the supported keys are invalid
 }
@@ -39,6 +42,7 @@ func ApplyOptions(options ...Option) (*Paginator, error) {
 		sortOrder:     OrderAscending,
 		supportedKeys: KeyTypes{},
 		version:       Version3,
+		isNullableKey: func(string) bool { return false },
 	}
 
 	for _, option := range options {
@@ -96,13 +100,20 @@ func (p *Paginator) AdvanceCursor(rf ResponseFields) bool {
 }
 
 func (p *Paginator) classifySortKeys() {
+	p.finalSortKeyValid = true
+
 	uniqueSortKeys := map[string]bool{}
 	for _, key := range strings.Split(string(p.sortKey), ",") {
 		if uniqueSortKeys[key] {
 			p.anyDuplicateSortKeys = true
-		} else if p.isKeySupported != nil {
-			if !p.isKeySupported(key) {
-				p.anyUnsupportedSortKeys = true
+		} else {
+			if p.isKeySupported != nil {
+				if !p.isKeySupported(key) {
+					p.anyUnsupportedSortKeys = true
+				}
+			}
+			if p.isValidFinalSortKey != nil {
+				p.finalSortKeyValid = p.isValidFinalSortKey(key)
 			}
 		}
 		uniqueSortKeys[key] = true
@@ -132,11 +143,6 @@ func (p Paginator) GetVersion() Version {
 // IsForward returns true if the paginator is configured to page forward
 func (p Paginator) IsForward() bool {
 	return p.direction == DirectionForward
-}
-
-// IsCachable returns true if the paginator is configured to be default and cached value can be returned
-func (p Paginator) IsCachable() bool {
-	return p.filter == "" && p.sortKey == "id" && p.sortOrder == OrderAscending
 }
 
 // Query converts the paginator settings into HTTP GET query parameters.
@@ -238,6 +244,10 @@ func (p Paginator) Validate() error {
 
 	if p.anyDuplicateSortKeys {
 		return ucerr.Errorf("specified sort key contains duplicate keys: %v", p.sortKey)
+	}
+
+	if !p.finalSortKeyValid {
+		return ucerr.Errorf("final sort key must be 'id', which is guaranteed to be non-nil and unique: %v", p.sortKey)
 	}
 
 	if p.filter != "" {

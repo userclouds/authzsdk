@@ -50,14 +50,19 @@ func EndingBefore(cursor Cursor) Option {
 // For LEAF queries, KEY must be a valid result type key for type of the result being returned. Valid keys are stored
 // in a KeyTypes map in a configured paginator, mapping a key name to a KeyType. Supported KeyTypes include:
 //
-//	ArrayKeyType     (must be a string value to be searched for in an array of strings)
-//	BoolKeyType      (value may be specified as any string that can be parsed by https://pkg.go.dev/strconv#example-ParseBool)
-//	IntKeyType       (must be a valid string representation of an int64)
-//	StringKeyType    (string value can only have single-quotes or double-quotes in the string that are escaped with a
-//	                  back-slash (i.e., \' or \"))
-//	TimestampKeyType (the number of microseconds since January 1, 1970 UTC)
-//	UUIDArrayKeyType (must be a valid string representation of a UUID)
-//	UUIDKeyType      (must be a valid string representation of a UUID)
+//	ArrayKeyType             (must be a string value to be searched for in an array of strings)
+//	BoolKeyType              (value may be specified as any string that can be parsed by https://pkg.go.dev/strconv#example-ParseBool)
+//	IntKeyType               (must be a valid string representation of an int64)
+//	NullableBoolKeyType      (value must either be unspecified (i.e., NULL) or a valid BoolKeyType
+//	NullableIntKeyType       (value must either be unspecified (i.e., NULL) or a valid IntKeyType
+//	NullableStringKeyType    (value must either be unspecified (i.e., NULL) or a valid StringKeyType
+//	NullableTimestampKeyType (value must either be unspecified (i.e., NULL) or a valid TimestampKeyType
+//	NullableUUIDKeyType      (value must either be unspecified (i.e., NULL) or a valid UUIDKeyType
+//	StringKeyType            (string value can only have single-quotes or double-quotes in the string that are escaped with a
+//	                          back-slash (i.e., \' or \"))
+//	TimestampKeyType         (the number of microseconds since January 1, 1970 UTC)
+//	UUIDArrayKeyType         (must be a valid string representation of a UUID)
+//	UUIDKeyType              (must be a valid string representation of a UUID)
 //
 // By default, all result types support "id" as a valid key of KeyType UUIDKeyType. New supported keys can be added
 // to a result type by defining the GetPaginationKeys() method of the PageableType interface for the result type,

@@ -135,16 +135,18 @@ const (
 // in the user data store of a tenant.
 type Column struct {
 	// Columns may be renamed, but their ID cannot be changed.
-	ID           uuid.UUID         `json:"id"`
-	Table        string            `json:"table"` // TODO (sgarrity 6/24): validate & mark as required once people update
-	Name         string            `json:"name" validate:"length:1,128" required:"true"`
-	DataType     ResourceID        `json:"data_type" required:"true"`
-	Type         DataType          `json:"type" validate:"skip"`
-	IsArray      bool              `json:"is_array" required:"true"`
-	DefaultValue string            `json:"default_value"`
-	IndexType    ColumnIndexType   `json:"index_type" required:"true"`
-	IsSystem     bool              `json:"is_system" description:"Whether this column is a system column. System columns cannot be deleted or modified. This property cannot be changed."`
-	Constraints  ColumnConstraints `json:"constraints" description:"Optional constraints for configuring the behavior of the associated column Type."`
+	ID                       uuid.UUID         `json:"id"`
+	Table                    string            `json:"table"` // TODO (sgarrity 6/24): validate & mark as required once people update
+	Name                     string            `json:"name" validate:"length:1,128" required:"true"`
+	DataType                 ResourceID        `json:"data_type" required:"true"`
+	Type                     DataType          `json:"type" validate:"skip"`
+	IsArray                  bool              `json:"is_array" required:"true"`
+	DefaultValue             string            `json:"default_value"`
+	DefaultTransformer       ResourceID        `json:"default_transformer" validate:"skip"`
+	DefaultTokenAccessPolicy ResourceID        `json:"default_token_access_policy" validate:"skip"`
+	IndexType                ColumnIndexType   `json:"index_type" required:"true"`
+	IsSystem                 bool              `json:"is_system" description:"Whether this column is a system column. System columns cannot be deleted or modified. This property cannot be changed."`
+	Constraints              ColumnConstraints `json:"constraints" description:"Optional constraints for configuring the behavior of the associated column Type."`
 }
 
 //go:generate genvalidate Column
@@ -238,7 +240,7 @@ func (r ResourceID) Validate() error {
 // ColumnOutputConfig is a struct that contains a column and the transformer to apply to that column
 type ColumnOutputConfig struct {
 	Column      ResourceID `json:"column"`
-	Transformer ResourceID `json:"transformer"`
+	Transformer ResourceID `json:"transformer" validate:"skip"`
 }
 
 // GetRetentionTimeoutImmediateDeletion returns the immediate deletion retention timeout
@@ -347,10 +349,6 @@ func (o *Accessor) extraValidate() error {
 	for _, ct := range o.Columns {
 		if err := ct.Column.Validate(); err != nil {
 			return ucerr.Friendlyf(err, "Each element of Accessor.Columns (%v) must have a column ID or name", o.ID)
-		}
-
-		if err := ct.Transformer.Validate(); err != nil {
-			return ucerr.Friendlyf(err, "Each element of Accessor.Columns (%v) must have a transformer ID or name", o.ID)
 		}
 	}
 

@@ -29,13 +29,18 @@ type KeyType string
 
 // Valid KeyTypes
 const (
-	ArrayKeyType     KeyType = "Array"
-	BoolKeyType      KeyType = "Boolean"
-	IntKeyType       KeyType = "Int"
-	StringKeyType    KeyType = "String"
-	TimestampKeyType KeyType = "Timestamp"
-	UUIDArrayKeyType KeyType = "UUIDArray"
-	UUIDKeyType      KeyType = "UUID"
+	ArrayKeyType             KeyType = "Array"
+	BoolKeyType              KeyType = "Boolean"
+	IntKeyType               KeyType = "Int"
+	NullableBoolKeyType      KeyType = "NullableBoolean"
+	NullableIntKeyType       KeyType = "NullableInt"
+	NullableStringKeyType    KeyType = "NullableString"
+	NullableTimestampKeyType KeyType = "NullableTimestamp"
+	NullableUUIDKeyType      KeyType = "NullableUUID"
+	StringKeyType            KeyType = "String"
+	TimestampKeyType         KeyType = "Timestamp"
+	UUIDArrayKeyType         KeyType = "UUIDArray"
+	UUIDKeyType              KeyType = "UUID"
 )
 
 // Validate implements the Validatable interface
@@ -44,6 +49,11 @@ func (kt KeyType) Validate() error {
 	case ArrayKeyType:
 	case BoolKeyType:
 	case IntKeyType:
+	case NullableBoolKeyType:
+	case NullableIntKeyType:
+	case NullableStringKeyType:
+	case NullableTimestampKeyType:
+	case NullableUUIDKeyType:
 	case StringKeyType:
 	case TimestampKeyType:
 	case UUIDArrayKeyType:
