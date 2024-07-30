@@ -16,6 +16,7 @@ import (
 	"userclouds.com/idp/userstore"
 	"userclouds.com/idp/userstore/datatype"
 	"userclouds.com/infra/jsonclient"
+	"userclouds.com/infra/pagination"
 )
 
 // This sample shows you how to create new columns in the user store and create access policies governing access
@@ -529,6 +530,140 @@ func (s *sample) setup(ctx context.Context) {
 	s.createdMutatorIDsByName["MutatorForSecurityTeam"] = securityM.ID
 }
 
+func (s *sample) paginationExample(ctx context.Context) {
+	// create a simple accessor to illustrate pagination
+
+	paginationA, err := s.idpClient.CreateAccessor(
+		ctx,
+		userstore.Accessor{
+			Name:               s.getEntityName("PaginationAccessor"),
+			DataLifeCycleState: userstore.DataLifeCycleStateLive,
+			AccessPolicy:       userstore.ResourceID{ID: policy.AccessPolicyAllowAll.ID},
+			Columns: []userstore.ColumnOutputConfig{
+				{
+					Column:      userstore.ResourceID{Name: "id"},
+					Transformer: userstore.ResourceID{ID: policy.TransformerPassthrough.ID},
+				},
+				{
+					Column:      userstore.ResourceID{Name: "email"},
+					Transformer: userstore.ResourceID{ID: policy.TransformerPassthrough.ID},
+				},
+			},
+			SelectorConfig: userstore.UserSelectorConfig{WhereClause: "{id} = ANY(?)"},
+			Purposes: []userstore.ResourceID{
+				{Name: "operational"},
+			},
+		},
+		idp.IfNotExists(),
+	)
+	if err != nil {
+		panic(err)
+	}
+	s.createdAccessorIDsByName["PaginationAccessor"] = paginationA.ID
+
+	// create a set of test users
+
+	var userIDs []uuid.UUID
+	var userEmails []string
+
+	userEmailPrefix := s.getEntityName("test")
+	for i := 0; i < 50; i++ {
+		userEmail := fmt.Sprintf("%s_%02d@test.org", userEmailPrefix, i)
+		userID, err := s.idpClient.CreateUser(ctx, userstore.Record{"email": userEmail})
+		if err != nil {
+			panic(err)
+		}
+		userIDs = append(userIDs, userID)
+		userEmails = append(userEmails, userEmail)
+	}
+
+	defer func() {
+		for _, userID := range userIDs {
+			if err := s.idpClient.DeleteUser(ctx, userID); err != nil {
+				panic(err)
+			}
+		}
+	}()
+
+	// ascending forward pagination
+
+	s.paginationExecute(ctx, "forward ascending", pagination.CursorBegin, true, true, userIDs...)
+
+	// descending forward pagination
+
+	s.paginationExecute(ctx, "forward descending", pagination.CursorBegin, true, false, userIDs...)
+
+	// ascending backward pagination
+
+	s.paginationExecute(ctx, "backward ascending", pagination.CursorEnd, false, true, userIDs...)
+
+	// descending backward pagination
+
+	s.paginationExecute(ctx, "backward descending", pagination.CursorEnd, false, false, userIDs...)
+}
+
+func (s *sample) paginationExecute(
+	ctx context.Context,
+	description string,
+	cursor pagination.Cursor,
+	forward bool,
+	ascending bool,
+	userIDs ...uuid.UUID,
+) {
+	var options []idp.Option
+
+	if forward {
+		options = append(options, idp.Pagination(pagination.StartingAfter(cursor)))
+	} else {
+		options = append(options, idp.Pagination(pagination.EndingBefore(cursor)))
+	}
+
+	if ascending {
+		options = append(options, idp.Pagination(pagination.SortOrder(pagination.OrderAscending)))
+	} else {
+		options = append(options, idp.Pagination(pagination.SortOrder(pagination.OrderDescending)))
+	}
+
+	options = append(options, idp.Pagination(pagination.SortKey("email,id")))
+	options = append(options, idp.Pagination(pagination.Limit(25)))
+
+	fmt.Printf("\nexecuting %s pagination accessor with cursor '%v':\n", description, cursor)
+
+	resp, err := s.idpClient.ExecuteAccessor(
+		ctx,
+		s.createdAccessorIDsByName["PaginationAccessor"],
+		policy.ClientContext{},
+		[]interface{}{userIDs},
+		options...,
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf(
+		"- returned %d rows, HasNext = '%v', Next = '%v', HasPrev = '%v', Prev = '%v'\n",
+		len(resp.Data),
+		resp.HasNext,
+		resp.Next,
+		resp.HasPrev,
+		resp.Prev,
+	)
+
+	for _, dataRow := range resp.Data {
+		fmt.Printf("-- %s\n", dataRow)
+	}
+
+	if forward {
+		if resp.HasNext {
+			s.paginationExecute(ctx, description, resp.Next, forward, ascending, userIDs...)
+		}
+	} else {
+		if resp.HasPrev {
+			s.paginationExecute(ctx, description, resp.Prev, forward, ascending, userIDs...)
+		}
+	}
+}
+
 func (s *sample) example(ctx context.Context) {
 	userEmail := fmt.Sprintf("%s@test.org", s.getEntityName("test"))
 	uid, err := s.idpClient.CreateUser(ctx, userstore.Record{"email": userEmail})
@@ -569,10 +704,12 @@ func (s *sample) example(ctx context.Context) {
 
 	// Use security accessor to get the user details.
 
-	resolved, err := s.idpClient.ExecuteAccessor(ctx,
+	resolved, err := s.idpClient.ExecuteAccessor(
+		ctx,
 		s.createdAccessorIDsByName["AccessorForSecurity"],
 		policy.ClientContext{"api_key": "api_key_for_security_team"},
-		[]interface{}{"%Evergreen%"})
+		[]interface{}{"%Evergreen%"},
+	)
 	if err != nil {
 		panic(err)
 	}
@@ -769,5 +906,6 @@ func main() {
 	s := newSample()
 	s.setup(ctx)
 	s.example(ctx)
+	s.paginationExample(ctx)
 	s.cleanup(ctx)
 }

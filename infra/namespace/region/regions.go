@@ -9,7 +9,8 @@ import (
 	"userclouds.com/infra/ucerr"
 )
 
-const regionEnvVar = "UC_REGION"
+// RegionEnvVar is the environment variable that contains the region
+const RegionEnvVar = "UC_REGION"
 
 // MachineRegion represents a region for our systems or located
 type MachineRegion string
@@ -33,7 +34,7 @@ func MachineRegionsForUniverse(u universe.Universe) []MachineRegion {
 // Current returns the current region, or empty string
 // TODO: error check against known list?
 func Current() MachineRegion {
-	r := os.Getenv(regionEnvVar)
+	r := os.Getenv(RegionEnvVar)
 	return MachineRegion(r)
 }
 

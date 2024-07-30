@@ -64,8 +64,8 @@ type QueryParams struct {
 	EndingBefore  *string `description:"A cursor value before which the returned list will end" query:"ending_before"`
 	Limit         *string `description:"The maximum number of results to be returned per page" query:"limit"`
 	Filter        *string `description:"A filter clause to use in the pagination query" query:"filter"`
-	SortKey       *string `description:"The field(s) used to sort the results" query:"sort_key"`
-	SortOrder     *string `description:"The sort order for each field (ascending or descending)" query:"sort_order"`
+	SortKey       *string `description:"A comma-delimited list of field names to sort the returned results by - the last field name must be 'id'" query:"sort_key"`
+	SortOrder     *string `description:"The order in which results should be sorted (ascending or descending)" query:"sort_order"`
 	Version       *string `description:"The version of the API to be called" query:"version"`
 }
 

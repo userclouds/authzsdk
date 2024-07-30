@@ -230,6 +230,10 @@ func (a AccessPolicy) extraValidate() error {
 		return ucerr.Friendlyf(nil, `Access policy name "%s" has invalid characters`, a.Name)
 	}
 
+	if len(a.Components) == 0 {
+		return ucerr.New("AccessPolicy must have at least one component")
+	}
+
 	return nil
 }
 

@@ -17,7 +17,6 @@ const (
 )
 
 // Supported universes.
-// NOTE: keep in sync with `enum Universe` in TSX codebase
 const (
 	Undefined Universe = "undefined" // undefined universe
 	Dev       Universe = "dev"       // local dev laptops

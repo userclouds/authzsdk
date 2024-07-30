@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.0 - 30-07-2024
+
+- Update userstore sample to exercise multi-key execute accessor pagination
+
 ## 1.4.0 - 18-07-2024
 
 - Deprecate v1.0.0 and v1.1.0
