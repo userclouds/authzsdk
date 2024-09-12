@@ -334,13 +334,15 @@ func (c *InMemoryClientCacheProvider) DeleteValue(ctx context.Context, keysIn []
 	setTombstone = setTombstone && c.tombstoneTTL > 0 // don't actually set tombstone if tombstoneTTL is 0
 	keys := c.getStringKeysFromCacheKeys(keysIn)
 
+	tombstoneValue := GenerateTombstoneSentinel() // Generate a unique tombstone value
+
 	c.keysMutex.Lock()
 	defer c.keysMutex.Unlock()
 
 	if force {
 		// Delete or tombstone regardless of value
 		if setTombstone {
-			c.inMemMultiSet(keys, string(TombstoneSentinel), false, c.tombstoneTTL)
+			c.inMemMultiSet(keys, string(tombstoneValue), false, c.tombstoneTTL)
 			uclog.Verbosef(ctx, "Cache[%v] tombstoned keys %v", c.cacheName, keys)
 		} else {
 			c.inMemMultiDelete(keys)
@@ -357,7 +359,7 @@ func (c *InMemoryClientCacheProvider) DeleteValue(ctx context.Context, keysIn []
 					}
 				}
 				if setTombstone {
-					c.cache.Set(k, string(TombstoneSentinel), c.tombstoneTTL)
+					c.cache.Set(k, string(tombstoneValue), c.tombstoneTTL)
 				} else {
 					c.cache.Delete(k)
 				}
@@ -403,6 +405,9 @@ func (c *InMemoryClientCacheProvider) saveKeyArray(dkeys []string, newKeys []str
 
 func (c *InMemoryClientCacheProvider) deleteKeyArray(dkey string, setTombstone bool) {
 	isTombstone := false
+
+	tombstoneValue := GenerateTombstoneSentinel() // Generate a unique tombstone value
+
 	if x, found := c.cache.Get(dkey); found {
 		if keyNames, ok := x.([]string); ok {
 			c.inMemMultiDelete(keyNames)
@@ -413,7 +418,7 @@ func (c *InMemoryClientCacheProvider) deleteKeyArray(dkey string, setTombstone b
 		}
 	}
 	if setTombstone {
-		c.cache.Set(dkey, string(TombstoneSentinel), c.tombstoneTTL)
+		c.cache.Set(dkey, string(tombstoneValue), c.tombstoneTTL)
 	} else {
 		if !isTombstone {
 			c.cache.Delete(dkey)

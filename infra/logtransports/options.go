@@ -39,9 +39,17 @@ func SupportsColor() ToolLogOption {
 	})
 }
 
+// UseJSONLog specifies that the user should be logged in JSON format
+func UseJSONLog() ToolLogOption {
+	return optFunc(func(po *ToolLogConfig) {
+		po.useJSONLog = true
+	})
+}
+
 // ToolLogConfig describes optional parameters for configuring logging for a tool
 type ToolLogConfig struct {
 	filename      string
 	prefix        int
 	supportsColor bool
+	useJSONLog    bool
 }

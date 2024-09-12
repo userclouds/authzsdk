@@ -96,7 +96,7 @@ type RateLimitableItem interface {
 }
 
 // InvalidationHandler is the type for a function that is called when the cache is invalidated
-type InvalidationHandler func(ctx context.Context, key Key) error
+type InvalidationHandler func(ctx context.Context, key Key, flush bool) error
 
 // Capabilities is the interface for expressing the capabilities of a cache provider
 type Capabilities interface {
@@ -598,14 +598,14 @@ func saveItemToCacheWorker[item SingleItem](ctx context.Context, c Manager, i it
 		keyNames := []Key{}
 		keyNames = append(keyNames, i.GetSecondaryKeys(c.N)...)
 		keyNames = append(keyNames, i.GetPrimaryKey(c.N))
-		keyset, conflict, err := c.P.SetValue(ctx, lkey, keyNames, string(b), sentinel, i.TTL(c.T))
+		keyset, _, err := c.P.SetValue(ctx, lkey, keyNames, string(b), sentinel, i.TTL(c.T))
 		if err != nil {
 			uclog.Errorf(ctx, "Error saving item to cache: %v", err)
 		}
 		// Clear all the collections that this item might appear in. This is needed for create/update operations that might change the collection
 		ckeys := []Key{}
 		clearKeysOnError := false
-		if clearCollection && !conflict {
+		if clearCollection /* && !conflict - we can't skip clearing on conflict due on machine caches */ {
 			// Check if there is a default global collection for all items of this type and it is being used directly for follower reads
 			if i.GetGlobalCollectionKey(c.N) != "" && i.GetIsModifiedCollectionKey(c.N) == "" {
 				ckeys = append(ckeys, i.GetGlobalCollectionKey(c.N))
@@ -739,7 +739,7 @@ func SaveItemsToCollection[item SingleItem, cItem SingleItem](ctx context.Contex
 				saveCollection = false
 			}
 		}
-		// If we don't save the collection the cache is still in a consistent state - we just didn't cache the collection
+		// If we don't save the collection the cache is still in a consistent state - we just don't cache the collection
 		if saveCollection {
 			if r, _, err := c.P.SetValue(ctx, lockKey, []Key{colKey}, string(b), sentinel, ttl); err == nil && r {
 				uclog.Verbosef(ctx, "Saved collection %v to cache", colKey)

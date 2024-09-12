@@ -167,19 +167,20 @@ func (t *transportBackgroundIOWrapper) writeToIO(ctx context.Context) {
 
 func (t *transportBackgroundIOWrapper) queueCapacityBackoff() uclog.LogLevel {
 	// Default case when the queue is not overloaded
-	if t.queueSize < debugBackOffSize {
+	queueSize := atomic.LoadInt64(&t.queueSize)
+	if queueSize < debugBackOffSize {
 		return uclog.LogLevelVerbose
 	}
-	if t.queueSize < infoBackOffSize {
+	if queueSize < infoBackOffSize {
 		return uclog.LogLevelDebug
 	}
-	if t.queueSize < warningBackoffSize {
+	if queueSize < warningBackoffSize {
 		return uclog.LogLevelInfo
 	}
-	if t.queueSize < errorBackOffSize {
+	if queueSize < errorBackOffSize {
 		return uclog.LogLevelWarning
 	}
-	if t.queueSize < maxQueueSize {
+	if queueSize < maxQueueSize {
 		return uclog.LogLevelError
 	}
 	// Drop the message
@@ -198,7 +199,7 @@ func (t *transportBackgroundIOWrapper) writeLogRecord(event *uclog.LogEvent) {
 	t.postMutext.Lock()
 	var record = logRecord{time.Now().UTC(), *event, t.diskRecords}
 	t.diskRecords = &record
-	t.queueSize++
+	atomic.AddInt64(&t.queueSize, 1)
 	t.postMutext.Unlock()
 }
 
@@ -211,11 +212,14 @@ func (t *transportBackgroundIOWrapper) Write(ctx context.Context, event uclog.Lo
 }
 
 func (t *transportBackgroundIOWrapper) GetStats() uclog.LogTransportStats {
+	queueSize := atomic.LoadInt64(&t.queueSize)
+	sentEventCount := atomic.LoadInt64(&t.sentEventCount)
+	droppedEventCount := atomic.LoadInt64(&t.droppedEventCount)
 	return uclog.LogTransportStats{
 		Name:                t.w.getTransportName(),
-		QueueSize:           t.queueSize,
-		DroppedEventCount:   t.droppedEventCount,
-		SentEventCount:      t.sentEventCount,
+		QueueSize:           queueSize,
+		DroppedEventCount:   droppedEventCount,
+		SentEventCount:      sentEventCount,
 		FailedAPICallsCount: t.w.getFailedAPICallsCount(),
 	}
 

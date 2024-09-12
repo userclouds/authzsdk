@@ -3,10 +3,10 @@ package logtransports
 import (
 	"gopkg.in/yaml.v3"
 
+	"userclouds.com/infra/jsonclient"
 	"userclouds.com/infra/namespace/service"
 	"userclouds.com/infra/namespace/universe"
 	"userclouds.com/infra/ucerr"
-	"userclouds.com/infra/ucjwt"
 	"userclouds.com/infra/uclog"
 )
 
@@ -78,7 +78,7 @@ func registerDecoder(name TransportType, f func(*yaml.Node) (TransportConfig, er
 
 // TransportConfig defines the interface for a transport config
 type TransportConfig interface {
-	GetTransport(service.Service, *ucjwt.Config) uclog.Transport
+	GetTransport(service.Service, jsonclient.Option) uclog.Transport
 	GetType() TransportType
 	Validate() error
 }

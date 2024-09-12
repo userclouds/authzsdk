@@ -51,19 +51,19 @@ func (s *LocalStatus) updateStatus(e LogEvent, t LogEventTypeInfo) {
 		return
 	}
 
-	if t.Category == "Call" {
+	if t.Category == EventCategoryCall {
 		s.CallCount++
 		s.LastCall = time.Now().UTC()
 		return
 	}
 
-	if t.Category == "Duration" {
+	if t.Category == EventCategoryDuration {
 		s.ComputeTime = s.ComputeTime + e.Count
 		return
 	}
 
-	if t.Category == "InternalError" || t.Category == "InputError" {
-		if t.Category == "InternalError" {
+	if t.Category == EventCategoryInternalError || t.Category == EventCategoryInputError {
+		if t.Category == EventCategoryInternalError {
 			s.InternalErrorCount++
 		} else {
 			s.InputErrorCount++

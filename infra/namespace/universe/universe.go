@@ -26,6 +26,7 @@ const (
 	Staging   Universe = "staging"   // cloud hosted staging universe (similar to prod)
 	Prod      Universe = "prod"      // user-facing prod deployment
 	Container Universe = "container" //  container (dev only for now)
+	OnPrem    Universe = "onprem"    // on-premises deployment
 )
 
 //go:generate genstringconstenum Universe
@@ -78,6 +79,16 @@ func (u Universe) IsDev() bool {
 // IsCloud returns true if universe is one of the cloud envs (prod, staging debug)
 func (u Universe) IsCloud() bool {
 	return u.IsProdOrStaging() || u.IsDebug()
+}
+
+// IsOnPrem returns true if universe is on-premises
+func (u Universe) IsOnPrem() bool {
+	return u == OnPrem
+}
+
+// IsOnPremOrContainer returns true if universe is on-premises or container
+func (u Universe) IsOnPremOrContainer() bool {
+	return u.IsOnPrem() || u.IsContainer()
 }
 
 // IsTestOrCI returns true if universe is CI or tests

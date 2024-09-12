@@ -68,7 +68,7 @@ func (c *WriteThroughCacheSentinelManager) CanSetValue(currVal string, val strin
 		// We are doing a write of an item and we are interleaved with other write(s)
 		if !c.IsSentinelValue(currVal) && val != currVal {
 			// If there is a tombstone in the cache, we overlapped with either a delete or an invalidation
-			if currVal != string(TombstoneSentinel) {
+			if !IsTombstoneSentinel(currVal) {
 				// There is a value in the cache and it doesn't match what we got from the server, clear the cache because we had interleaving writes
 				// finish before us with a different value. We can't tell what the server side order of completion was
 				return false, true, false, false
@@ -88,7 +88,7 @@ func (c *WriteThroughCacheSentinelManager) CanSetValue(currVal string, val strin
 
 // IsSentinelValue returns true if the value passed in is a sentinel value
 func (c *WriteThroughCacheSentinelManager) IsSentinelValue(v string) bool {
-	return strings.HasPrefix(v, sentinelPrefix) || v == string(TombstoneSentinel)
+	return strings.HasPrefix(v, sentinelPrefix) || IsTombstoneSentinel(v)
 }
 
 // IsInvalidatingSentinelValue returns true if the sentinel requires invalidating the value across other

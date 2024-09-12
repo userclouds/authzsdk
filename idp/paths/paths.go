@@ -27,6 +27,14 @@ var (
 	UpdateDatabasePath = singleDatabasePath
 	DeleteDatabasePath = singleDatabasePath
 
+	ObjectStorePath       = fmt.Sprintf("%s/objectstores", BaseConfigPath)
+	CreateObjectStorePath = ObjectStorePath
+	ListObjectStoresPath  = ObjectStorePath
+	singleObjectStorePath = func(id uuid.UUID) string { return fmt.Sprintf("%s/%s", ObjectStorePath, id) }
+	GetObjectStorePath    = singleObjectStorePath
+	UpdateObjectStorePath = singleObjectStorePath
+	DeleteObjectStorePath = singleObjectStorePath
+
 	BaseConfigColumnsPath  = fmt.Sprintf("%s/columns", BaseConfigPath)
 	singleConfigColumnPath = func(id uuid.UUID) string {
 		return fmt.Sprintf("%s/%s", BaseConfigColumnsPath, id)
@@ -156,7 +164,14 @@ var (
 	GetTransformer = func(id uuid.UUID) string {
 		return fmt.Sprintf("%s/%s", BaseTransformerPath, id)
 	}
+	GetTransformerByVersion = func(id uuid.UUID, version int) string {
+		return fmt.Sprintf("%s/%s?transformer_version=%d", BaseTransformerPath, id, version)
+	}
+	GetTransformerByNameAndVersion = func(name string, version int) string {
+		return fmt.Sprintf("%s?transformer_name=%s&transformer_version=%d", BaseTransformerPath, name, version)
+	}
 	CreateTransformer  = BaseTransformerPath
+	UpdateTransformer  = func(id uuid.UUID) string { return fmt.Sprintf("%s/%s", BaseTransformerPath, id) }
 	DeleteTransformer  = func(id uuid.UUID) string { return fmt.Sprintf("%s/%s", BaseTransformerPath, id) }
 	TestTransformer    = fmt.Sprintf("%s/actions/test", BaseTransformerPath)
 	ExecuteTransformer = fmt.Sprintf("%s/actions/execute", BaseTransformerPath)

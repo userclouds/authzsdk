@@ -16,7 +16,7 @@ import (
 type ClientCredentialsTokenSource struct {
 	TokenURL        string   `json:"token_url" validate:"notempty"`
 	ClientID        string   `json:"client_id" validate:"notempty"`
-	ClientSecret    string   `json:"client_secret" validate:"notempty"`
+	ClientSecret    string   `json:"client_secret" validate:"notempty"` // TODO (sgarrity 6/24): should this be secret.String?
 	CustomAudiences []string `json:"custom_audiences"`
 	SubjectJWT      string   `json:"subject_jwt"` // optional, ID Token for a UC user if this access token is being created on their behalf
 }
@@ -29,6 +29,7 @@ func (ccts ClientCredentialsTokenSource) GetToken() (string, error) {
 	if err := ccts.Validate(); err != nil {
 		return "", ucerr.Wrap(err)
 	}
+
 	query := url.Values{}
 	// TODO: move common OIDC values into constants
 	query.Add("grant_type", "client_credentials")

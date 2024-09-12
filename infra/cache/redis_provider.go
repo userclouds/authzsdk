@@ -538,6 +538,8 @@ func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []Key
 		return nil
 	}
 
+	tombstoneValue := string(GenerateTombstoneSentinel()) // Generate a unique tombstone value
+
 	if len(keysAll) != 0 {
 		// If we are forcing the delete operation, the current value of the keys is not relevant
 		if force {
@@ -548,11 +550,11 @@ func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []Key
 			if len(keysAll) == 1 {
 				// If we have single key (common case), use Set instead of MSet to avoid the overhead of creating a pipeline
 				uclog.Verbosef(ctx, "Cache[%v] DeleteValue - tombstoned keys %v", c.cacheName, keysAll[0])
-				return c.rc.Set(ctx, keysAll[0], string(TombstoneSentinel), c.tombstoneTTL).Err()
+				return c.rc.Set(ctx, keysAll[0], tombstoneValue, c.tombstoneTTL).Err()
 			}
 			// If we have multiple keys, use a pipeline to set the tombstone and expiration time
 			pipe := c.rc.Pipeline()
-			if err := multiSetWithPipe(ctx, pipe, keysAll, string(TombstoneSentinel), c.tombstoneTTL); err != nil {
+			if err := multiSetWithPipe(ctx, pipe, keysAll, tombstoneValue, c.tombstoneTTL); err != nil {
 				c.logError(ctx, err, "Cache[%v] error setting tombstone on key(s) %v -  %v", c.cacheName, keysAll, err)
 				return ucerr.Wrap(err)
 			}
@@ -592,7 +594,7 @@ func (c *RedisClientCacheProvider) DeleteValue(ctx context.Context, keysIn []Key
 
 					if len(keysToDelete) > 0 {
 						if setTombstone {
-							if err := multiSetWithPipe(ctx, pipe, keysToDelete, string(TombstoneSentinel), c.tombstoneTTL); err != nil {
+							if err := multiSetWithPipe(ctx, pipe, keysToDelete, string(tombstoneValue), c.tombstoneTTL); err != nil {
 								c.logError(ctx, err, "Cache[%v] error setting tombstone on key(s) %v -  %v", c.cacheName, keysToDelete, err)
 								return ucerr.Wrap(err)
 							}
@@ -721,6 +723,8 @@ func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn 
 		return nil
 	}
 
+	tombstoneValue := string(GenerateTombstoneSentinel()) // Generate a unique tombstone value
+
 	// Using optimistic concurrency control to clear the dependent keys for each value in key. This may cause us to flush more keys than needed but
 	// never miss one. We tombstone the key to prevent new dependencies from being added from reads that might have been in flight during deletion.
 
@@ -746,7 +750,7 @@ func (c *RedisClientCacheProvider) ClearDependencies(ctx context.Context, keyIn 
 				uclog.Verbosef(ctx, "Cache[%v] cleared dependencies (deleted) %v keys", c.cacheName, keys)
 			}
 			if setTombstone {
-				if err := pipe.Set(ctx, key, string(TombstoneSentinel), c.tombstoneTTL).Err(); err != nil {
+				if err := pipe.Set(ctx, key, tombstoneValue, c.tombstoneTTL).Err(); err != nil {
 					return ucerr.Wrap(err)
 				}
 				uclog.Verbosef(ctx, "Cache[%v] ClearDependencies set tombstone for %v", c.cacheName, key)

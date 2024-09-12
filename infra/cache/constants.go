@@ -1,6 +1,11 @@
 package cache
 
-import "time"
+import (
+	"strings"
+	"time"
+
+	"github.com/gofrs/uuid"
+)
 
 // SentinelType names
 const (
@@ -17,8 +22,8 @@ const (
 	// InvalidationTombstoneTTL value when setting a tombstone value in the cache for cross region invalidation
 	InvalidationTombstoneTTL = 5 * time.Second
 
-	// TombstoneSentinel represents the sentinel value for a tombstone
-	TombstoneSentinel Sentinel = "Tombstone"
+	// tombstoneSentinelPrefix represents the prefix for sentinel value for a tombstone
+	tombstoneSentinelPrefix Sentinel = "Tombstone"
 
 	// NoLockSentinel represents the sentinel value for no lock
 	NoLockSentinel Sentinel = ""
@@ -26,5 +31,10 @@ const (
 
 // IsTombstoneSentinel returns true if the given data is a tombstone sentinel
 func IsTombstoneSentinel(data string) bool {
-	return data == string(TombstoneSentinel)
+	return strings.HasPrefix(data, string(tombstoneSentinelPrefix))
+}
+
+// GenerateTombstoneSentinel generates a tombstone sentinel value
+func GenerateTombstoneSentinel() Sentinel {
+	return Sentinel(string(tombstoneSentinelPrefix) + uuid.Must(uuid.NewV4()).String())
 }
