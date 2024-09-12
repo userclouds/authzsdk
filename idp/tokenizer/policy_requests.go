@@ -40,7 +40,12 @@ type CreateTransformerRequest struct {
 
 //go:generate genvalidate CreateTransformerRequest
 
-// Note: Transformers are immutable for record keeping, so there are no updates
+// UpdateTransformerRequest updates a Transformer by creating a new version
+type UpdateTransformerRequest struct {
+	Transformer policy.Transformer `json:"transformer"`
+}
+
+//go:generate genvalidate UpdateTransformerRequest
 
 // TestTransformerRequest lets you run an unsaved policy for testing
 type TestTransformerRequest struct {

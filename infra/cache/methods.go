@@ -93,7 +93,7 @@ func CreateItemClient[item SingleItem](ctx context.Context, cm *Manager, id uuid
 // GetItem returns the item
 func GetItem[item SingleItem](ctx context.Context, cm *Manager, id uuid.UUID, keyID KeyNameID, modifiedKeyID KeyNameID, bypassCache bool, action func(id uuid.UUID, conflict Sentinel, i *item) error) (*item, error) {
 	sentinel := NoLockSentinel
-	conflict := TombstoneSentinel
+	conflict := GenerateTombstoneSentinel()
 	if !bypassCache {
 		var cachedObj *item
 		var err error

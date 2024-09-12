@@ -128,7 +128,6 @@ func (s *sample) setup(ctx context.Context) {
 		userstore.Column{
 			Name:      s.getEntityName("phone_number"),
 			DataType:  datatype.String,
-			Type:      userstore.DataTypeString,
 			IndexType: userstore.ColumnIndexTypeIndexed,
 		},
 		idp.IfNotExists(),
@@ -143,30 +142,11 @@ func (s *sample) setup(ctx context.Context) {
 		userstore.Column{
 			Name:      s.getEntityName("shipping_addresses"),
 			DataType:  userstore.ResourceID{ID: addressDT.ID},
-			Type:      userstore.DataTypeComposite,
 			IndexType: userstore.ColumnIndexTypeNone,
 			IsArray:   true,
 			Constraints: userstore.ColumnConstraints{
 				PartialUpdates: true,
 				UniqueRequired: true,
-				Fields: []userstore.ColumnField{
-					{
-						Name: "Street_Address",
-						Type: userstore.DataTypeString,
-					},
-					{
-						Name: "City",
-						Type: userstore.DataTypeString,
-					},
-					{
-						Name: "State",
-						Type: userstore.DataTypeString,
-					},
-					{
-						Name: "Zip",
-						Type: userstore.DataTypeString,
-					},
-				},
 			},
 		},
 		idp.IfNotExists(),
@@ -333,9 +313,7 @@ func (s *sample) setup(ctx context.Context) {
 			TransformType:      policy.TransformTypeTokenizeByValue,
 			ReuseExistingToken: true, // Fixed mapping
 			InputDataType:      datatype.String,
-			InputType:          userstore.DataTypeString,
 			OutputDataType:     datatype.String,
-			OutputType:         userstore.DataTypeString,
 			Function:           fmt.Sprintf("%s // %s", tokenizePhoneNumberFunction, s.getEntityName("TokenizePhoneByValReuse")),
 			Parameters:         ``,
 		},
@@ -355,9 +333,7 @@ func (s *sample) setup(ctx context.Context) {
 			Description:    "This transformer gets the country name for the phone number",
 			TransformType:  policy.TransformTypeTransform,
 			InputDataType:  datatype.String,
-			InputType:      userstore.DataTypeString,
 			OutputDataType: datatype.String,
-			OutputType:     userstore.DataTypeString,
 			Function: fmt.Sprintf(`function transform(data, params) {
 			try {
 				return getCountryNameForPhoneNumber(data);
@@ -379,33 +355,11 @@ func (s *sample) setup(ctx context.Context) {
 	addressT, err := s.tokenizerClient.CreateTransformer(
 		ctx,
 		policy.Transformer{
-			Name:          s.getEntityName("AddressZipOnly"),
-			Description:   "This transformer returns just the zip code of the address.",
-			TransformType: policy.TransformTypeTransform,
-			InputDataType: userstore.ResourceID{ID: addressDT.ID},
-			InputType:     userstore.DataTypeComposite,
-			InputConstraints: userstore.ColumnConstraints{
-				Fields: []userstore.ColumnField{
-					{
-						Name: "Street_Address",
-						Type: userstore.DataTypeString,
-					},
-					{
-						Name: "City",
-						Type: userstore.DataTypeString,
-					},
-					{
-						Name: "State",
-						Type: userstore.DataTypeString,
-					},
-					{
-						Name: "Zip",
-						Type: userstore.DataTypeString,
-					},
-				},
-			},
+			Name:           s.getEntityName("AddressZipOnly"),
+			Description:    "This transformer returns just the zip code of the address.",
+			TransformType:  policy.TransformTypeTransform,
+			InputDataType:  userstore.ResourceID{ID: addressDT.ID},
 			OutputDataType: datatype.String,
-			OutputType:     userstore.DataTypeString,
 			Function: fmt.Sprintf(`function transform(data, params) {
 			return data.zip;
 		} // %s`, s.getEntityName("AddressZipOnly")),

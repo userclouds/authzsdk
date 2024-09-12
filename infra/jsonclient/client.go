@@ -142,10 +142,27 @@ func (c *Client) hasTokenSource() bool {
 	return c.options.tokenSource != nil
 }
 
+func (c *Client) hasAccessToken() bool {
+	c.optionsMutex.RLock()
+	defer c.optionsMutex.RUnlock()
+	authHeaders := c.options.headers["Authorization"]
+	if len(authHeaders) == 0 {
+		return false
+	}
+
+	for _, header := range authHeaders {
+		val := strings.ToLower(header)
+		if strings.HasPrefix(val, "accesstoken ") {
+			return true
+		}
+	}
+	return false
+}
+
 // ValidateBearerTokenHeader ensures that there is a non-expired bearer token specified directly OR
 // that there's a valid token source to refresh it if not specified or expired.
 func (c *Client) ValidateBearerTokenHeader() error {
-	if c.tokenNeedsRefresh() && !c.hasTokenSource() {
+	if c.tokenNeedsRefresh() && !c.hasTokenSource() && !c.hasAccessToken() {
 		return ucerr.New("cannot refresh unspecified or expired bearer token without specifying valid ClientCredentialsTokenSource option for jsonclient")
 	}
 	return nil

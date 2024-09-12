@@ -7,7 +7,6 @@ import (
 	"github.com/gofrs/uuid"
 
 	"userclouds.com/infra/namespace/region"
-	"userclouds.com/infra/pagination"
 	"userclouds.com/infra/ucdb"
 	"userclouds.com/infra/ucerr"
 )
@@ -17,16 +16,6 @@ type ObjectType struct {
 	ucdb.BaseModel
 
 	TypeName string `db:"type_name" json:"type_name" validate:"notempty" required:"true"`
-}
-
-// GetPaginationKeys is part of the pagination.PageableType interface
-func (ObjectType) GetPaginationKeys() pagination.KeyTypes {
-	return pagination.KeyTypes{
-		"id":        pagination.UUIDKeyType,
-		"type_name": pagination.StringKeyType,
-		"created":   pagination.TimestampKeyType,
-		"updated":   pagination.TimestampKeyType,
-	}
 }
 
 // EqualsIgnoringID returns true if two object types are equal, ignoring the ID field
@@ -140,19 +129,6 @@ func (e *EdgeType) EqualsIgnoringID(other *EdgeType) bool {
 
 //go:generate genvalidate EdgeType
 
-// GetPaginationKeys is part of the pagination.PageableType interface
-func (EdgeType) GetPaginationKeys() pagination.KeyTypes {
-	return pagination.KeyTypes{
-		"id":                    pagination.UUIDKeyType,
-		"type_name":             pagination.StringKeyType,
-		"organization_id":       pagination.UUIDKeyType,
-		"source_object_type_id": pagination.UUIDKeyType,
-		"target_object_type_id": pagination.UUIDKeyType,
-		"created":               pagination.TimestampKeyType,
-		"updated":               pagination.TimestampKeyType,
-	}
-}
-
 // Object represents an instance of an AuthZ object used for modeling permissions.
 type Object struct {
 	ucdb.BaseModel
@@ -176,18 +152,6 @@ func (o *Object) EqualsIgnoringID(other *Object) bool {
 
 //go:generate genvalidate Object
 
-// GetPaginationKeys is part of the pagination.PageableType interface
-func (Object) GetPaginationKeys() pagination.KeyTypes {
-	return pagination.KeyTypes{
-		"id":              pagination.UUIDKeyType,
-		"alias":           pagination.StringKeyType,
-		"organization_id": pagination.UUIDKeyType,
-		"type_id":         pagination.UUIDKeyType,
-		"created":         pagination.TimestampKeyType,
-		"updated":         pagination.TimestampKeyType,
-	}
-}
-
 // Edge represents a directional relationship between a "source"
 // object and a "target" object.
 type Edge struct {
@@ -207,17 +171,6 @@ func (e *Edge) EqualsIgnoringID(other *Edge) bool {
 
 //go:generate genvalidate Edge
 
-// GetPaginationKeys is part of the pagination.PageableType interface
-func (Edge) GetPaginationKeys() pagination.KeyTypes {
-	return pagination.KeyTypes{
-		"id":               pagination.UUIDKeyType,
-		"source_object_id": pagination.UUIDKeyType,
-		"target_object_id": pagination.UUIDKeyType,
-		"created":          pagination.TimestampKeyType,
-		"updated":          pagination.TimestampKeyType,
-	}
-}
-
 // Organization defines a collection of objects inside of a single AuthZ namespace.
 // Uniqueness (of eg. Object aliases) is enforced by organization, rather than globally in a tenant
 type Organization struct {
@@ -228,16 +181,6 @@ type Organization struct {
 }
 
 //go:generate genvalidate Organization
-
-// GetPaginationKeys is part of the pagination.PageableType interface
-func (Organization) GetPaginationKeys() pagination.KeyTypes {
-	return pagination.KeyTypes{
-		"id":      pagination.UUIDKeyType,
-		"name":    pagination.StringKeyType,
-		"created": pagination.TimestampKeyType,
-		"updated": pagination.TimestampKeyType,
-	}
-}
 
 //go:generate genvalidate CreateObjectTypeRequest
 

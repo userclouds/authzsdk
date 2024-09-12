@@ -643,7 +643,7 @@ func (c *Client) ListEdgeTypes(ctx context.Context, opts ...Option) ([]EdgeType,
 
 	for {
 		query := pager.Query()
-		if options.organizationID != uuid.Nil {
+		if !options.organizationID.IsNil() {
 			query.Add("organization_id", options.organizationID.String())
 		}
 
@@ -687,7 +687,7 @@ func (c *Client) ListEdgeTypesPaginated(ctx context.Context, opts ...Option) (*L
 
 	query := pager.Query()
 
-	if options.organizationID != uuid.Nil {
+	if !options.organizationID.IsNil() {
 		query.Add("organization_id", options.organizationID.String())
 	}
 
@@ -957,7 +957,7 @@ func (c *Client) ListObjects(ctx context.Context, opts ...Option) (*ListObjectsR
 		return nil, ucerr.Wrap(err)
 	}
 	query := pager.Query()
-	if options.organizationID != uuid.Nil {
+	if !options.organizationID.IsNil() {
 		query.Add("organization_id", options.organizationID.String())
 	}
 	return c.ListObjectsFromQuery(ctx, query, opts...)
@@ -971,7 +971,7 @@ func (c *Client) ListObjectsFromQuery(ctx context.Context, query url.Values, opt
 	for _, opt := range opts {
 		opt.apply(&options)
 	}
-	if options.organizationID != uuid.Nil {
+	if !options.organizationID.IsNil() {
 		query.Add("organization_id", options.organizationID.String())
 	}
 
@@ -1559,7 +1559,7 @@ func (c *Client) GetOrganizationForName(ctx context.Context, name string, opts .
 	}
 
 	pager, err := pagination.ApplyOptions(
-		pagination.Filter("('name',EQ,'testorg')"),
+		pagination.Filter(fmt.Sprintf("('name',EQ,'%s')", name)),
 	)
 	if err != nil {
 		return nil, ucerr.Wrap(err)

@@ -65,11 +65,7 @@ type InspectTokenResponse struct {
 	Updated time.Time `json:"updated"`
 
 	AccessPolicy policy.AccessPolicy `json:"access_policy"`
-
-	// TODO: should we embed this in AP always?
-	CurrentAccessPolicyVersion int `json:"current_access_policy_version"`
-
-	Transformer policy.Transformer `json:"transformer"`
+	Transformer  policy.Transformer  `json:"transformer"`
 }
 
 // LookupTokensRequest contains the data required to lookup a token

@@ -214,8 +214,5 @@ func Log(ctx context.Context, event LogEvent) {
 			loggerInst.transports[i].Write(ctx, event)
 		}
 	}
-
-	if event.Code != EventCodeNone {
-		status.updateStatus(event, eventInfo)
-	}
+	status.updateStatus(event, eventInfo)
 }

@@ -1,6 +1,8 @@
 package pagination
 
-import "userclouds.com/infra/ucerr"
+import (
+	"userclouds.com/infra/ucerr"
+)
 
 // Cursor is an opaque string that represents a place to start iterating from.
 type Cursor string
@@ -83,9 +85,9 @@ func (kt KeyTypes) Validate() error {
 	return nil
 }
 
-// PageableType is an interface that should be implemented for result types for which we want to
-// iterate or filter based on more than the default id UUID column
+// PageableType is an interface that must be implemented for all pageable result types
 type PageableType interface {
+	GetCursor(Key) Cursor
 	GetPaginationKeys() KeyTypes
 }
 

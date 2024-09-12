@@ -1,12 +1,14 @@
 package authz
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"github.com/gofrs/uuid"
 
 	"userclouds.com/infra/cache"
+	"userclouds.com/infra/uclog"
 )
 
 const (
@@ -329,7 +331,11 @@ func (ot ObjectType) GetGlobalCollectionPagesKey(c cache.KeyNameProvider) cache.
 
 // GetSecondaryKeys returns the secondary cache key names for object type
 func (ot ObjectType) GetSecondaryKeys(c cache.KeyNameProvider) []cache.Key {
-	return []cache.Key{c.GetKeyNameWithString(ObjectTypeNameKeyID, ot.TypeName)}
+	if ot.TypeName != "" {
+		return []cache.Key{c.GetKeyNameWithString(ObjectTypeNameKeyID, ot.TypeName)}
+	}
+	uclog.Verbosef(context.Background(), "ObjectType %v has no name. Dropping secondary key", ot.ID)
+	return []cache.Key{}
 }
 
 // GetPerItemCollectionKey returns the per item collection key name for object type
@@ -384,7 +390,11 @@ func (et EdgeType) GetPerItemCollectionKey(c cache.KeyNameProvider) cache.Key {
 
 // GetSecondaryKeys returns the secondary cache key names for edge type
 func (et EdgeType) GetSecondaryKeys(c cache.KeyNameProvider) []cache.Key {
-	return []cache.Key{c.GetKeyNameWithString(EdgeTypeNameKeyID, et.TypeName)}
+	if et.TypeName != "" {
+		return []cache.Key{c.GetKeyNameWithString(EdgeTypeNameKeyID, et.TypeName)}
+	}
+	uclog.Verbosef(context.Background(), "EdgeType %v has no name. Dropping secondary key", et.ID)
+	return []cache.Key{}
 }
 
 // GetDependenciesKey returns the dependencies key name for edge type
@@ -510,7 +520,11 @@ func (e Edge) GetDependencyKeys(c cache.KeyNameProvider) []cache.Key {
 
 // GetSecondaryKeys returns the secondary cache key names for edge
 func (e Edge) GetSecondaryKeys(c cache.KeyNameProvider) []cache.Key {
-	return []cache.Key{c.GetKeyName(EdgeFullKeyID, []string{e.SourceObjectID.String(), e.TargetObjectID.String(), e.EdgeTypeID.String()})}
+	if !e.SourceObjectID.IsNil() || !e.TargetObjectID.IsNil() || !e.EdgeTypeID.IsNil() {
+		return []cache.Key{c.GetKeyName(EdgeFullKeyID, []string{e.SourceObjectID.String(), e.TargetObjectID.String(), e.EdgeTypeID.String()})}
+	}
+	uclog.Verbosef(context.Background(), "Edge %v has no source, target or edge type. Dropping secondary key", e.ID)
+	return []cache.Key{}
 }
 
 // TTL returns the TTL for edge
@@ -614,7 +628,11 @@ func (o Organization) GetDependencyKeys(c cache.KeyNameProvider) []cache.Key {
 
 // GetSecondaryKeys returns the secondary cache key names for organization (none)
 func (o Organization) GetSecondaryKeys(c cache.KeyNameProvider) []cache.Key {
-	return []cache.Key{c.GetKeyNameWithString(OrganizationNameKeyID, o.Name)}
+	if o.Name != "" {
+		return []cache.Key{c.GetKeyNameWithString(OrganizationNameKeyID, o.Name)}
+	}
+	uclog.Verbosef(context.Background(), "Organization %v has no name. Dropping secondary key", o.ID)
+	return []cache.Key{}
 }
 
 // TTL returns the TTL for edge

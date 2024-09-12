@@ -576,6 +576,44 @@ func (c *TokenizerClient) GetTransformer(ctx context.Context, transformerRID use
 	return &res, nil
 }
 
+// GetTransformerByVersion gets a single Transformer by ID/Name and Version
+func (c *TokenizerClient) GetTransformerByVersion(ctx context.Context, transformerRID userstore.ResourceID, version int) (*policy.Transformer, error) {
+	var res policy.Transformer
+	if transformerRID.ID != uuid.Nil {
+		if err := c.client.Get(ctx, paths.GetTransformerByVersion(transformerRID.ID, version), &res); err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+		if transformerRID.Name != "" && !strings.EqualFold(res.Name, transformerRID.Name) {
+			return nil, ucerr.Errorf("Transformer name mismatch: %s != %s", res.Name, transformerRID.Name)
+		}
+	} else {
+		var transformersResp ListTransformersResponse
+		if err := c.client.Get(ctx, paths.GetTransformerByNameAndVersion(transformerRID.Name, version), &transformersResp); err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+		if len(transformersResp.Data) != 1 {
+			return nil, ucerr.Errorf("found %d transformers for name %s", len(transformersResp.Data), transformerRID.Name)
+		}
+		res = transformersResp.Data[0]
+	}
+
+	return &res, nil
+}
+
+// UpdateTransformer updates a transformer
+func (c *TokenizerClient) UpdateTransformer(ctx context.Context, tf policy.Transformer) (*policy.Transformer, error) {
+	req := tokenizer.UpdateTransformerRequest{
+		Transformer: tf,
+	}
+
+	var resp policy.Transformer
+	if err := c.client.Put(ctx, paths.UpdateTransformer(tf.ID), req, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
 // DeleteTransformer deletes a transformer
 func (c *TokenizerClient) DeleteTransformer(ctx context.Context, id uuid.UUID) error {
 	if err := c.client.Delete(ctx, paths.DeleteTransformer(id), nil); err != nil {

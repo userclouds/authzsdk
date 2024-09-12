@@ -24,6 +24,12 @@ var CanonicalAddress = userstore.ResourceID{
 	Name: "canonical_address",
 }
 
+// Composite is a resource id for the composite concrete data type
+var Composite = userstore.ResourceID{
+	ID:   uuid.Must(uuid.FromString("d81658a7-848a-4504-9c6e-5fa17f90f1a6")),
+	Name: "composite",
+}
+
 // Date is a resource id for the system date data type
 var Date = userstore.ResourceID{
 	ID:   uuid.Must(uuid.FromString("3e2546c0-14d6-49d3-8b95-a5000bb4ad6a")),

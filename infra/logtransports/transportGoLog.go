@@ -8,10 +8,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"userclouds.com/infra/jsonclient"
 	"userclouds.com/infra/namespace/color"
 	"userclouds.com/infra/namespace/service"
 	"userclouds.com/infra/ucerr"
-	"userclouds.com/infra/ucjwt"
 	"userclouds.com/infra/uclog"
 )
 
@@ -48,7 +48,7 @@ func (c GoTransportConfig) GetType() TransportType {
 }
 
 // GetTransport implements TransportConfig
-func (c GoTransportConfig) GetTransport(_ service.Service, _ *ucjwt.Config) uclog.Transport {
+func (c GoTransportConfig) GetTransport(_ service.Service, _ jsonclient.Option) uclog.Transport {
 	return newGoTransport(&c)
 }
 

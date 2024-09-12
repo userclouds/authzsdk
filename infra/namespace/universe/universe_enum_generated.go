@@ -7,6 +7,7 @@ var allUniverseValues = []Universe{
 	Container,
 	Debug,
 	Dev,
+	OnPrem,
 	Prod,
 	Staging,
 	Test,
