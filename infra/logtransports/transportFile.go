@@ -14,9 +14,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"userclouds.com/infra/jsonclient"
 	"userclouds.com/infra/namespace/service"
 	"userclouds.com/infra/ucerr"
-	"userclouds.com/infra/ucjwt"
 	"userclouds.com/infra/uclog"
 )
 
@@ -41,9 +41,11 @@ type FileTransportConfig struct {
 	Type                  TransportType `yaml:"type" json:"type"`
 	uclog.TransportConfig `yaml:"transportconfig" json:"transportconfig"`
 	Filename              string `yaml:"filename" json:"filename"`
-	Append                bool   `yaml:"append" json:"append"`
-	PrefixFlag            int    `yaml:"prefix_flag" json:"prefix_flag"`
-	NoRequestIDs          bool   `yaml:"no_request_ids" json:"no_request_ids"`
+	BaseFilename          string `yaml:"base_filename" json:"base_filename"`
+
+	Append       bool `yaml:"append" json:"append"`
+	PrefixFlag   int  `yaml:"prefix_flag" json:"prefix_flag"`
+	NoRequestIDs bool `yaml:"no_request_ids" json:"no_request_ids"`
 }
 
 // GetType implements TransportConfig
@@ -52,8 +54,8 @@ func (c FileTransportConfig) GetType() TransportType {
 }
 
 // GetTransport implements TransportConfig
-func (c FileTransportConfig) GetTransport(_ service.Service, _ *ucjwt.Config) uclog.Transport {
-	return newTransportBackgroundIOWrapper(newFileTransport(&c))
+func (c FileTransportConfig) GetTransport(svc service.Service, _ jsonclient.Option) uclog.Transport {
+	return newTransportBackgroundIOWrapper(newFileTransport(&c, string(svc)))
 }
 
 // Validate implements Validateable
@@ -62,14 +64,16 @@ func (c *FileTransportConfig) Validate() error {
 		return nil
 	}
 
-	if c.Filename == "" {
-		return ucerr.New("logging config invalid - missing filename")
+	if c.Filename == "" && c.BaseFilename == "" {
+		return ucerr.New("logging config invalid - missing filename or base_filename")
+	} else if c.Filename != "" && c.BaseFilename != "" {
+		return ucerr.New("logging config invalid - cannot specify filename and base_filename")
 	}
-
 	return nil
 }
 
 type fileTransport struct {
+	svcName        string
 	filename       string
 	fileHandle     *os.File
 	fileWriter     *bufio.Writer
@@ -87,22 +91,27 @@ const (
 // Interval for flushing logged messages to disk
 const writeToFileInterval time.Duration = 100 * time.Millisecond
 
-func newFileTransport(c *FileTransportConfig) *fileTransport {
-	var t = fileTransport{}
-	t.config = *c
-	return &t
+func newFileTransport(c *FileTransportConfig, svcName string) *fileTransport {
+	return &fileTransport{
+		svcName: svcName,
+		config:  *c,
+	}
 }
 
+func (t *fileTransport) getFileName() string {
+	if t.config.BaseFilename != "" {
+		return fmt.Sprintf("%s%s.log", t.config.BaseFilename, t.svcName)
+	}
+	if t.config.Filename == "" {
+		return defaultFilename
+	}
+	return t.config.Filename
+}
 func (t *fileTransport) init(ctx context.Context) (*uclog.TransportConfig, error) {
 	c := &uclog.TransportConfig{Required: t.config.Required, MaxLogLevel: t.config.MaxLogLevel}
 
 	// Extract data from the config object into the transport state
-	t.filename = t.config.Filename
-
-	if t.filename == "" {
-		t.filename = defaultFilename
-	}
-
+	t.filename = t.getFileName()
 	// Check if we should append to the existing file or replace it
 	var err error
 	if t.config.Append {

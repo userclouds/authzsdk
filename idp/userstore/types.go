@@ -8,35 +8,10 @@ import (
 	"github.com/gofrs/uuid"
 
 	"userclouds.com/idp/userstore/selectorconfigparser"
-	"userclouds.com/infra/pagination"
 	"userclouds.com/infra/ucerr"
 )
 
 var validIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_\-]*$`)
-
-// DataType is an enum for supported data types
-type DataType string
-
-// DataType constants
-// NOTE: keep in sync with mapDataType defined in TenantUserStoreConfig.tsx
-const (
-	DataTypeInvalid         DataType = ""
-	DataTypeAddress         DataType = "address"
-	DataTypeBirthdate       DataType = "birthdate"
-	DataTypeBoolean         DataType = "boolean"
-	DataTypeComposite       DataType = "composite"
-	DataTypeDate            DataType = "date"
-	DataTypeEmail           DataType = "email"
-	DataTypeInteger         DataType = "integer"
-	DataTypeE164PhoneNumber DataType = "e164_phonenumber"
-	DataTypePhoneNumber     DataType = "phonenumber"
-	DataTypeSSN             DataType = "ssn"
-	DataTypeString          DataType = "string"
-	DataTypeTimestamp       DataType = "timestamp"
-	DataTypeUUID            DataType = "uuid"
-)
-
-//go:generate genconstant DataType
 
 // CompositeField represents the settings for a composite data type field
 type CompositeField struct {
@@ -72,12 +47,12 @@ type ColumnDataType struct {
 
 // ColumnField represents the settings for a column field
 type ColumnField struct {
-	Type                DataType `json:"type" required:"true"`
-	Name                string   `json:"name" validate:"length:1,128" required:"true" description:"Each part of name must be capitalized or all-caps, separated by underscores. Names may contain alphanumeric characters, and the first part must start with a letter, while other parts may start with a number. (ex. ID_Field_1)"`
-	CamelCaseName       string   `json:"camel_case_name" description:"Read-only camel-case version of field name, with underscores stripped out. (ex. IDField1)"`
-	StructName          string   `json:"struct_name" description:"Read-only snake-case version of field name, with all letters lowercase. (ex. id_field_1)"`
-	Required            bool     `json:"required" description:"Whether a value must be specified for the field."`
-	IgnoreForUniqueness bool     `json:"ignore_for_uniqueness" description:"If true, field value will be ignored when comparing two composite value for a uniqueness check."`
+	Type                string `json:"type" required:"true"`
+	Name                string `json:"name" validate:"length:1,128" required:"true" description:"Each part of name must be capitalized or all-caps, separated by underscores. Names may contain alphanumeric characters, and the first part must start with a letter, while other parts may start with a number. (ex. ID_Field_1)"`
+	CamelCaseName       string `json:"camel_case_name" description:"Read-only camel-case version of field name, with underscores stripped out. (ex. IDField1)"`
+	StructName          string `json:"struct_name" description:"Read-only snake-case version of field name, with all letters lowercase. (ex. id_field_1)"`
+	Required            bool   `json:"required" description:"Whether a value must be specified for the field."`
+	IgnoreForUniqueness bool   `json:"ignore_for_uniqueness" description:"If true, field value will be ignored when comparing two composite value for a uniqueness check."`
 }
 
 //go:generate genvalidate ColumnField
@@ -139,14 +114,16 @@ type Column struct {
 	Table                    string            `json:"table"` // TODO (sgarrity 6/24): validate & mark as required once people update
 	Name                     string            `json:"name" validate:"length:1,128" required:"true"`
 	DataType                 ResourceID        `json:"data_type" required:"true"`
-	Type                     DataType          `json:"type" validate:"skip"`
+	Type                     string            `json:"type" validate:"skip"`
 	IsArray                  bool              `json:"is_array" required:"true"`
 	DefaultValue             string            `json:"default_value"`
+	SearchIndexed            bool              `json:"search_indexed"`
+	AccessPolicy             ResourceID        `json:"access_policy" validate:"skip"`
 	DefaultTransformer       ResourceID        `json:"default_transformer" validate:"skip"`
 	DefaultTokenAccessPolicy ResourceID        `json:"default_token_access_policy" validate:"skip"`
 	IndexType                ColumnIndexType   `json:"index_type" required:"true"`
 	IsSystem                 bool              `json:"is_system" description:"Whether this column is a system column. System columns cannot be deleted or modified. This property cannot be changed."`
-	Constraints              ColumnConstraints `json:"constraints" description:"Optional constraints for configuring the behavior of the associated column Type."`
+	Constraints              ColumnConstraints `json:"constraints" description:"Optional constraints for configuring the behavior of the associated column DataType."`
 }
 
 //go:generate genvalidate Column
@@ -239,8 +216,9 @@ func (r ResourceID) Validate() error {
 
 // ColumnOutputConfig is a struct that contains a column and the transformer to apply to that column
 type ColumnOutputConfig struct {
-	Column      ResourceID `json:"column"`
-	Transformer ResourceID `json:"transformer" validate:"skip"`
+	Column            ResourceID `json:"column"`
+	Transformer       ResourceID `json:"transformer" validate:"skip"`
+	TokenAccessPolicy ResourceID `json:"token_access_policy" validate:"skip"`
 }
 
 // GetRetentionTimeoutImmediateDeletion returns the immediate deletion retention timeout
@@ -326,6 +304,10 @@ type Accessor struct {
 	// Policy for what data is returned by this accessor, based on properties of the caller and the user records
 	AccessPolicy ResourceID `json:"access_policy" validate:"skip" required:"true"`
 
+	// Whether to override column access policies for this accessor
+	AreColumnAccessPoliciesOverridden bool `json:"are_column_access_policies_overridden" description:"Whether to column access policies are overridden for this accessor."`
+
+	// TODO: Deprecated, but preserved for backwards-compatibility. Remove in a future release.
 	// Policy for token resolution in the case of transformers that tokenize data
 	TokenAccessPolicy ResourceID `json:"token_access_policy,omitempty" validate:"skip"`
 
@@ -334,6 +316,12 @@ type Accessor struct {
 
 	// Whether this accessor is audit logged each time it is executed
 	IsAuditLogged bool `json:"is_audit_logged" description:"Whether this accessor is audit logged each time it is executed."`
+
+	// Whether this accessor is autogenerated
+	IsAutogenerated bool `json:"is_autogenerated" description:"Whether this accessor is autogenerated."`
+
+	// Whether this accessor uses the search index
+	UseSearchIndex bool `json:"use_search_index" description:"If true, the accessor will use a search index to look up the users that match the selector. This can only be true if the selector refers to a single column with a concrete data type of string and uses the LIKE or ILIKE operator, and the column has the SearchIndexed flag set."`
 }
 
 func (o *Accessor) extraValidate() error {
@@ -364,16 +352,6 @@ func (o *Accessor) extraValidate() error {
 }
 
 //go:generate genvalidate Accessor
-
-// GetPaginationKeys is part of the pagination.PageableType interface
-func (Accessor) GetPaginationKeys() pagination.KeyTypes {
-	return pagination.KeyTypes{
-		"id":      pagination.UUIDKeyType,
-		"name":    pagination.StringKeyType,
-		"created": pagination.TimestampKeyType,
-		"updated": pagination.TimestampKeyType,
-	}
-}
 
 // ColumnInputConfig is a struct that contains a column and the normalizer to use for that column
 type ColumnInputConfig struct {
@@ -499,18 +477,49 @@ type SQLShimDatabase struct {
 	Type     string    `json:"type" validate:"notempty"`
 	Host     string    `json:"host" validate:"notempty"`
 	Port     int       `json:"port" validate:"notzero"`
+	Schemas  []string  `json:"schemas"`
 	Username string    `json:"username" validate:"notempty"`
 	Password string    `json:"password" validate:"skip"`
 }
 
 //go:generate genvalidate SQLShimDatabase
 
-// EqualsIgnoringNilIDAndPassword returns true if the two columns are equal, ignoring ID if one is nil, and ignoring password field
-func (s SQLShimDatabase) EqualsIgnoringNilIDAndPassword(other SQLShimDatabase) bool {
+// EqualsIgnoringNilIDSchemasAndPassword returns true if the two columns are equal, ignoring ID if one is nil, and ignoring password and schemas field
+func (s SQLShimDatabase) EqualsIgnoringNilIDSchemasAndPassword(other SQLShimDatabase) bool {
 	return (s.ID == other.ID || s.ID.IsNil() || other.ID.IsNil()) &&
 		strings.EqualFold(s.Name, other.Name) &&
 		strings.EqualFold(s.Type, other.Type) &&
 		strings.EqualFold(s.Host, other.Host) &&
 		s.Port == other.Port &&
 		strings.EqualFold(s.Username, other.Username)
+}
+
+// ShimObjectStore represents an external object store that tenant customers can connect to via a proxy
+type ShimObjectStore struct {
+	ID              uuid.UUID  `json:"id"`
+	Name            string     `json:"name" validate:"notempty"`
+	Type            string     `json:"type" validate:"notempty"`
+	Region          string     `json:"region" validate:"notempty"`
+	AccessKeyID     string     `json:"access_key_id" validate:"skip"`
+	SecretAccessKey string     `json:"secret_access_key" validate:"skip"`
+	RoleARN         string     `json:"role_arn" validate:"skip"`
+	AccessPolicy    ResourceID `json:"access_policy" validate:"skip"`
+}
+
+func (s *ShimObjectStore) extraValidate() error {
+	if s.AccessKeyID == "" && s.RoleARN == "" {
+		return ucerr.Friendlyf(nil, "ShimObjectStore must have either an access key ID or a role ARN")
+	}
+	return nil
+}
+
+//go:generate genvalidate ShimObjectStore
+
+// EqualsIgnoringNilIDAndSecret returns true if the two columns are equal, ignoring ID if one is nil, and ignoring secret access key
+func (s ShimObjectStore) EqualsIgnoringNilIDAndSecret(other ShimObjectStore) bool {
+	return (s.ID == other.ID || s.ID.IsNil() || other.ID.IsNil()) &&
+		strings.EqualFold(s.Name, other.Name) &&
+		strings.EqualFold(s.Type, other.Type) &&
+		strings.EqualFold(s.Region, other.Region) &&
+		strings.EqualFold(s.AccessKeyID, other.AccessKeyID)
 }

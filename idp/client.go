@@ -358,6 +358,106 @@ func (c *Client) UpdateDatabase(ctx context.Context, databaseID uuid.UUID, updat
 	return &resp, nil
 }
 
+// CreateObjectStoreRequest is the request body for creating a new object store
+type CreateObjectStoreRequest struct {
+	ObjectStore userstore.ShimObjectStore `json:"objectStore"`
+}
+
+//go:generate genvalidate CreateObjectStoreRequest
+
+// CreateObjectStore creates a new sqlshim object store for the tenant
+func (c *Client) CreateObjectStore(ctx context.Context, objectStore userstore.ShimObjectStore, opts ...Option) (*userstore.ShimObjectStore, error) {
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	req := CreateObjectStoreRequest{
+		ObjectStore: objectStore,
+	}
+
+	var resp userstore.ShimObjectStore
+	if options.ifNotExists {
+		exists, existingID, err := c.client.CreateIfNotExists(ctx, paths.CreateObjectStorePath, req, &resp)
+		if err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+		if exists {
+			resp = req.ObjectStore
+			resp.ID = existingID
+		}
+	} else {
+		if err := c.client.Post(ctx, paths.CreateObjectStorePath, req, &resp); err != nil {
+			return nil, ucerr.Wrap(err)
+		}
+	}
+
+	return &resp, nil
+}
+
+// DeleteObjectStore deletes the object store specified by the object store ID for the associated tenant
+func (c *Client) DeleteObjectStore(ctx context.Context, objectStoreID uuid.UUID) error {
+	return ucerr.Wrap(c.client.Delete(ctx, paths.DeleteObjectStorePath(objectStoreID), nil))
+}
+
+// GetObjectStore returns the object store specified by the object store ID for the associated tenant
+func (c *Client) GetObjectStore(ctx context.Context, objectStoreID uuid.UUID) (*userstore.ShimObjectStore, error) {
+	var resp userstore.ShimObjectStore
+	if err := c.client.Get(ctx, paths.GetObjectStorePath(objectStoreID), &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// ListObjectStoresResponse is the paginated response struct for listing object stores
+type ListObjectStoresResponse struct {
+	Data []userstore.ShimObjectStore `json:"data"`
+	pagination.ResponseFields
+}
+
+// ListObjectStores lists all object stores for the associated tenant
+func (c *Client) ListObjectStores(ctx context.Context, opts ...Option) (*ListObjectStoresResponse, error) {
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	pager, err := pagination.ApplyOptions(options.paginationOptions...)
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	query := pager.Query()
+	var res ListObjectStoresResponse
+	if err := c.client.Get(ctx, fmt.Sprintf("%s?%s", paths.ObjectStorePath, query.Encode()), &res); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &res, nil
+}
+
+// UpdateObjectStoreRequest is the request body for updating a object store
+type UpdateObjectStoreRequest struct {
+	ObjectStore userstore.ShimObjectStore `json:"objectStore"`
+}
+
+//go:generate genvalidate UpdateObjectStoreRequest
+
+// UpdateObjectStore updates the object store specified by the object store ID with the specified data for the associated tenant
+func (c *Client) UpdateObjectStore(ctx context.Context, objectStoreID uuid.UUID, updatedObjectStore userstore.ShimObjectStore) (*userstore.ShimObjectStore, error) {
+	req := UpdateObjectStoreRequest{
+		ObjectStore: updatedObjectStore,
+	}
+
+	var resp userstore.ShimObjectStore
+	if err := c.client.Put(ctx, paths.UpdateObjectStorePath(objectStoreID), req, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
 // CreateDataTypeRequest is the request body for creating a new data type
 type CreateDataTypeRequest struct {
 	DataType userstore.ColumnDataType `json:"data_type"`
@@ -1176,6 +1276,8 @@ type ExecuteAccessorRequest struct {
 type ExecuteAccessorResponse struct {
 	Data  []string               `json:"data"`
 	Debug map[string]interface{} `json:"debug,omitempty"`
+	// TODO: Truncated will need to be added to our python SDK if we keep it
+	Truncated bool `json:"truncated" description:"Will be true if an incomplete set of results could be returned for the query"`
 	pagination.ResponseFields
 }
 

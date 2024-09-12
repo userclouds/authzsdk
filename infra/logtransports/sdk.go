@@ -4,6 +4,7 @@ import (
 	"context"
 	"runtime/debug"
 
+	"userclouds.com/infra/jsonclient"
 	"userclouds.com/infra/namespace/service"
 	"userclouds.com/infra/ucjwt"
 	"userclouds.com/infra/uclog"
@@ -12,14 +13,19 @@ import (
 const serverURL = "https://logserver.userclouds.com"
 
 // InitLoggerAndTransportsForSDK sets up logging transports for SDK
-func InitLoggerAndTransportsForSDK(config *Config, auth *ucjwt.Config, name service.Service) {
-	transports := initConfigInfoInTransports(name, config, auth)
+func InitLoggerAndTransportsForSDK(config *Config, tokenSource jsonclient.Option, name service.Service) {
+	transports := initConfigInfoInTransports(name, config, tokenSource)
 
 	uclog.InitForService(name, transports, nil)
 }
 
 // InitLoggingSDK sets up logging transport for SDK
 func InitLoggingSDK(auth *ucjwt.Config, rawLogs bool) {
+	tokenSource, err := jsonclient.ClientCredentialsForURL(auth.TenantURL, auth.ClientID, auth.ClientSecret, nil)
+	if err != nil {
+		uclog.Fatalf(context.Background(), "Failed to get token source: %v", err)
+	}
+
 	var transports []uclog.Transport = make([]uclog.Transport, 0, 1)
 
 	lstc := &LogServerTransportConfig{
@@ -27,7 +33,6 @@ func InitLoggingSDK(auth *ucjwt.Config, rawLogs bool) {
 			Required:    false,
 			MaxLogLevel: 5,
 		},
-		Service:       string(service.SDK),
 		TenantID:      auth.TenantID,
 		LogServiceURL: serverURL,
 		SendRawData:   rawLogs,
@@ -35,7 +40,7 @@ func InitLoggingSDK(auth *ucjwt.Config, rawLogs bool) {
 
 	transports = append(transports,
 		newTransportBackgroundIOWrapper(
-			newLogServerTransport(lstc, auth, service.SDK)))
+			newLogServerTransport(lstc, tokenSource, service.SDK)))
 
 	uclog.InitForService(service.SDK, transports, nil)
 }

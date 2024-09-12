@@ -24,6 +24,7 @@ var machineRegions = map[universe.Universe][]MachineRegion{
 	universe.Container: {"themoon", "mars"},
 	universe.CI:        {"themoon", "mars"},
 	universe.Test:      {"themoon", "mars"},
+	universe.OnPrem:    {"customerlocal"},
 }
 
 // MachineRegionsForUniverse returns the list of regions for a given universe

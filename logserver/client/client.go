@@ -13,7 +13,6 @@ import (
 	"userclouds.com/infra/namespace/service"
 	"userclouds.com/infra/ucdb"
 	"userclouds.com/infra/ucerr"
-	"userclouds.com/infra/ucjwt"
 	"userclouds.com/infra/uclog"
 )
 
@@ -54,17 +53,12 @@ type Client struct {
 }
 
 // NewClientForTenantAuth constructs a new LogServer client using the provided tenant auth info
-func NewClientForTenantAuth(auth ucjwt.Config, opts ...jsonclient.Option) (*Client, error) {
-	return NewClientForTenant(auth.TenantURL, auth.TenantID, auth.ClientID, auth.ClientSecret, opts...)
+func NewClientForTenantAuth(tenantURL string, tenantID uuid.UUID, opts ...jsonclient.Option) (*Client, error) {
+	return NewClientForTenant(tenantURL, tenantID, opts...)
 }
 
 // NewClientForTenant constructs a new LogServer client using the provided client ID & secret to authenticate
-func NewClientForTenant(tenantURL string, tenantID uuid.UUID, clientID, clientSecret string, opts ...jsonclient.Option) (*Client, error) {
-	tokenSource, err := jsonclient.ClientCredentialsForURL(tenantURL, clientID, clientSecret, nil)
-	if err != nil {
-		return nil, ucerr.Wrap(err)
-	}
-	opts = append(opts, tokenSource)
+func NewClientForTenant(tenantURL string, tenantID uuid.UUID, opts ...jsonclient.Option) (*Client, error) {
 	return NewClient(tenantURL, tenantID, opts...)
 }
 

@@ -14,7 +14,6 @@ import (
 	"userclouds.com/infra/namespace/region"
 	"userclouds.com/infra/namespace/service"
 	"userclouds.com/infra/ucerr"
-	"userclouds.com/infra/ucjwt"
 	"userclouds.com/infra/uclog"
 	logServerInterface "userclouds.com/logserver/client"
 )
@@ -41,7 +40,6 @@ type LogServerTransportConfig struct {
 	uclog.TransportConfig `yaml:"transportconfig" json:"transportconfig"`
 	TenantID              uuid.UUID `yaml:"tenant_id" json:"tenant_id"`
 	LogServiceURL         string    `yaml:"log_service_url" json:"log_service_url"`
-	Service               string    `yaml:"service" json:"service"`
 	SendRawData           bool      `yaml:"send_raw_data" json:"send_raw_data"`
 }
 
@@ -51,8 +49,8 @@ func (c LogServerTransportConfig) GetType() TransportType {
 }
 
 // GetTransport implements TransportConfig
-func (c LogServerTransportConfig) GetTransport(name service.Service, auth *ucjwt.Config) uclog.Transport {
-	return newTransportBackgroundIOWrapper(newLogServerTransport(&c, auth, name))
+func (c LogServerTransportConfig) GetTransport(name service.Service, tokenSource jsonclient.Option) uclog.Transport {
+	return newTransportBackgroundIOWrapper(newLogServerTransport(&c, tokenSource, name))
 }
 
 // Validate implements Validateable
@@ -101,15 +99,15 @@ type logServerTransport struct {
 	messageMapSize int
 
 	// connection to log server
-	auth              *ucjwt.Config
+	tokenSource       jsonclient.Option
 	client            *logServerInterface.Client
 	failedServerCalls int64
 }
 
-func newLogServerTransport(c *LogServerTransportConfig, auth *ucjwt.Config, name service.Service) *logServerTransport {
+func newLogServerTransport(c *LogServerTransportConfig, tokenSource jsonclient.Option, name service.Service) *logServerTransport {
 	var t = logServerTransport{}
 	t.config = *c
-	t.auth = auth
+	t.tokenSource = tokenSource
 	t.service = name
 	return &t
 }
@@ -122,8 +120,8 @@ func (t *logServerTransport) init(ctx context.Context) (*uclog.TransportConfig, 
 		return c, ucerr.New("Invalid service name")
 	}
 
-	if t.auth == nil {
-		return c, ucerr.New("Invalid auth config")
+	if t.tokenSource == nil {
+		return c, ucerr.New("Invalid token source config")
 	}
 
 	var err error
@@ -141,7 +139,7 @@ func (t *logServerTransport) init(ctx context.Context) (*uclog.TransportConfig, 
 	t.messageInterval = defaultMessageInterval
 
 	// Create client for calling log server
-	t.client, err = logServerInterface.NewClientForTenantAuth(*t.auth, jsonclient.StopLogging(), jsonclient.BypassRouting())
+	t.client, err = logServerInterface.NewClientForTenantAuth(t.config.LogServiceURL, t.config.TenantID, t.tokenSource, jsonclient.StopLogging(), jsonclient.BypassRouting())
 	if err != nil {
 		return nil, ucerr.Wrap(err)
 	}
@@ -237,7 +235,7 @@ func (t *logServerTransport) writeMessages(ctx context.Context, logRecords *logR
 
 func (t *logServerTransport) sendEventMapToServer(ctx context.Context, baseTime *time.Time, eventMap *map[uuid.UUID]map[string]int) error {
 	if t.client != nil && !baseTime.IsZero() {
-		settings, err := t.client.PostCounters(ctx, t.config.Service, t.instanceID, *baseTime, eventMap)
+		settings, err := t.client.PostCounters(ctx, string(t.service), t.instanceID, *baseTime, eventMap)
 		// On success update settings if needed and reduce the count of events in the global map
 		if err == nil {
 			var eventsSent = 0
@@ -278,7 +276,7 @@ func (t *logServerTransport) sendMessagesToServer(ctx context.Context) {
 		if len(messagesMap) > 0 {
 			// TODO break up the post if its size is too big
 			if t.client != nil {
-				if settings, err := t.client.PostRawLogs(ctx, t.config.Service, t.instanceID, &messagesMap); err == nil {
+				if settings, err := t.client.PostRawLogs(ctx, string(t.service), t.instanceID, &messagesMap); err == nil {
 					var messageSentCount = 0
 					for _, tenantMessages := range messagesMap {
 						messageSentCount += len(tenantMessages)

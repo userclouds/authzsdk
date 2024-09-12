@@ -4,15 +4,16 @@ import (
 	"context"
 	"os"
 
+	"userclouds.com/infra/jsonclient"
 	"userclouds.com/infra/namespace/service"
 	"userclouds.com/infra/ucjwt"
 	"userclouds.com/infra/uclog"
 )
 
 // InitLoggerAndTransportsForService sets up logging transports for long running serving
-func InitLoggerAndTransportsForService(config *Config, auth *ucjwt.Config, name service.Service) {
-	transports := initConfigInfoInTransports(name, config, auth)
-	fetcher := initConfigInfoInFetcher(config)
+func InitLoggerAndTransportsForService(config *Config, tokenSource jsonclient.Option, name service.Service) {
+	transports := initConfigInfoInTransports(name, config, tokenSource)
+	fetcher := initConfigInfoInFetcher(config, string(name))
 	uclog.InitForService(name, transports, fetcher)
 }
 
@@ -26,20 +27,30 @@ func InitLoggerAndTransportsForTools(ctx context.Context, lScreen uclog.LogLevel
 	for _, v := range opts {
 		v.apply(to)
 	}
-
-	loggerConfig := Config{}
-	loggerConfig.Transports = []TransportConfig{&GoTransportConfig{
-		Type: TransportTypeGo,
-		TransportConfig: uclog.TransportConfig{
-			Required:    true,
-			MaxLogLevel: lScreen,
-		},
-		PrefixFlag:    NoPrefixVal,
-		SupportsColor: to.supportsColor,
-		NoRequestIDs:  true,
-	},
+	var tsc TransportConfig
+	if to.useJSONLog {
+		tsc = &GoLogJSONTransportConfig{
+			Type: TransportTypeGoLogJSON,
+			TransportConfig: uclog.TransportConfig{
+				Required:    true,
+				MaxLogLevel: lScreen,
+			},
+		}
+	} else {
+		tsc = &GoTransportConfig{
+			Type: TransportTypeGo,
+			TransportConfig: uclog.TransportConfig{
+				Required:    true,
+				MaxLogLevel: lScreen,
+			},
+			PrefixFlag:    NoPrefixVal,
+			SupportsColor: to.supportsColor,
+			NoRequestIDs:  true,
+		}
 	}
-
+	loggerConfig := Config{
+		Transports: []TransportConfig{tsc},
+	}
 	if lFile != uclog.LogLevelNonMessage {
 		if to.filename == "" {
 			// Generate default name using name of the tool as a prefix
@@ -73,20 +84,25 @@ func InitLoggerAndTransportsForTools(ctx context.Context, lScreen uclog.LogLevel
 
 // InitTransportsForTests returns an array of setup transports to use in testing
 func InitTransportsForTests(config *Config, auth *ucjwt.Config, name service.Service) []uclog.Transport {
-	return initConfigInfoInTransports(name, config, auth)
+	tokenSource, err := jsonclient.ClientCredentialsForURL(auth.TenantURL, auth.ClientID, auth.ClientSecret, nil)
+	if err != nil {
+		uclog.Fatalf(context.Background(), "Failed to get token source: %v", err)
+	}
+
+	return initConfigInfoInTransports(name, config, tokenSource)
 }
 
 // initConfigInfoInFetcher passes the config data to each fetcher (just one for now)
 // TODO (sgarrity 8/23): this currently lives at the wrong level of abstraction (it's part
 // of generic logtransports, but it's really an implementation detail of a single specific transport,
 // namely the logserver transport), but can be refactored later
-func initConfigInfoInFetcher(config *Config) uclog.EventMetadataFetcher {
+func initConfigInfoInFetcher(config *Config, service string) uclog.EventMetadataFetcher {
 	for _, tr := range config.Transports {
 		if tr.GetType() != TransportTypeServer {
 			continue
 		}
 		lstc := tr.(*LogServerTransportConfig)
-		return newLogServerMapFetcher(lstc.LogServiceURL, lstc.Service)
+		return newLogServerMapFetcher(lstc.LogServiceURL, service)
 	}
 	// If we didn't find a logserver transport, return a no-op fetcher (see TODO above)
 	return newLogServerMapFetcher("", "")

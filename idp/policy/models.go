@@ -40,16 +40,17 @@ type Transformer struct {
 	Name               string                      `json:"name" validate:"length:1,128" required:"true"`
 	Description        string                      `json:"description"`
 	InputDataType      userstore.ResourceID        `json:"input_data_type" required:"true"`
-	InputType          userstore.DataType          `json:"input_type" validate:"skip"`
+	InputType          string                      `json:"input_type" validate:"skip"`
 	InputConstraints   userstore.ColumnConstraints `json:"input_type_constraints" validate:"skip"`
 	OutputDataType     userstore.ResourceID        `json:"output_data_type" required:"true"`
-	OutputType         userstore.DataType          `json:"output_type" validate:"skip"`
+	OutputType         string                      `json:"output_type" validate:"skip"`
 	OutputConstraints  userstore.ColumnConstraints `json:"output_type_constraints" validate:"skip"`
 	ReuseExistingToken bool                        `json:"reuse_existing_token" validate:"skip" description:"Specifies if the tokenizing transformer should return existing token instead of creating a new one."`
 	TransformType      TransformType               `json:"transform_type" required:"true"`
 	TagIDs             uuidarray.UUIDArray         `json:"tag_ids" validate:"skip"`
 	Function           string                      `json:"function" required:"true"`
 	Parameters         string                      `json:"parameters"`
+	Version            int                         `json:"version"`
 	IsSystem           bool                        `json:"is_system" description:"Whether this transformer is a system transformer. System transformers cannot be deleted or modified. This property cannot be changed."`
 }
 
@@ -220,6 +221,38 @@ func (a AccessPolicy) EqualsIgnoringNilID(other AccessPolicy) bool {
 		}
 	}
 	return false
+}
+
+// IsAllowAll returns true if the access policy or all of its components are AccessPolicyAllowAll
+func (a AccessPolicy) IsAllowAll() bool {
+	if a.ID == AccessPolicyAllowAll.ID {
+		return true
+	}
+
+	switch a.PolicyType {
+	case PolicyTypeCompositeAnd, PolicyTypeCompositeOr:
+		if len(a.Components) == 0 {
+			return false
+		}
+
+		for _, apc := range a.Components {
+			if apc.Policy != nil {
+				if apc.Policy.ID != AccessPolicyAllowAll.ID {
+					return false
+				}
+			} else if apc.Template != nil {
+				if apc.Template.ID != AccessPolicyTemplateAllowAll.ID {
+					return false
+				}
+			} else {
+				return false
+			}
+		}
+	default:
+		return false
+	}
+
+	return true
 }
 
 //go:generate genvalidate AccessPolicy

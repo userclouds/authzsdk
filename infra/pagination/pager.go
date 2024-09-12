@@ -18,6 +18,7 @@ type Paginator struct {
 	forwardDirectionSet    bool                       // set via EndingBefore option
 	hasResultType          bool                       // set if type of result has been specified
 	limit                  int                        // set via Limit option or defaulted to DefaultLimit
+	limitMultiplier        int                        // set via LimitMultiplier option or defaulted to DefaultLimitMultiplier
 	sortKey                Key                        // set via SortKey option, defaults to "id"
 	sortOrder              Order                      // set via SortOrder option, defaults to OrderAscending
 	filter                 string                     // set via Filter option
@@ -51,6 +52,10 @@ func ApplyOptions(options ...Option) (*Paginator, error) {
 
 	if p.limit == 0 {
 		p.limit = DefaultLimit
+	}
+
+	if p.limitMultiplier == 0 {
+		p.limitMultiplier = DefaultLimitMultiplier
 	}
 
 	if !p.backwardDirectionSet && !p.forwardDirectionSet {
@@ -130,9 +135,19 @@ func (p Paginator) GetLimit() int {
 	return p.limit
 }
 
+// GetLimitMultiplier returns the specified limitMultiplier
+func (p Paginator) GetLimitMultiplier() int {
+	return p.limitMultiplier
+}
+
 // GetOptions returns the underlying options used to initialize the paginator
 func (p Paginator) GetOptions() []Option {
 	return p.options
+}
+
+// GetSortKey returns the sort key of the pagination request
+func (p Paginator) GetSortKey() Key {
+	return p.sortKey
 }
 
 // GetVersion returns the version of the pagination request
