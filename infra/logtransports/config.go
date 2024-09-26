@@ -30,24 +30,37 @@ func (c Config) extraValidate() error {
 type TransportConfigs []TransportConfig
 
 // UnmarshalYAML implements yaml.Unmarshaler
-func (t *TransportConfigs) UnmarshalYAML(value *yaml.Node) error {
+func (tcs *TransportConfigs) UnmarshalYAML(value *yaml.Node) error {
 	var c []intermediateConfig
 	if err := value.Decode(&c); err != nil {
 		return ucerr.Wrap(err)
 	}
 
 	// init if we're nil
-	if t == nil {
-		*t = make([]TransportConfig, 0, len(c))
+	if tcs == nil {
+		*tcs = make([]TransportConfig, 0, len(c))
 	}
 
 	// use append here to allow us to merge multiple transports across multiple files
 	// see config_test.go:MergeTest
+	// We also want one of each transport type, so we'll overwrite any existing transports configs with the same type
 	for _, v := range c {
-		*t = append(*t, v.c)
+		if existing := tcs.getIndexForTransportType(v.c.GetType()); existing == -1 {
+			*tcs = append(*tcs, v.c)
+		} else {
+			(*tcs)[existing] = v.c
+		}
 	}
-
 	return nil
+}
+
+func (tcs *TransportConfigs) getIndexForTransportType(tt TransportType) int {
+	for i, v := range *tcs {
+		if v.GetType() == tt {
+			return i
+		}
+	}
+	return -1
 }
 
 // intermediateConfig is a place to unmarshal to before we know the type of transport

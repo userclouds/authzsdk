@@ -178,6 +178,13 @@ var (
 
 	BaseDataMappingPath = "/userstore/datamapping"
 
+	BaseSecretPath = fmt.Sprintf("%s/secret", BasePolicyPath)
+	ListSecrets    = BaseSecretPath
+	CreateSecret   = BaseSecretPath
+	DeleteSecret   = func(id uuid.UUID) string {
+		return fmt.Sprintf("%s/%s", BaseSecretPath, id)
+	}
+
 	CreateDataSourcePath = fmt.Sprintf("%s/datasource", BaseDataMappingPath)
 	singleDataSourcePath = func(id uuid.UUID) string {
 		return fmt.Sprintf("%s/%s", CreateDataSourcePath, id)

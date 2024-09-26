@@ -674,15 +674,13 @@ func (c *Client) ListEdgeTypesPaginated(ctx context.Context, opts ...Option) (*L
 	ctx = request.NewRequestID(ctx)
 
 	options := c.options
-	var resp ListEdgeTypesResponse
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
 
 	pager, err := pagination.ApplyOptions(options.paginationOptions...)
 	if err != nil {
 		return nil, ucerr.Wrap(err)
-	}
-
-	for _, opt := range opts {
-		opt.apply(&options)
 	}
 
 	query := pager.Query()
@@ -690,6 +688,8 @@ func (c *Client) ListEdgeTypesPaginated(ctx context.Context, opts ...Option) (*L
 	if !options.organizationID.IsNil() {
 		query.Add("organization_id", options.organizationID.String())
 	}
+
+	var resp ListEdgeTypesResponse
 
 	if err := c.client.Get(ctx, fmt.Sprintf("/authz/edgetypes?%s", query.Encode()), &resp); err != nil {
 		return nil, ucerr.Wrap(err)

@@ -4,6 +4,7 @@ package logtransports
 import (
 	"encoding/json"
 	"net/http"
+	"runtime"
 	"sync"
 	"time"
 
@@ -122,7 +123,10 @@ func (l *logServerMapFetcher) updateEventMetadata() {
 
 func (l *logServerMapFetcher) Close() {
 	if l.runningBGThread {
-		l.fetchTicker.Stop()
+		// TODO: Remove this after we upgrade to go1.23
+		if runtime.Version() < "go1.23" {
+			l.fetchTicker.Stop()
+		}
 		// Send signal to background thread to perform final flush
 		l.done <- true
 	}
