@@ -127,3 +127,8 @@ type TestAccessPolicyResponse struct {
 	Allowed bool                   `json:"allowed"`
 	Debug   map[string]interface{} `json:"debug,omitempty"`
 }
+
+// CreateSecretRequest is the request to create a secret
+type CreateSecretRequest struct {
+	Secret policy.Secret `json:"secret"`
+}

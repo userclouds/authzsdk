@@ -302,3 +302,13 @@ const (
 	ActionDelete  Action = "Delete"
 	ActionExecute Action = "Execute" // TODO: should this be a unique action?
 )
+
+// Secret describes a secret that can be used in access policy templates and transformers
+type Secret struct {
+	ID      uuid.UUID `json:"id" validate:"notnil"`
+	Name    string    `json:"name" validate:"length:1,128" required:"true"`
+	Value   string    `json:"value" validate:"skip" required:"true"`
+	Created int64     `json:"created" validate:"skip"`
+}
+
+//go:generate genvalidate Secret

@@ -122,12 +122,14 @@ type LogEvent struct {
 
 // LogEventTypeInfo is contains information about a particular event type
 type LogEventTypeInfo struct {
-	Name     string
-	Code     EventCode
-	Service  service.Service
-	URL      string
-	Ignore   bool // Don't send event to the server (only process locally)
-	Category EventCategory
+	Name           string
+	NormalizedName string
+	Code           EventCode
+	Service        service.Service
+	URL            string
+	Ignore         bool // Don't send event to the server (only process locally)
+	Category       EventCategory
+	Subcategory    string
 }
 
 // EventMetadataMap is contains information about a particular event type
@@ -180,6 +182,11 @@ func getLogEventTypesMap(tenantID uuid.UUID) map[string]LogEventTypeInfo {
 		loggerInst.eventMetadataMutex.Unlock()
 	}
 	return m.Map
+}
+
+// GetEventInfo returns the event type information for a given event
+func GetEventInfo(event LogEvent) LogEventTypeInfo {
+	return getEventInfoByName(event.Name, event.Code, event.TenantID)
 }
 
 // getEventInfoByName maps event name to event code
