@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.1 - 26-09-2024
+
+- add policy secrets SDK methods
+- minor changes to prepare for upgrade to go 1.23.1
+
 ## 1.6.0 - 12-09-2024
 
 - add ObjectStore CRUD methods
