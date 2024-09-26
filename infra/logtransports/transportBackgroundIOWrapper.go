@@ -5,6 +5,7 @@ package logtransports
 
 import (
 	"context"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -241,7 +242,10 @@ func (t *transportBackgroundIOWrapper) Flush() error {
 
 func (t *transportBackgroundIOWrapper) Close() {
 	if t.runningBGThread {
-		t.writeTicker.Stop()
+		// TODO: Remove this after we upgrade to go1.23
+		if runtime.Version() < "go1.23" {
+			t.writeTicker.Stop()
+		}
 		// Send signal to background thread to perform final flush
 		t.done <- true
 		// Wait for the flush to finish

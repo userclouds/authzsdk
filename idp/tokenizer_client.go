@@ -622,3 +622,58 @@ func (c *TokenizerClient) DeleteTransformer(ctx context.Context, id uuid.UUID) e
 
 	return nil
 }
+
+// ListSecretsResponse is the paginated response from listing secrets
+type ListSecretsResponse struct {
+	Data []policy.Secret `json:"data"`
+	pagination.ResponseFields
+}
+
+// ListSecrets lists secrets that can be referenced in access policy templates and transformers
+func (c *TokenizerClient) ListSecrets(ctx context.Context, opts ...Option) (*ListSecretsResponse, error) {
+	options := c.options
+	for _, opt := range opts {
+		opt.apply(&options)
+	}
+
+	var res ListSecretsResponse
+
+	pager, err := pagination.ApplyOptions(options.paginationOptions...)
+	if err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	url := url.URL{
+		Path:     paths.ListSecrets,
+		RawQuery: pager.Query().Encode(),
+	}
+	if err := c.client.Get(ctx, url.String(), &res); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &res, nil
+}
+
+// CreateSecret creates a secret
+func (c *TokenizerClient) CreateSecret(ctx context.Context, secret policy.Secret) (*policy.Secret, error) {
+
+	req := tokenizer.CreateSecretRequest{
+		Secret: secret,
+	}
+
+	var resp policy.Secret
+	if err := c.client.Post(ctx, paths.CreateSecret, req, &resp); err != nil {
+		return nil, ucerr.Wrap(err)
+	}
+
+	return &resp, nil
+}
+
+// DeleteSecret deletes a secret
+func (c *TokenizerClient) DeleteSecret(ctx context.Context, id uuid.UUID) error {
+	if err := c.client.Delete(ctx, paths.DeleteSecret(id), nil); err != nil {
+		return ucerr.Wrap(err)
+	}
+
+	return nil
+}
